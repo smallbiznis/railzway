@@ -615,15 +615,15 @@ func createBillingFixture(t *testing.T, client *http.Client, orgID string) billi
 		} `json:"data"`
 	}{}
 	priceReq := map[string]any{
-		"product_id":            productResp.Data.ID,
-		"code":                  "e2e-price",
-		"pricing_model":         "PER_UNIT",
-		"billing_mode":          "METERED",
-		"billing_interval":      "MONTH",
+		"product_id":             productResp.Data.ID,
+		"code":                   "e2e-price",
+		"pricing_model":          "PER_UNIT",
+		"billing_mode":           "METERED",
+		"billing_interval":       "MONTH",
 		"billing_interval_count": 1,
-		"aggregate_usage":       "SUM",
-		"billing_unit":          "API_CALL",
-		"tax_behavior":          "EXCLUSIVE",
+		"aggregate_usage":        "SUM",
+		"billing_unit":           "API_CALL",
+		"tax_behavior":           "EXCLUSIVE",
 	}
 	resp, body = doJSON(t, client, http.MethodPost, env.baseURL+"/api/prices", priceReq, headers)
 	if resp.StatusCode != http.StatusOK {
@@ -668,10 +668,11 @@ func createBillingFixture(t *testing.T, client *http.Client, orgID string) billi
 		} `json:"data"`
 	}{}
 	subscriptionReq := map[string]any{
-		"customer_id":     customerResp.Data.ID,
-		"collection_mode": "SEND_INVOICE",
+		"customer_id":        customerResp.Data.ID,
+		"collection_mode":    "SEND_INVOICE",
+		"billing_cycle_type": "MONTHLY",
 		"items": []map[string]any{
-			{"price_id": priceResp.Data.ID, "quantity": 1},
+			{"price_id": priceResp.Data.ID, "meter_id": meterResp.Data.ID, "quantity": 1},
 		},
 	}
 	resp, body = doJSON(t, client, http.MethodPost, env.baseURL+"/api/subscriptions", subscriptionReq, headers)

@@ -39,6 +39,8 @@ import (
 	pricetierdomain "github.com/smallbiznis/valora/internal/pricetier/domain"
 	"github.com/smallbiznis/valora/internal/product"
 	productdomain "github.com/smallbiznis/valora/internal/product/domain"
+	"github.com/smallbiznis/valora/internal/rating"
+	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/internal/reference"
 	referencedomain "github.com/smallbiznis/valora/internal/reference/domain"
 	signupdomain "github.com/smallbiznis/valora/internal/signup/domain"
@@ -71,6 +73,7 @@ var Module = fx.Module("http.server",
 	pricetier.Module,
 	product.Module,
 	reference.Module,
+	rating.Module,
 	subscription.Module,
 	usage.Module,
 	fx.Invoke(NewServer),
@@ -131,6 +134,7 @@ type Server struct {
 	productSvc      productdomain.Service
 	refrepo         referencedomain.Repository
 	signupsvc       signupdomain.Service
+	ratingSvc       ratingdomain.Service
 	subscriptionSvc subscriptiondomain.Service
 	usagesvc        usagedomain.Service
 }
@@ -157,6 +161,7 @@ type ServerParams struct {
 	PriceTierSvc    pricetierdomain.Service
 	ProductSvc      productdomain.Service
 	Refrepo         referencedomain.Repository
+	RatingSvc       ratingdomain.Service
 	SubscriptionSvc subscriptiondomain.Service
 	Usagesvc        usagedomain.Service
 }
@@ -183,6 +188,7 @@ func NewServer(p ServerParams) *Server {
 		priceTierSvc:    p.PriceTierSvc,
 		productSvc:      p.ProductSvc,
 		refrepo:         p.Refrepo,
+		ratingSvc:       p.RatingSvc,
 		subscriptionSvc: p.SubscriptionSvc,
 		usagesvc:        p.Usagesvc,
 	}

@@ -9,9 +9,12 @@ import (
 )
 
 type ListSubscriptionRequest struct {
-	Status    string
-	PageToken string
-	PageSize  int32
+	Status      string
+	CustomerID  string
+	PageToken   string
+	PageSize    int32
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
 }
 
 type ListSubscriptionResponse struct {
@@ -21,15 +24,17 @@ type ListSubscriptionResponse struct {
 
 type CreateSubscriptionItemRequest struct {
 	PriceID  string `json:"price_id"`
+	MeterID  string `json:"meter_id"`
 	Quantity int8   `json:"quantity,omitempty"`
 }
 
 type CreateSubscriptionRequest struct {
-	CustomerID     string                          `json:"customer_id"`
-	CollectionMode SubscriptionCollectionMode      `json:"collection_mode"`
-	Items          []CreateSubscriptionItemRequest `json:"items"`
-	TrialDays      *int                            `json:"trial_days,omitempty"`
-	Metadata       map[string]any                  `json:"metadata,omitempty"`
+	CustomerID       string                          `json:"customer_id"`
+	CollectionMode   SubscriptionCollectionMode      `json:"collection_mode"`
+	BillingCycleType string                          `json:"billing_cycle_type"`
+	Items            []CreateSubscriptionItemRequest `json:"items"`
+	TrialDays        *int                            `json:"trial_days,omitempty"`
+	Metadata         map[string]any                  `json:"metadata,omitempty"`
 }
 
 type GetActiveByCustomerIDRequest struct {

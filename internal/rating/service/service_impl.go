@@ -65,6 +65,14 @@ func (s *Service) RunRating(ctx context.Context, billingCycleID string) error {
 		return ratingdomain.ErrInvalidBillingCycle
 	}
 
+	hasUsage, err := s.hasUsageForCycle(ctx, cycle.OrgID, cycle.SubscriptionID, cycle.PeriodStart, cycle.PeriodEnd)
+	if err != nil {
+		return err
+	}
+	if !hasUsage {
+		return ratingdomain.ErrMissingUsage
+	}
+
 	items, err := s.listSubscriptionItems(ctx, cycle.OrgID, cycle.SubscriptionID)
 	if err != nil {
 		return err
@@ -186,6 +194,24 @@ func (s *Service) aggregateUsage(ctx context.Context, orgID, subscriptionID, met
 		return 0, err
 	}
 	return quantity, nil
+}
+
+func (s *Service) hasUsageForCycle(ctx context.Context, orgID, subscriptionID snowflake.ID, periodStart, periodEnd time.Time) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Raw(
+		`SELECT COUNT(1)
+		 FROM usage_events
+		 WHERE org_id = ? AND subscription_id = ?
+		 AND recorded_at >= ? AND recorded_at < ?`,
+		orgID,
+		subscriptionID,
+		periodStart,
+		periodEnd,
+	).Scan(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (s *Service) loadPriceAmount(ctx context.Context, orgID, priceID, meterID snowflake.ID) (*priceamountdomain.PriceAmount, error) {

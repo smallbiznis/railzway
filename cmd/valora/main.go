@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+
 	"github.com/bwmarrin/snowflake"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/migration"
+	"github.com/smallbiznis/valora/internal/scheduler"
 	"github.com/smallbiznis/valora/internal/seed"
 	"github.com/smallbiznis/valora/internal/server"
 	"github.com/smallbiznis/valora/pkg/db"
@@ -25,6 +28,14 @@ func main() {
 			return node
 		}),
 		db.Module,
+		fx.Provide(func(cfg config.Config) scheduler.Config {
+			schedulerCfg := scheduler.DefaultConfig()
+			if !cfg.IsCloud() {
+				schedulerCfg.FinalizeInvoices = true
+			}
+			return schedulerCfg
+		}),
+		fx.Provide(scheduler.New),
 		fx.Invoke(func(conn *gorm.DB, cfg config.Config) error {
 			sqlDB, err := conn.DB()
 			if err != nil {
@@ -42,6 +53,17 @@ func main() {
 			return nil
 		}),
 		server.Module,
+		fx.Invoke(func(lc fx.Lifecycle, cfg config.Config, sched *scheduler.Scheduler) {
+			if cfg.IsCloud() {
+				return
+			}
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					go sched.RunForever(ctx)
+					return nil
+				},
+			})
+		}),
 	)
 	app.Run()
 }

@@ -58,10 +58,6 @@ func NewService(p ServiceParam) usagedomain.Service {
 }
 
 func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestRequest) (*usagedomain.UsageEvent, error) {
-	if s.metrics != nil {
-		// Cloud accounting metric: emitted usage events are not billing inputs.
-		s.metrics.IncUsageEvent("2004619450745098240", req.MeterCode)
-	}
 	orgID, err := s.orgIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -97,7 +93,7 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 		return nil, err
 	}
 
-	if subscriptionItem.MeterID != nil {
+	if subscriptionItem.MeterID == nil || *subscriptionItem.MeterID != meterID {
 		return nil, usagedomain.ErrInvalidMeter
 	}
 
@@ -164,11 +160,29 @@ func (s *Service) parseID(value string, invalidErr error) (snowflake.ID, error) 
 }
 
 func (s *Service) orgIDFromContext(ctx context.Context) (snowflake.ID, error) {
-	orgID, ok := orgcontext.OrgIDFromContext(ctx)
-	if !ok || orgID == 0 {
-		return 0, usagedomain.ErrInvalidOrganization
+	if orgID, ok := orgcontext.OrgIDFromContext(ctx); ok && orgID != 0 {
+		return snowflake.ID(orgID), nil
 	}
-	return snowflake.ID(orgID), nil
+
+	if raw := ctx.Value("org_id"); raw != nil {
+		switch value := raw.(type) {
+		case int64:
+			if value != 0 {
+				return snowflake.ID(value), nil
+			}
+		case snowflake.ID:
+			if value != 0 {
+				return value, nil
+			}
+		case string:
+			parsed, err := snowflake.ParseString(strings.TrimSpace(value))
+			if err == nil && parsed != 0 {
+				return parsed, nil
+			}
+		}
+	}
+
+	return 0, usagedomain.ErrInvalidOrganization
 }
 
 func (s *Service) resolveMeter(ctx context.Context, meterCode string) (*meterdomain.Response, error) {

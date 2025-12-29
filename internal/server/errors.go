@@ -18,6 +18,7 @@ import (
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
 	pricetierdomain "github.com/smallbiznis/valora/internal/pricetier/domain"
 	productdomain "github.com/smallbiznis/valora/internal/product/domain"
+	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	signupdomain "github.com/smallbiznis/valora/internal/signup/domain"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
 	"gorm.io/gorm"
@@ -209,6 +210,7 @@ func isValidationError(err error) bool {
 	case isOrganizationValidationError(err),
 		isCustomerValidationError(err),
 		isInvoiceValidationError(err),
+		isRatingValidationError(err),
 		isProductValidationError(err),
 		isPriceValidationError(err),
 		isPricingValidationError(err),
@@ -237,6 +239,7 @@ func isNotFoundError(err error) bool {
 		errors.Is(err, pricetierdomain.ErrNotFound),
 		errors.Is(err, invoicedomain.ErrBillingCycleNotFound),
 		errors.Is(err, invoicedomain.ErrInvoiceNotFound),
+		errors.Is(err, ratingdomain.ErrBillingCycleNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound),
 		errors.Is(err, gorm.ErrRecordNotFound):
@@ -291,6 +294,20 @@ func isAuthorizationValidationError(err error) bool {
 		authorization.ErrInvalidOrganization,
 		authorization.ErrInvalidObject,
 		authorization.ErrInvalidAction:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRatingValidationError(err error) bool {
+	switch err {
+	case ratingdomain.ErrInvalidBillingCycle,
+		ratingdomain.ErrBillingCycleNotClosing,
+		ratingdomain.ErrMissingUsage,
+		ratingdomain.ErrMissingPriceAmount,
+		ratingdomain.ErrMissingMeter,
+		ratingdomain.ErrInvalidQuantity:
 		return true
 	default:
 		return false

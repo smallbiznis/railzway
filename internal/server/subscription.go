@@ -3,13 +3,13 @@ package server
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
 	"github.com/smallbiznis/valora/internal/authorization"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
+	"github.com/smallbiznis/valora/pkg/db/pagination"
 )
 
 func (s *Server) CreateSubscription(c *gin.Context) {
@@ -20,9 +20,11 @@ func (s *Server) CreateSubscription(c *gin.Context) {
 	}
 
 	resp, err := s.subscriptionSvc.Create(c.Request.Context(), subscriptiondomain.CreateSubscriptionRequest{
-		CustomerID: strings.TrimSpace(req.CustomerID),
-		Items:      normalizeSubscriptionItems(req.Items),
-		Metadata:   req.Metadata,
+		CustomerID:       strings.TrimSpace(req.CustomerID),
+		CollectionMode:   req.CollectionMode,
+		BillingCycleType: strings.TrimSpace(req.BillingCycleType),
+		Items:            normalizeSubscriptionItems(req.Items),
+		Metadata:         req.Metadata,
 	})
 	if err != nil {
 		AbortWithError(c, err)
@@ -42,22 +44,37 @@ func (s *Server) CreateSubscription(c *gin.Context) {
 }
 
 func (s *Server) ListSubscriptions(c *gin.Context) {
-	status := strings.TrimSpace(c.Query("status"))
-	pageToken := strings.TrimSpace(c.Query("page_token"))
-	pageSize := int32(0)
-	if pageSizeRaw := strings.TrimSpace(c.Query("page_size")); pageSizeRaw != "" {
-		parsedSize, err := strconv.Atoi(pageSizeRaw)
-		if err != nil {
-			AbortWithError(c, newValidationError("page_size", "invalid_page_size", "invalid page size"))
-			return
-		}
-		pageSize = int32(parsedSize)
+	var query struct {
+		pagination.Pagination
+		Status      string `form:"status"`
+		CustomerID  string `form:"customer_id"`
+		CreatedFrom string `form:"created_from"`
+		CreatedTo   string `form:"created_to"`
+	}
+	if err := c.ShouldBindQuery(&query); err != nil {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	createdFrom, err := parseOptionalTime(query.CreatedFrom, false)
+	if err != nil {
+		AbortWithError(c, newValidationError("created_from", "invalid_created_from", "invalid created_from"))
+		return
+	}
+
+	createdTo, err := parseOptionalTime(query.CreatedTo, true)
+	if err != nil {
+		AbortWithError(c, newValidationError("created_to", "invalid_created_to", "invalid created_to"))
+		return
 	}
 
 	resp, err := s.subscriptionSvc.List(c.Request.Context(), subscriptiondomain.ListSubscriptionRequest{
-		Status:    status,
-		PageToken: pageToken,
-		PageSize:  pageSize,
+		Status:      strings.TrimSpace(query.Status),
+		CustomerID:  strings.TrimSpace(query.CustomerID),
+		PageToken:   query.PageToken,
+		PageSize:    int32(query.PageSize),
+		CreatedFrom: createdFrom,
+		CreatedTo:   createdTo,
 	})
 	if err != nil {
 		AbortWithError(c, err)
@@ -161,6 +178,7 @@ func normalizeSubscriptionItems(items []subscriptiondomain.CreateSubscriptionIte
 	for _, item := range items {
 		normalized = append(normalized, subscriptiondomain.CreateSubscriptionItemRequest{
 			PriceID:  strings.TrimSpace(item.PriceID),
+			MeterID:  strings.TrimSpace(item.MeterID),
 			Quantity: item.Quantity,
 		})
 	}
