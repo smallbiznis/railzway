@@ -863,8 +863,8 @@ func (s *Service) resolvePriceMeter(ctx context.Context, orgID, priceID snowflak
 	if meterCode == "" {
 		return nil, nil, subscriptiondomain.ErrInvalidMeterCode
 	}
-	meterID := row.MeterID
-	return &meterID, &meterCode, nil
+	resolvedMeterID := row.MeterID
+	return &resolvedMeterID, &meterCode, nil
 }
 
 func billingCycleTypeForInterval(interval pricedomain.BillingInterval) (string, error) {
