@@ -22,16 +22,47 @@ type AuthState = {
   setMustChangePassword: (value: boolean) => void
 }
 
+const readAppMode = (): "oss" | "cloud" => {
+  const raw = import.meta.env.VITE_APP_MODE
+  if (raw === "oss" || raw === "cloud") {
+    return raw
+  }
+  return "oss"
+}
+
 const resolveMustChangePassword = (payload: any): boolean => {
-  if (!payload) {
+  if (readAppMode() !== "cloud") {
     return false
   }
 
-  if (!payload.is_default && payload.last_password_changed != null) {
+  const metadata = payload?.metadata ?? payload?.session?.metadata ?? payload
+  if (!metadata || typeof metadata !== "object") {
     return false
   }
 
-  return true
+  const mustChange = metadata.must_change_password ?? metadata.mustChangePassword
+  if (typeof mustChange === "boolean") {
+    return mustChange
+  }
+  if (typeof mustChange === "string") {
+    if (mustChange.toLowerCase() === "true") return true
+    if (mustChange.toLowerCase() === "false") return false
+  }
+
+  const passwordState = metadata.password_state ?? metadata.passwordState
+  if (typeof passwordState === "string") {
+    return passwordState.toLowerCase() === "default"
+  }
+
+  const isDefault = metadata.is_default ?? metadata.isDefault
+  if (typeof isDefault === "boolean") {
+    return isDefault
+  }
+  if (typeof isDefault === "string") {
+    return isDefault.toLowerCase() === "true"
+  }
+
+  return false
 }
 
 const buildUser = (payload: any): User | null => {

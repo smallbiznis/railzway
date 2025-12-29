@@ -6,13 +6,14 @@ import { defineConfig } from "@playwright/test"
 const currentFilePath = fileURLToPath(import.meta.url)
 const currentDir = path.dirname(currentFilePath)
 const storageStatePath = path.join(currentDir, "storage", "admin.json")
+const baseURL = process.env.E2E_BASE_URL || "http://localhost:5173"
 
 export default defineConfig({
   testDir: path.join(currentDir, "tests"),
   outputDir: path.join(currentDir, "test-results"),
   fullyParallel: true,
   use: {
-    baseURL: "http://localhost:8080",
+    baseURL,
     trace: "on-first-retry",
     headless: true,
   },

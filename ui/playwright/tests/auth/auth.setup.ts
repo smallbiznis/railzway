@@ -12,8 +12,8 @@ const orgId = process.env.E2E_ORG_ID || "2002990275537932288"
 const username = process.env.E2E_ADMIN_USERNAME || "admin"
 const email =
   process.env.E2E_ADMIN_EMAIL ||
-  (username.includes("@") ? username : `${username}@example.com`)
-const password = process.env.E2E_ADMIN_PASSWORD || "ChangeMe123!"
+  (username.includes("@") ? username : "admin@valora.cloud")
+const password = process.env.E2E_ADMIN_PASSWORD || "admin"
 const sessionToken = process.env.E2E_SESSION_TOKEN || ""
 
 const buildAuthState = (user: { id: string; username: string; email?: string }) =>
@@ -64,7 +64,7 @@ test("authenticate admin and persist storage state", async ({ request, baseURL }
       },
     ]
   } else {
-    const loginResponse = await request.post("/internal/auth/local/login", {
+    const loginResponse = await request.post("/auth/login", {
       data: { email, password },
       failOnStatusCode: false,
     })
