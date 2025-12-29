@@ -148,18 +148,43 @@ func (s *Service) List(ctx context.Context, req subscriptiondomain.ListSubscript
 		filter.Status = *statusFilter
 	}
 
+	if req.CustomerID != "" {
+		customerID, err := s.parseID(req.CustomerID, subscriptiondomain.ErrInvalidCustomer)
+		if err != nil {
+			return subscriptiondomain.ListSubscriptionResponse{}, err
+		}
+		filter.CustomerID = customerID
+	}
+
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = 50
 	}
 
-	items, err := s.subscriptionRepo.Find(ctx, filter,
+	options := []option.QueryOption{
 		option.ApplyPagination(pagination.Pagination{
 			PageToken: req.PageToken,
 			PageSize:  int(pageSize),
 		}),
 		option.WithSortBy(option.WithQuerySortBy("created_at", "desc", map[string]bool{"created_at": true})),
-	)
+	}
+
+	if req.CreatedFrom != nil {
+		options = append(options, option.ApplyOperator(option.Condition{
+			Field:    "created_at",
+			Operator: option.GTE,
+			Value:    *req.CreatedFrom,
+		}))
+	}
+	if req.CreatedTo != nil {
+		options = append(options, option.ApplyOperator(option.Condition{
+			Field:    "created_at",
+			Operator: option.LTE,
+			Value:    *req.CreatedTo,
+		}))
+	}
+
+	items, err := s.subscriptionRepo.Find(ctx, filter, options...)
 	if err != nil {
 		return subscriptiondomain.ListSubscriptionResponse{}, err
 	}
@@ -226,10 +251,11 @@ func (s *Service) Create(ctx context.Context, req subscriptiondomain.CreateSubsc
 		subscription.Metadata = datatypes.JSONMap(req.Metadata)
 	}
 
-	subscriptionItems, err := s.buildSubscriptionItems(ctx, orgID, subscription.ID, req.Items, now)
+	subscriptionItems, billingCycleType, err := s.buildSubscriptionItems(ctx, orgID, subscription.ID, req.Items, now)
 	if err != nil {
 		return subscriptiondomain.CreateSubscriptionResponse{}, err
 	}
+	subscription.BillingCycleType = billingCycleType
 
 	if err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.repo.Insert(ctx, tx, &subscription); err != nil {
@@ -579,29 +605,45 @@ func (s *Service) buildSubscriptionItems(
 	subscriptionID snowflake.ID,
 	items []subscriptiondomain.CreateSubscriptionItemRequest,
 	now time.Time,
-) ([]subscriptiondomain.SubscriptionItem, error) {
+) ([]subscriptiondomain.SubscriptionItem, string, error) {
 	priceCache := make(map[string]*pricedomain.Response, len(items))
 	flatCount := 0
 	subscriptionItems := make([]subscriptiondomain.SubscriptionItem, 0, len(items))
+	billingCycleType := ""
 
 	for _, item := range items {
 		price, err := s.loadPrice(ctx, item.PriceID, priceCache)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		if err := validateSubscriptionPricingModel(price, &flatCount); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		quantity := normalizeSubscriptionQuantity(item.Quantity)
 		if err := validateSubscriptionBillingMode(price, quantity); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		parsedPriceID, err := s.parseID(price.ID, subscriptiondomain.ErrInvalidPrice)
 		if err != nil {
-			return nil, err
+			return nil, "", err
+		}
+
+		cycleType, err := billingCycleTypeForInterval(price.BillingInterval)
+		if err != nil {
+			return nil, "", err
+		}
+		if billingCycleType == "" {
+			billingCycleType = cycleType
+		} else if billingCycleType != cycleType {
+			return nil, "", subscriptiondomain.ErrInvalidBillingCycleType
+		}
+
+		meterID, meterCode, err := s.resolvePriceMeter(ctx, orgID, parsedPriceID)
+		if err != nil {
+			return nil, "", err
 		}
 
 		var priceCodePtr *string
@@ -616,6 +658,8 @@ func (s *Service) buildSubscriptionItems(
 			SubscriptionID:   subscriptionID,
 			PriceID:          parsedPriceID,
 			PriceCode:        priceCodePtr, // snapshot
+			MeterID:          meterID,
+			MeterCode:        meterCode, // snapshot
 			Quantity:         quantity,
 			BillingMode:      string(price.BillingMode), // snapshot
 			BillingThreshold: price.BillingThreshold,    // snapshot
@@ -624,7 +668,11 @@ func (s *Service) buildSubscriptionItems(
 		})
 	}
 
-	return subscriptionItems, nil
+	if billingCycleType == "" {
+		return nil, "", subscriptiondomain.ErrInvalidBillingCycleType
+	}
+
+	return subscriptionItems, billingCycleType, nil
 }
 
 func (s *Service) loadPrice(
@@ -733,5 +781,46 @@ func (s *Service) toCreateResponse(subscription *subscriptiondomain.Subscription
 		StartAt:        subscription.StartAt,
 		Items:          respItems,
 		Metadata:       metadata,
+	}
+}
+
+func (s *Service) resolvePriceMeter(ctx context.Context, orgID, priceID snowflake.ID) (*snowflake.ID, *string, error) {
+	var row struct {
+		MeterID   snowflake.ID `gorm:"column:meter_id"`
+		MeterCode string       `gorm:"column:code"`
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT m.id AS meter_id, m.code
+		 FROM price_amounts pa
+		 JOIN meters m ON m.id = pa.meter_id
+		 WHERE pa.org_id = ? AND pa.price_id = ? AND pa.meter_id IS NOT NULL
+		 ORDER BY pa.meter_id DESC
+		 LIMIT 1`,
+		orgID,
+		priceID,
+	).Scan(&row).Error; err != nil {
+		return nil, nil, err
+	}
+	if row.MeterID == 0 {
+		return nil, nil, subscriptiondomain.ErrInvalidMeterID
+	}
+	meterCode := strings.TrimSpace(row.MeterCode)
+	if meterCode == "" {
+		return nil, nil, subscriptiondomain.ErrInvalidMeterCode
+	}
+	meterID := row.MeterID
+	return &meterID, &meterCode, nil
+}
+
+func billingCycleTypeForInterval(interval pricedomain.BillingInterval) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(string(interval))) {
+	case string(pricedomain.Day):
+		return "daily", nil
+	case string(pricedomain.Week):
+		return "weekly", nil
+	case string(pricedomain.Month):
+		return "monthly", nil
+	default:
+		return "", subscriptiondomain.ErrInvalidBillingCycleType
 	}
 }

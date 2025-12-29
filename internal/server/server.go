@@ -77,7 +77,7 @@ var Module = fx.Module("http.server",
 	fx.Invoke(run),
 )
 
-func registerGin() *gin.Engine {
+func NewEngine() *gin.Engine {
 	r := gin.New()
 	// r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -88,6 +88,10 @@ func registerGin() *gin.Engine {
 	})
 
 	return r
+}
+
+func registerGin() *gin.Engine {
+	return NewEngine()
 }
 
 func run(lc fx.Lifecycle, r *gin.Engine) {
@@ -192,6 +196,10 @@ func NewServer(p ServerParams) *Server {
 	return svc
 }
 
+func (s *Server) Engine() *gin.Engine {
+	return s.engine
+}
+
 func (s *Server) registerAuthRoutes() {
 	auth := s.engine.Group("/auth")
 	auth.Use(RequestID())
@@ -206,7 +214,7 @@ func (s *Server) registerAuthRoutes() {
 	user := s.engine.Group("/user", s.AuthRequired())
 	{
 		user.GET("/orgs", s.ListUserOrgs)
-		user.GET("/using/:id", s.UseOrg)
+		user.POST("/using/:id", s.UseOrg)
 	}
 }
 
@@ -216,6 +224,11 @@ func (s *Server) registerAPIRoutes() {
 	api.GET("/countries", s.ListCountries)
 	api.GET("/timezones", s.ListTimezones)
 	api.GET("/currencies", s.ListCurrencies)
+
+	hooks := s.engine.Group("/hooks")
+	hooks.Use(RequestID())
+	hooks.Use(s.APIKeyRequired())
+	hooks.POST("/usage", s.IngestUsage)
 
 	secured := api.Group("")
 
