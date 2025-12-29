@@ -8,8 +8,8 @@ import (
 	"gorm.io/datatypes"
 )
 
-// UsageRecord stores a single unit of metered activity.
-type UsageRecord struct {
+// UsageEvent stores a single unit of metered activity.
+type UsageEvent struct {
 	ID                 snowflake.ID      `gorm:"primaryKey"`
 	OrgID              snowflake.ID      `gorm:"not null"`
 	CustomerID         snowflake.ID      `gorm:"not null"`
@@ -26,4 +26,4 @@ type UsageRecord struct {
 }
 
 // TableName sets the database table name.
-func (UsageRecord) TableName() string { return "usage_records" }
+func (UsageEvent) TableName() string { return "usage_events" }

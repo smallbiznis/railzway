@@ -27,11 +27,11 @@ type ListUsageRequest struct {
 
 type ListUsageResponse struct {
 	pagination.PageInfo
-	UsageRecords []UsageRecord `json:"usage_records"`
+	UsageEvents []UsageEvent `json:"usage_events"`
 }
 
 type Service interface {
-	Ingest(context.Context, CreateIngestRequest) (*UsageRecord, error)
+	Ingest(context.Context, CreateIngestRequest) (*UsageEvent, error)
 	List(context.Context, ListUsageRequest) (ListUsageResponse, error)
 }
 

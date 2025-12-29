@@ -19,8 +19,8 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await login(payload)
-      // await auth.get("/me") // warm session
-      navigate("/orgs", { replace: true })
+      const nextMustChangePassword = useAuthStore.getState().mustChangePassword
+      navigate(nextMustChangePassword ? "/change-password" : "/orgs", { replace: true })
     } catch (err: any) {
       setError(err?.message ?? "Unable to sign in.")
     } finally {

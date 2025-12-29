@@ -44,97 +44,19 @@ func New(p Params) pricedomain.Service {
 }
 
 func (s *Service) Create(ctx context.Context, req pricedomain.CreateRequest) (*pricedomain.Response, error) {
-	orgID, err := s.orgIDFromContext(ctx)
+	orgID, productID, code, err := s.parseCreateIdentifiers(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	productID, err := parseID(req.ProductID)
-	if err != nil {
-		return nil, pricedomain.ErrInvalidProduct
-	}
-
-	code := strings.TrimSpace(req.Code)
-	if code == "" {
-		return nil, pricedomain.ErrInvalidCode
-	}
-
-	pricingModel, err := parsePricingModel(req.PricingModel)
+	pricingModel, billingMode, billingInterval, taxBehavior, aggregateUsagePtr, billingUnitPtr, err := parseCreatePricing(req)
 	if err != nil {
 		return nil, err
 	}
 
-	billingMode, err := parseBillingMode(req.BillingMode)
+	taxCodePtr, version, isDefault, active, err := parseCreateFlags(req)
 	if err != nil {
 		return nil, err
-	}
-
-	billingInterval, err := parseBillingInterval(req.BillingInterval)
-	if err != nil {
-		return nil, err
-	}
-
-	taxBehavior, err := parseTaxBehavior(req.TaxBehavior)
-	if err != nil {
-		return nil, err
-	}
-
-	if req.BillingIntervalCount <= 0 {
-		return nil, pricedomain.ErrInvalidBillingIntervalCount
-	}
-
-	productExists, err := s.productExists(ctx, orgID, productID)
-	if err != nil {
-		return nil, err
-	}
-	if !productExists {
-		return nil, pricedomain.ErrInvalidProduct
-	}
-
-	var aggregateUsagePtr *pricedomain.AggregateUsage
-	if req.AggregateUsage != nil {
-		aggregateUsage, err := parseAggregateUsage(*req.AggregateUsage)
-		if err != nil {
-			return nil, err
-		}
-		aggregateUsagePtr = &aggregateUsage
-	}
-
-	var billingUnitPtr *pricedomain.BillingUnit
-	if req.BillingUnit != nil {
-		billingUnit, err := parseBillingUnit(*req.BillingUnit)
-		if err != nil {
-			return nil, err
-		}
-		billingUnitPtr = &billingUnit
-	}
-
-	if err := validatePricingModelConfig(pricingModel, billingMode, aggregateUsagePtr, billingUnitPtr, req.BillingThreshold); err != nil {
-		return nil, err
-	}
-
-	taxCode := strings.TrimSpace(ptrToString(req.TaxCode))
-	var taxCodePtr *string
-	if taxCode != "" {
-		taxCodePtr = &taxCode
-	}
-
-	version := int32(1)
-	if req.Version != nil {
-		if *req.Version <= 0 {
-			return nil, pricedomain.ErrInvalidVersion
-		}
-		version = *req.Version
-	}
-
-	isDefault := false
-	if req.IsDefault != nil {
-		isDefault = *req.IsDefault
-	}
-
-	active := true
-	if req.Active != nil {
-		active = *req.Active
 	}
 
 	now := time.Now().UTC()
@@ -361,41 +283,168 @@ func parseTaxBehavior(value pricedomain.TaxBehavior) (pricedomain.TaxBehavior, e
 func validatePricingModelConfig(pricingModel pricedomain.PricingModel, billingMode pricedomain.BillingMode, aggregateUsage *pricedomain.AggregateUsage, billingUnit *pricedomain.BillingUnit, billingThreshold *float64) error {
 	switch pricingModel {
 	case pricedomain.Flat:
-		if billingMode != pricedomain.Licensed {
-			return pricedomain.ErrInvalidBillingMode
-		}
-		if aggregateUsage != nil {
-			return pricedomain.ErrInvalidAggregateUsage
-		}
-		if billingUnit != nil {
-			return pricedomain.ErrInvalidBillingUnit
-		}
-		if billingThreshold != nil {
-			return pricedomain.ErrInvalidBillingThreshold
-		}
+		return validateFlatPricing(billingMode, aggregateUsage, billingUnit, billingThreshold)
 	case pricedomain.PerUnit:
-		if billingMode != pricedomain.Metered {
-			return pricedomain.ErrInvalidBillingMode
-		}
-		if billingUnit == nil {
-			return pricedomain.ErrInvalidBillingUnit
-		}
-		if aggregateUsage == nil || *aggregateUsage != pricedomain.SUM {
-			return pricedomain.ErrInvalidAggregateUsage
-		}
+		return validateMeteredPricing(billingMode, aggregateUsage, billingUnit)
 	case pricedomain.TieredVolume, pricedomain.TieredGraduated:
-		if billingMode != pricedomain.Metered {
-			return pricedomain.ErrInvalidBillingMode
-		}
-		if billingUnit == nil {
-			return pricedomain.ErrInvalidBillingUnit
-		}
-		if aggregateUsage == nil || *aggregateUsage != pricedomain.SUM {
-			return pricedomain.ErrInvalidAggregateUsage
-		}
+		return validateMeteredPricing(billingMode, aggregateUsage, billingUnit)
 	default:
 		return pricedomain.ErrInvalidPricingModel
 	}
+}
 
+func (s *Service) parseCreateIdentifiers(ctx context.Context, req pricedomain.CreateRequest) (snowflake.ID, snowflake.ID, string, error) {
+	orgID, err := s.orgIDFromContext(ctx)
+	if err != nil {
+		return 0, 0, "", err
+	}
+
+	productID, err := parseID(req.ProductID)
+	if err != nil {
+		return 0, 0, "", pricedomain.ErrInvalidProduct
+	}
+
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		return 0, 0, "", pricedomain.ErrInvalidCode
+	}
+
+	productExists, err := s.productExists(ctx, orgID, productID)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	if !productExists {
+		return 0, 0, "", pricedomain.ErrInvalidProduct
+	}
+
+	return orgID, productID, code, nil
+}
+
+func parseCreatePricing(req pricedomain.CreateRequest) (
+	pricedomain.PricingModel,
+	pricedomain.BillingMode,
+	pricedomain.BillingInterval,
+	pricedomain.TaxBehavior,
+	*pricedomain.AggregateUsage,
+	*pricedomain.BillingUnit,
+	error,
+) {
+	pricingModel, err := parsePricingModel(req.PricingModel)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	billingMode, err := parseBillingMode(req.BillingMode)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	billingInterval, err := parseBillingInterval(req.BillingInterval)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	taxBehavior, err := parseTaxBehavior(req.TaxBehavior)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	if req.BillingIntervalCount <= 0 {
+		return "", "", "", "", nil, nil, pricedomain.ErrInvalidBillingIntervalCount
+	}
+
+	aggregateUsagePtr, err := parseOptionalAggregateUsage(req.AggregateUsage)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	billingUnitPtr, err := parseOptionalBillingUnit(req.BillingUnit)
+	if err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	if err := validatePricingModelConfig(pricingModel, billingMode, aggregateUsagePtr, billingUnitPtr, req.BillingThreshold); err != nil {
+		return "", "", "", "", nil, nil, err
+	}
+
+	return pricingModel, billingMode, billingInterval, taxBehavior, aggregateUsagePtr, billingUnitPtr, nil
+}
+
+func parseOptionalAggregateUsage(value *pricedomain.AggregateUsage) (*pricedomain.AggregateUsage, error) {
+	if value == nil {
+		return nil, nil
+	}
+	aggregateUsage, err := parseAggregateUsage(*value)
+	if err != nil {
+		return nil, err
+	}
+	return &aggregateUsage, nil
+}
+
+func parseOptionalBillingUnit(value *pricedomain.BillingUnit) (*pricedomain.BillingUnit, error) {
+	if value == nil {
+		return nil, nil
+	}
+	billingUnit, err := parseBillingUnit(*value)
+	if err != nil {
+		return nil, err
+	}
+	return &billingUnit, nil
+}
+
+func parseCreateFlags(req pricedomain.CreateRequest) (*string, int32, bool, bool, error) {
+	taxCode := strings.TrimSpace(ptrToString(req.TaxCode))
+	var taxCodePtr *string
+	if taxCode != "" {
+		taxCodePtr = &taxCode
+	}
+
+	version := int32(1)
+	if req.Version != nil {
+		if *req.Version <= 0 {
+			return nil, 0, false, false, pricedomain.ErrInvalidVersion
+		}
+		version = *req.Version
+	}
+
+	isDefault := false
+	if req.IsDefault != nil {
+		isDefault = *req.IsDefault
+	}
+
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+
+	return taxCodePtr, version, isDefault, active, nil
+}
+
+func validateFlatPricing(billingMode pricedomain.BillingMode, aggregateUsage *pricedomain.AggregateUsage, billingUnit *pricedomain.BillingUnit, billingThreshold *float64) error {
+	if billingMode != pricedomain.Licensed {
+		return pricedomain.ErrInvalidBillingMode
+	}
+	if aggregateUsage != nil {
+		return pricedomain.ErrInvalidAggregateUsage
+	}
+	if billingUnit != nil {
+		return pricedomain.ErrInvalidBillingUnit
+	}
+	if billingThreshold != nil {
+		return pricedomain.ErrInvalidBillingThreshold
+	}
+	return nil
+}
+
+func validateMeteredPricing(billingMode pricedomain.BillingMode, aggregateUsage *pricedomain.AggregateUsage, billingUnit *pricedomain.BillingUnit) error {
+	if billingMode != pricedomain.Metered {
+		return pricedomain.ErrInvalidBillingMode
+	}
+	if billingUnit == nil {
+		return pricedomain.ErrInvalidBillingUnit
+	}
+	if aggregateUsage == nil || *aggregateUsage != pricedomain.SUM {
+		return pricedomain.ErrInvalidAggregateUsage
+	}
 	return nil
 }

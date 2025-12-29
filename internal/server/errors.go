@@ -6,7 +6,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
+	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	"github.com/smallbiznis/valora/internal/authorization"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
@@ -53,6 +56,7 @@ var (
 	ErrInvalidRequest     = errors.New("invalid_request")
 	ErrServiceUnavailable = errors.New("service_unavailable")
 	ErrOrgRequired        = errors.New("org_required")
+	ErrRateLimited        = errors.New("rate_limited")
 )
 
 func ErrorHandlingMiddleware() gin.HandlerFunc {
@@ -139,10 +143,16 @@ func mapError(err error) (int, errorPayload) {
 			Type:    "unauthorized",
 			Message: "unauthorized",
 		}
-	case errors.Is(err, ErrForbidden):
+	case errors.Is(err, ErrForbidden),
+		errors.Is(err, authorization.ErrForbidden):
 		return http.StatusForbidden, errorPayload{
 			Type:    "forbidden",
 			Message: "forbidden",
+		}
+	case errors.Is(err, ErrRateLimited):
+		return http.StatusTooManyRequests, errorPayload{
+			Type:    "rate_limited",
+			Message: "rate limited",
 		}
 	case errors.Is(err, organizationdomain.ErrForbidden):
 		return http.StatusForbidden, errorPayload{
@@ -205,7 +215,10 @@ func isValidationError(err error) bool {
 		isPriceAmountValidationError(err),
 		isPriceTierValidationError(err),
 		isMeterValidationError(err),
-		isSubscriptionValidationError(err):
+		isSubscriptionValidationError(err),
+		isAPIKeyValidationError(err),
+		isAuditValidationError(err),
+		isAuthorizationValidationError(err):
 		return true
 	default:
 		return false
@@ -218,9 +231,12 @@ func isNotFoundError(err error) bool {
 		errors.Is(err, customerdomain.ErrNotFound),
 		errors.Is(err, productdomain.ErrNotFound),
 		errors.Is(err, pricedomain.ErrNotFound),
+		errors.Is(err, apikeydomain.ErrNotFound),
 		errors.Is(err, meterdomain.ErrNotFound),
 		errors.Is(err, priceamountdomain.ErrNotFound),
 		errors.Is(err, pricetierdomain.ErrNotFound),
+		errors.Is(err, invoicedomain.ErrBillingCycleNotFound),
+		errors.Is(err, invoicedomain.ErrInvoiceNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound),
 		errors.Is(err, gorm.ErrRecordNotFound):
@@ -232,7 +248,49 @@ func isNotFoundError(err error) bool {
 
 func isInvoiceValidationError(err error) bool {
 	switch err {
-	case invoicedomain.ErrInvalidOrganization:
+	case invoicedomain.ErrInvalidOrganization,
+		invoicedomain.ErrInvalidBillingCycle,
+		invoicedomain.ErrBillingCycleNotClosed,
+		invoicedomain.ErrMissingRatingResults,
+		invoicedomain.ErrCurrencyMismatch,
+		invoicedomain.ErrInvalidInvoiceID,
+		invoicedomain.ErrInvoiceNotDraft,
+		invoicedomain.ErrInvoiceNotFinalized:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAPIKeyValidationError(err error) bool {
+	switch err {
+	case apikeydomain.ErrInvalidOrganization,
+		apikeydomain.ErrInvalidName,
+		apikeydomain.ErrInvalidKeyID:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAuditValidationError(err error) bool {
+	switch err {
+	case auditdomain.ErrInvalidOrganization,
+		auditdomain.ErrInvalidPageToken,
+		auditdomain.ErrInvalidTimeRange,
+		auditdomain.ErrInvalidAction:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAuthorizationValidationError(err error) bool {
+	switch err {
+	case authorization.ErrInvalidActor,
+		authorization.ErrInvalidOrganization,
+		authorization.ErrInvalidObject,
+		authorization.ErrInvalidAction:
 		return true
 	default:
 		return false

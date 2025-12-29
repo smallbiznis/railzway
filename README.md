@@ -136,6 +136,15 @@ Valora makes minimal assumptions about the runtime environment to remain portabl
 
 ---
 
+## Releases
+
+Releases are tag-driven and backed by a curated changelog.
+
+- Release policy and tagging flow: `RELEASE.md`
+- Release notes and history: `CHANGELOG.md`
+
+---
+
 ## License
 
 Valora OSS is open-source.

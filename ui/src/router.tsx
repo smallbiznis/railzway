@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
-import { Navigate, Outlet, createBrowserRouter } from "react-router-dom"
+import { Navigate, Outlet, createBrowserRouter, useLocation } from "react-router-dom"
 
 import DashboardLayout from "@/layouts/DashboardLayout"
 import LoginPage from "@/pages/login"
 import OnboardingPage from "@/pages/onboarding"
 import OrgDashboard from "@/pages/org/OrgDashboard"
 import OrgCustomersPage from "@/pages/org/OrgCustomersPage"
+import OrgApiKeysPage from "@/pages/org/OrgApiKeysPage"
+import OrgAuditLogsPage from "@/pages/org/OrgAuditLogsPage"
 import OrgInvoiceDetailPage from "@/pages/org/OrgInvoiceDetailPage"
 import OrgInvoicesPage from "@/pages/org/OrgInvoicesPage"
 import OrgInvoiceTemplateFormPage from "@/pages/org/OrgInvoiceTemplateFormPage"
@@ -21,12 +23,15 @@ import OrgSubscriptionsPage from "@/pages/org/OrgSubscriptionsPage"
 import OrgResolverPage from "@/pages/orgs"
 import CreatePrice from "@/pages/products/CreatePrice"
 import CreateProduct from "@/pages/products/CreateProduct"
+import ChangePasswordPage from "@/pages/change-password"
 import SignupPage from "@/pages/signup"
 import { useAuthStore } from "@/stores/authStore"
 
 // eslint-disable-next-line react-refresh/only-export-components
 function RequireAuth() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword)
+  const location = useLocation()
   const [hasHydrated, setHasHydrated] = useState(
     useAuthStore.persist.hasHydrated()
   )
@@ -44,6 +49,9 @@ function RequireAuth() {
   }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+  if (mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />
   }
   return <Outlet />
 }
@@ -64,6 +72,7 @@ export const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
+      { path: "/change-password", element: <ChangePasswordPage /> },
       { path: "/orgs", element: <OrgResolverPage /> },
       { path: "/onboarding", element: <OnboardingPage /> },
       {
@@ -115,6 +124,14 @@ export const router = createBrowserRouter([
           {
             path: "meter/:meterId",
             element: <OrgMeterDetailPage />,
+          },
+          {
+            path: "api-keys",
+            element: <OrgApiKeysPage />,
+          },
+          {
+            path: "audit-logs",
+            element: <OrgAuditLogsPage />,
           },
           {
             path: "customers",

@@ -3,10 +3,23 @@ package server
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	"github.com/smallbiznis/valora/internal/apikey"
+	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
+	"github.com/smallbiznis/valora/internal/audit"
+	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
+	"github.com/smallbiznis/valora/internal/auth"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	authlocal "github.com/smallbiznis/valora/internal/auth/local"
+	authoauth "github.com/smallbiznis/valora/internal/auth/oauth"
+	authoauth2provider "github.com/smallbiznis/valora/internal/auth/oauth2provider"
 	"github.com/smallbiznis/valora/internal/auth/session"
+	"github.com/smallbiznis/valora/internal/authorization"
 	"github.com/smallbiznis/valora/internal/billingprovisioning"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
@@ -41,6 +54,13 @@ var Module = fx.Module("http.server",
 	config.Module,
 	cloudmetrics.Module,
 	fx.Provide(registerGin),
+	authorization.Module,
+	audit.Module,
+	auth.Module,
+	authlocal.Module,
+	authoauth2provider.Module,
+	session.Module,
+	apikey.Module,
 	billingprovisioning.Module,
 	customer.Module,
 	invoice.Module,
@@ -59,7 +79,7 @@ var Module = fx.Module("http.server",
 
 func registerGin() *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Recovery())
+	// r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 	r.Use(ErrorHandlingMiddleware())
 
@@ -90,7 +110,13 @@ type Server struct {
 	cfg             config.Config
 	db              *gorm.DB
 	authsvc         authdomain.Service
+	oauthsvc        authoauth.Service
 	sessions        *session.Manager
+	genID           *snowflake.Node
+	apiKeySvc       apikeydomain.Service
+	apiKeyLimiter   *rateLimiter
+	authzSvc        authorization.Service
+	auditSvc        auditdomain.Service
 	invoiceSvc      invoicedomain.Service
 	meterSvc        meterdomain.Service
 	organizationSvc organizationdomain.Service
@@ -111,6 +137,13 @@ type ServerParams struct {
 	Gin             *gin.Engine
 	Cfg             config.Config
 	DB              *gorm.DB
+	Authsvc         authdomain.Service
+	OAuthsvc        authoauth.Service
+	Sessions        *session.Manager
+	GenID           *snowflake.Node
+	APIKeySvc       apikeydomain.Service
+	AuthzSvc        authorization.Service
+	AuditSvc        auditdomain.Service
 	InvoiceSvc      invoicedomain.Service
 	MeterSvc        meterdomain.Service
 	OrganizationSvc organizationdomain.Service
@@ -129,6 +162,14 @@ func NewServer(p ServerParams) *Server {
 		engine:          p.Gin,
 		cfg:             p.Cfg,
 		db:              p.DB,
+		authsvc:         p.Authsvc,
+		oauthsvc:        p.OAuthsvc,
+		sessions:        p.Sessions,
+		genID:           p.GenID,
+		apiKeySvc:       p.APIKeySvc,
+		apiKeyLimiter:   newRateLimiter(5, 10*time.Minute),
+		authzSvc:        p.AuthzSvc,
+		auditSvc:        p.AuditSvc,
 		invoiceSvc:      p.InvoiceSvc,
 		meterSvc:        p.MeterSvc,
 		organizationSvc: p.OrganizationSvc,
@@ -142,24 +183,53 @@ func NewServer(p ServerParams) *Server {
 		usagesvc:        p.Usagesvc,
 	}
 
+	svc.registerAuthRoutes()
 	svc.registerAPIRoutes()
+	svc.registerAdminRoutes()
+	svc.registerUIRoutes()
+	svc.registerFallback()
 
 	return svc
 }
 
+func (s *Server) registerAuthRoutes() {
+	auth := s.engine.Group("/auth")
+	auth.Use(RequestID())
+
+	auth.POST("/login", s.Login)
+
+	auth.POST("/logout", s.Logout)
+	auth.POST("/change-password", s.AuthRequired(), s.ChangePassword)
+	auth.POST("/forgot", s.Forgot)
+	auth.GET("/me", s.Me)
+
+	user := s.engine.Group("/user", s.AuthRequired())
+	{
+		user.GET("/orgs", s.ListUserOrgs)
+		user.GET("/using/:id", s.UseOrg)
+	}
+}
+
 func (s *Server) registerAPIRoutes() {
 	api := s.engine.Group("/api")
+
+	api.GET("/countries", s.ListCountries)
+	api.GET("/timezones", s.ListTimezones)
+	api.GET("/currencies", s.ListCurrencies)
 
 	secured := api.Group("")
 
 	// --- global middlewares ---
 	secured.Use(RequestID())
 	secured.Use(s.AuthRequired())
-	secured.Use(s.OrgContext())
 
-	secured.GET("/countries", s.ListCountries)
-	secured.GET("/timezones", s.ListTimezones)
-	secured.GET("/currencies", s.ListCurrencies)
+	user := secured.Group("/user")
+	{
+		user.GET("/using/:id", s.UseOrg)
+		user.GET("/orgs", s.ListUserOrgs)
+	}
+
+	secured.Use(s.OrgContext())
 
 	// -------- Meters --------
 	secured.GET("/meters", s.ListMeters)
@@ -197,10 +267,12 @@ func (s *Server) registerAPIRoutes() {
 	secured.GET("/subscriptions", s.ListSubscriptions)
 	secured.POST("/subscriptions", s.CreateSubscription)
 	secured.GET("/subscriptions/:id", s.GetSubscriptionByID)
+	secured.POST("/subscriptions/:id/activate", s.ActivateSubscription)
+	secured.POST("/subscriptions/:id/pause", s.PauseSubscription)
+	secured.POST("/subscriptions/:id/resume", s.ResumeSubscription)
 	secured.POST("/subscriptions/:id/cancel", s.CancelSubscription)
 
-	// -------- Usage / Rating --------
-	secured.POST("/usage", s.IngestUsage)
+	// -------- Rating --------
 	secured.POST("/rating/run", s.RunRatingJob)
 
 	// -------- Invoices --------
@@ -215,4 +287,96 @@ func (s *Server) registerAPIRoutes() {
 	if s.cfg.Environment != "production" {
 		secured.POST("/test/cleanup", s.TestCleanup)
 	}
+}
+
+func (s *Server) registerUIRoutes() {
+	r := s.engine.Group("/")
+
+	// --- middlewares ---
+	r.Use(RequestID())
+
+	// ---- SPA entry points ----
+	r.GET("/", serveIndex)
+	r.GET("/login", s.redirectIfLoggedIn(), serveIndex)
+	r.GET("/login/:name", s.OAuthLogin)
+	r.GET("/invite/:code", serveIndex)
+	r.GET("/change-password", s.AuthRequired(), serveIndex)
+
+	orgs := r.Group("/orgs", s.AuthRequired())
+	{
+		orgs.GET("", serveIndex)
+		org := orgs.Group("/:id")
+		{
+			products := org.Group("/products")
+			{
+				products.GET("", serveIndex)
+			}
+
+			customers := org.Group("/customers")
+			{
+				customers.GET("", serveIndex)
+			}
+
+			prices := org.Group("/prices")
+			{
+				prices.GET("", serveIndex)
+			}
+
+			subscriptions := org.Group("/subscriptions")
+			{
+				subscriptions.GET("", serveIndex)
+			}
+
+			invoices := org.Group("/invoices")
+			{
+				invoices.GET("", serveIndex)
+			}
+
+			apiKeys := org.Group("/api-keys")
+			{
+				apiKeys.GET("", serveIndex)
+			}
+
+			auditLogs := org.Group("/audit-logs")
+			{
+				auditLogs.GET("", serveIndex)
+			}
+
+			settings := org.Group("/settings", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin))
+			{
+				settings.GET("/", serveIndex)
+			}
+		}
+	}
+}
+
+func (s *Server) registerFallback() {
+	s.engine.NoRoute(func(c *gin.Context) {
+		// static assets (vite)
+		if fileExists("./public", c.Request.URL.Path) {
+			c.File("./public" + c.Request.URL.Path)
+			return
+		}
+
+		// SPA fallback
+		c.File("./public/index.html")
+	})
+}
+
+func fileExists(publicDir, reqPath string) bool {
+	clean := filepath.Clean(reqPath)
+
+	// prevent path traversal
+	if clean == "." || clean == "/" || clean == ".." {
+		return false
+	}
+
+	fullPath := filepath.Join(publicDir, clean)
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return false
+	}
+
+	return !info.IsDir()
 }

@@ -5,6 +5,7 @@ import { Outlet, useNavigate, useParams } from "react-router-dom"
 import { api } from "@/api/client"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
+// import { WorkbenchDock } from "@/components/workbench-dock"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   SidebarInset,
@@ -25,11 +26,15 @@ export default function DashboardLayout() {
 
     api
       .post(`/user/using/${orgId}`)
-      .then(() => api.get(`/orgs/${orgId}`))
+      .then(() => api.get("/user/orgs"))
       .then((res) => {
         if (!active) return
-        const org = res.data?.org ?? { id: orgId, name: `Org ${orgId}` }
-        setCurrentOrg(org)
+        const list = res.data?.orgs ?? []
+        setOrgs(list)
+        const match = list.find(
+          (item: any) => String(item?.id ?? item?.ID ?? item?.org_id ?? "") === orgId
+        )
+        setCurrentOrg(match ?? { id: orgId, name: `Org ${orgId}` })
         setIsLoading(false)
       })
       .catch(() => {
@@ -37,16 +42,6 @@ export default function DashboardLayout() {
         setIsLoading(false)
         setCurrentOrg(null)
         navigate("/orgs", { replace: true })
-      })
-
-    api
-      .get("/user/orgs")
-      .then((res) => {
-        if (!active) return
-        setOrgs(res.data?.orgs ?? [])
-      })
-      .catch(() => {
-        /* ignore */
       })
 
     return () => {
@@ -67,27 +62,30 @@ export default function DashboardLayout() {
   }, [isLoading])
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "calc(var(--spacing) * 72)",
-          "--header-height": "calc(var(--spacing) * 12)",
-        } as CSSProperties
-      }
-    >
-      <AppSidebar variant="inset" />
-      <SidebarInset>
-        <SiteHeader />
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className="flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
-              <div className="px-4 lg:px-6">
-                {content}
+    <>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "calc(var(--spacing) * 72)",
+            "--header-height": "calc(var(--spacing) * 12)",
+          } as CSSProperties
+        }
+      >
+        <AppSidebar variant="inset" />
+        <SidebarInset>
+          <SiteHeader />
+          <div className="flex flex-1 flex-col">
+            <div className="@container/main flex flex-1 flex-col gap-2">
+              <div className="flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
+                <div className="px-4 lg:px-6">
+                  {content}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+      {/* <WorkbenchDock /> */}
+    </>
   )
 }

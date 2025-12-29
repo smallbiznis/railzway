@@ -4,8 +4,10 @@ import {
   IconDashboard,
   IconFileDescription,
   IconInnerShadowTop,
+  IconKey,
   IconListDetails,
   IconMeterCube,
+  IconShieldCheck,
   IconSettings,
   IconUsers,
 } from "@tabler/icons-react"
@@ -76,6 +78,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   ]
 
   const navSecondary = [
+    {
+      title: "API Keys",
+      url: `${orgBasePath}/api-keys`,
+      icon: IconKey,
+    },
+    {
+      title: "Audit Logs",
+      url: `${orgBasePath}/audit-logs`,
+      icon: IconShieldCheck,
+    },
     {
       title: "Settings",
       url: `${orgBasePath}/settings`,

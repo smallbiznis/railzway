@@ -153,56 +153,104 @@ type TokenResponse struct {
 	ExpiresIn   int
 	ExpiresAt   time.Time
 	Scopes      []string
+	UserID      snowflake.ID
 }
 
 func (s *Service) ExchangeToken(ctx context.Context, req TokenRequest) (*TokenResponse, error) {
-	if strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.RedirectURI) == "" {
-		return nil, ErrInvalidRequest
-	}
-	if !s.isValidClientID(req.ClientID) || !s.isValidClientSecret(req.ClientSecret) {
-		return nil, ErrInvalidClient
+	if err := s.validateTokenRequest(req); err != nil {
+		return nil, err
 	}
 
+	codeHash, code, now, err := s.loadAuthorizationCode(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.verifyCodeChallenge(req, code); err != nil {
+		return nil, err
+	}
+
+	if err := s.markCodeUsed(ctx, codeHash, now); err != nil {
+		return nil, err
+	}
+
+	accessToken, expiresAt, err := s.createAccessToken(ctx, code, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TokenResponse{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(s.cfg.AccessTTL.Seconds()),
+		ExpiresAt:   expiresAt,
+		Scopes:      code.Scopes,
+		UserID:      code.UserID,
+	}, nil
+}
+
+func (s *Service) validateTokenRequest(req TokenRequest) error {
+	if strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.RedirectURI) == "" {
+		return ErrInvalidRequest
+	}
+	if !s.isValidClientID(req.ClientID) || !s.isValidClientSecret(req.ClientSecret) {
+		return ErrInvalidClient
+	}
+	return nil
+}
+
+func (s *Service) loadAuthorizationCode(ctx context.Context, req TokenRequest) (string, *AuthorizationCode, time.Time, error) {
 	codeHash := hashToken(req.Code)
 	code, err := s.store.GetAuthorizationCode(ctx, codeHash)
 	if err != nil {
-		return nil, err
+		return "", nil, time.Time{}, err
 	}
 
 	now := s.clock.Now()
 	if code.UsedAt != nil {
-		return nil, ErrCodeUsed
+		return "", nil, time.Time{}, ErrCodeUsed
 	}
 	if now.After(code.ExpiresAt) {
-		return nil, ErrCodeExpired
+		return "", nil, time.Time{}, ErrCodeExpired
 	}
 	if code.ClientID != req.ClientID {
-		return nil, ErrInvalidClient
+		return "", nil, time.Time{}, ErrInvalidClient
 	}
 	if code.RedirectURI != req.RedirectURI {
-		return nil, ErrInvalidRedirectURI
+		return "", nil, time.Time{}, ErrInvalidRedirectURI
 	}
 
-	if code.CodeChallengeHash != nil {
-		if strings.TrimSpace(req.CodeVerifier) == "" {
-			return nil, ErrPKCEMismatch
-		}
-		if !verifyPKCE(req.CodeVerifier, *code.CodeChallengeHash) {
-			return nil, ErrPKCEMismatch
-		}
-	}
+	return codeHash, code, now, nil
+}
 
+func (s *Service) verifyCodeChallenge(req TokenRequest, code *AuthorizationCode) error {
+	if code.CodeChallengeHash == nil {
+		return nil
+	}
+	if strings.TrimSpace(req.CodeVerifier) == "" {
+		return ErrPKCEMismatch
+	}
+	if !verifyPKCE(req.CodeVerifier, *code.CodeChallengeHash) {
+		return ErrPKCEMismatch
+	}
+	return nil
+}
+
+func (s *Service) markCodeUsed(ctx context.Context, codeHash string, now time.Time) error {
 	used, err := s.store.MarkAuthorizationCodeUsed(ctx, codeHash, now)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !used {
-		return nil, ErrCodeUsed
+		return ErrCodeUsed
 	}
+	return nil
+}
 
+func (s *Service) createAccessToken(ctx context.Context, code *AuthorizationCode, now time.Time) (string, time.Time, error) {
 	accessToken, err := s.tokenGen.NewToken()
 	if err != nil {
-		return nil, err
+		return "", time.Time{}, err
 	}
 
 	expiresAt := now.Add(s.cfg.AccessTTL)
@@ -214,16 +262,9 @@ func (s *Service) ExchangeToken(ctx context.Context, req TokenRequest) (*TokenRe
 		ExpiresAt: expiresAt,
 	}
 	if err := s.store.CreateAccessToken(ctx, token); err != nil {
-		return nil, err
+		return "", time.Time{}, err
 	}
-
-	return &TokenResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(s.cfg.AccessTTL.Seconds()),
-		ExpiresAt:   expiresAt,
-		Scopes:      code.Scopes,
-	}, nil
+	return accessToken, expiresAt, nil
 }
 
 type UserInfo struct {

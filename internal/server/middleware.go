@@ -2,18 +2,19 @@ package server
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
+	auditcontext "github.com/smallbiznis/valora/internal/auditcontext"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
+)
+
+const (
+	HeaderOrg = "X-Org-Id"
 )
 
 const (
@@ -27,65 +28,224 @@ func serveIndex(c *gin.Context) {
 
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// generate / propagate request id
+		requestID := strings.TrimSpace(c.GetHeader("X-Request-Id"))
+		if requestID == "" {
+			requestID = strings.TrimSpace(c.GetHeader("X-Request-ID"))
+		}
+		if requestID == "" {
+			requestID = uuid.NewString()
+		}
+
+		c.Set("request_id", requestID)
+		c.Header("X-Request-Id", requestID)
+
+		ctx := auditcontext.WithRequestID(c.Request.Context(), requestID)
+		ctx = auditcontext.WithIPAddress(ctx, c.ClientIP())
+		ctx = auditcontext.WithUserAgent(ctx, c.Request.UserAgent())
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+	}
+}
+
+func (s *Server) redirectIfLoggedIn() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sid, ok := s.sessions.ReadToken(c)
+		if !ok {
+			c.Next()
+			return
+		}
+
+		if _, err := s.authsvc.Authenticate(c.Request.Context(), sid); err != nil {
+			c.Next()
+			return
+		}
+
+		c.Redirect(302, "/orgs")
+		c.Abort()
 	}
 }
 
 func (s *Server) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := readBearerToken(c.GetHeader("Authorization"))
-		if token == "" {
-			AbortWithError(c, ErrUnauthorized)
-			return
-		}
-		if strings.TrimSpace(s.cfg.AuthJWTSecret) == "" {
+		sid, ok := s.sessions.ReadToken(c)
+		if !ok {
 			AbortWithError(c, ErrUnauthorized)
 			return
 		}
 
-		claims, err := validateJWT(token, []byte(s.cfg.AuthJWTSecret))
+		session, err := s.authsvc.Authenticate(c.Request.Context(), sid)
 		if err != nil {
-			AbortWithError(c, ErrUnauthorized)
+			AbortWithError(c, err)
 			return
 		}
 
-		// SINGLE-ORG RUNTIME GUARD (v0)
-		//
-		// This enforces single-organization mode at runtime.
-		// Valora OSS remains multi-org by design.
-		// Removing the org_id equality check enables multi-org support
-		// without changing handlers, services, or schemas.
-		if s.cfg.DefaultOrgID == 0 {
-			AbortWithError(c, ErrUnauthorized)
-			return
-		}
-
-		ctx := orgcontext.WithOrgID(c.Request.Context(), claims.OrgID)
+		c.Set(contextUserIDKey, session.UserID.String())
+		c.Set(contextSessionKey, session)
+		ctx := auditcontext.WithActor(c.Request.Context(), string(auditdomain.ActorTypeUser), session.UserID.String())
 		c.Request = c.Request.WithContext(ctx)
-		if strings.TrimSpace(claims.Subject) != "" {
-			c.Set(contextUserIDKey, claims.Subject)
-		}
 		c.Next()
 	}
 }
 
 func (s *Server) OrgContext() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		orgID, ok := orgcontext.OrgIDFromContext(c.Request.Context())
-		if !ok || orgID == 0 {
+		session, ok := s.sessionFromContext(c)
+		if !ok {
+			AbortWithError(c, ErrUnauthorized)
+			return
+		}
+
+		headerOrg := strings.TrimSpace(c.GetHeader(HeaderOrg))
+		var resolvedOrgID int64
+		if headerOrg != "" {
+			parsed, err := snowflake.ParseString(headerOrg)
+			if err != nil {
+				AbortWithError(c, newValidationError("org_id", "invalid_org_id", "invalid org id"))
+				return
+			}
+			resolvedOrgID = int64(parsed)
+		} else if session.ActiveOrgID != nil {
+			resolvedOrgID = *session.ActiveOrgID
+		} else {
 			AbortWithError(c, ErrOrgRequired)
 			return
 		}
+
+		orgIDs := session.OrgIDs
+		if !containsOrgID(orgIDs, resolvedOrgID) {
+			freshOrgIDs, err := s.loadUserOrgIDs(c.Request.Context(), session.UserID)
+			if err != nil {
+				AbortWithError(c, err)
+				return
+			}
+			orgIDs = freshOrgIDs
+		}
+
+		if !containsOrgID(orgIDs, resolvedOrgID) {
+			AbortWithError(c, ErrForbidden)
+			return
+		}
+
+		if headerOrg != "" {
+			activeOrgID := resolvedOrgID
+			if err := s.authsvc.UpdateSessionOrgContext(c.Request.Context(), session.ID, &activeOrgID, orgIDs); err != nil {
+				AbortWithError(c, err)
+				return
+			}
+			session.ActiveOrgID = &activeOrgID
+			session.OrgIDs = orgIDs
+		} else if len(session.OrgIDs) == 0 && len(orgIDs) > 0 {
+			if err := s.authsvc.UpdateSessionOrgContext(c.Request.Context(), session.ID, session.ActiveOrgID, orgIDs); err != nil {
+				AbortWithError(c, err)
+				return
+			}
+			session.OrgIDs = orgIDs
+		}
+
+		ctx := orgcontext.WithOrgID(c.Request.Context(), resolvedOrgID)
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
 }
 
-func RequireRole(role ...string) gin.HandlerFunc {
+func (s *Server) RequireRole(roles ...string) gin.HandlerFunc {
+	allowed := normalizeRoles(roles)
 	return func(c *gin.Context) {
-		// check role from context
+		if len(allowed) == 0 {
+			c.Next()
+			return
+		}
+
+		userID, ok := s.userIDFromSession(c)
+		if !ok {
+			AbortWithError(c, ErrUnauthorized)
+			return
+		}
+
+		orgID, err := s.orgIDFromRequest(c)
+		if err != nil {
+			AbortWithError(c, err)
+			return
+		}
+
+		role, err := s.roleForOrg(c.Request.Context(), orgID, userID)
+		if err != nil {
+			AbortWithError(c, err)
+			return
+		}
+
+		if _, ok := allowed[role]; !ok {
+			AbortWithError(c, ErrForbidden)
+			return
+		}
+
 		c.Next()
 	}
+}
+
+func (s *Server) roleForOrg(ctx context.Context, orgID, userID snowflake.ID) (string, error) {
+	var row struct {
+		Role string `gorm:"column:role"`
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?`,
+		orgID,
+		userID,
+	).Scan(&row).Error; err != nil {
+		return "", err
+	}
+
+	role := normalizeRole(row.Role)
+	if role == "" {
+		return "", ErrForbidden
+	}
+	return role, nil
+}
+
+func (s *Server) orgIDFromRequest(c *gin.Context) (snowflake.ID, error) {
+	if orgID, ok := orgcontext.OrgIDFromContext(c.Request.Context()); ok && orgID != 0 {
+		return snowflake.ID(orgID), nil
+	}
+
+	candidate := strings.TrimSpace(c.Param("id"))
+	if candidate == "" {
+		candidate = strings.TrimSpace(c.Param("orgId"))
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(c.Param("org_id"))
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(c.GetHeader(HeaderOrg))
+	}
+	if candidate == "" {
+		return 0, ErrOrgRequired
+	}
+
+	orgID, err := snowflake.ParseString(candidate)
+	if err != nil {
+		return 0, newValidationError("org_id", "invalid_org_id", "invalid org id")
+	}
+	return orgID, nil
+}
+
+func normalizeRoles(roles []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		normalized := normalizeRole(role)
+		if normalized == "" {
+			continue
+		}
+		allowed[normalized] = struct{}{}
+	}
+	return allowed
+}
+
+func normalizeRole(role string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(role))
+	if strings.HasPrefix(normalized, "ORG_") {
+		normalized = strings.TrimPrefix(normalized, "ORG_")
+	}
+	return normalized
 }
 
 func (s *Server) sessionFromContext(c *gin.Context) (*authdomain.Session, bool) {
@@ -122,102 +282,4 @@ func containsOrgID(ids []int64, target int64) bool {
 		}
 	}
 	return false
-}
-
-var errInvalidToken = errors.New("invalid token")
-
-type jwtHeader struct {
-	Alg string `json:"alg"`
-	Typ string `json:"typ"`
-}
-
-type jwtClaims struct {
-	Subject  string      `json:"sub"`
-	OrgID    json.Number `json:"org_id"`
-	TenantID json.Number `json:"tenant_id"`
-	Expires  json.Number `json:"exp"`
-}
-
-type validatedJWT struct {
-	Subject string
-	OrgID   int64
-	Expiry  int64
-}
-
-func readBearerToken(header string) string {
-	parts := strings.Fields(strings.TrimSpace(header))
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func validateJWT(token string, secret []byte) (*validatedJWT, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, errInvalidToken
-	}
-
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return nil, errInvalidToken
-	}
-	var header jwtHeader
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, errInvalidToken
-	}
-	if header.Alg != "HS256" {
-		return nil, errInvalidToken
-	}
-
-	signingInput := parts[0] + "." + parts[1]
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return nil, errInvalidToken
-	}
-
-	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write([]byte(signingInput))
-	expected := mac.Sum(nil)
-	if !hmac.Equal(expected, sig) {
-		return nil, errInvalidToken
-	}
-
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, errInvalidToken
-	}
-	var claims jwtClaims
-	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return nil, errInvalidToken
-	}
-
-	orgID := parseNumber(claims.OrgID)
-	if orgID == 0 {
-		orgID = parseNumber(claims.TenantID)
-	}
-	exp := parseNumber(claims.Expires)
-	if exp == 0 || time.Now().Unix() >= exp {
-		return nil, errInvalidToken
-	}
-
-	return &validatedJWT{
-		Subject: claims.Subject,
-		OrgID:   orgID,
-		Expiry:  exp,
-	}, nil
-}
-
-func parseNumber(value json.Number) int64 {
-	if value == "" {
-		return 0
-	}
-	if parsed, err := value.Int64(); err == nil {
-		return parsed
-	}
-	floatVal, err := value.Float64()
-	if err != nil {
-		return 0
-	}
-	return int64(floatVal)
 }

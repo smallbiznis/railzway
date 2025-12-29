@@ -46,8 +46,10 @@ type PageInfo = {
 
 const statusTabs = [
   { value: "ACTIVE", label: "Active" },
-  { value: "PAST_DUE", label: "Past due" },
+  { value: "PAUSED", label: "Paused" },
+  { value: "DRAFT", label: "Draft" },
   { value: "CANCELED", label: "Canceled" },
+  { value: "ENDED", label: "Ended" },
   { value: "ALL", label: "All" },
 ]
 
@@ -84,8 +86,8 @@ const formatStatus = (value?: string) => {
   switch (value) {
     case "ACTIVE":
       return "Active"
-    case "PAST_DUE":
-      return "Past due"
+    case "PAUSED":
+      return "Paused"
     case "CANCELED":
       return "Canceled"
     case "ENDED":
@@ -99,10 +101,10 @@ const formatStatus = (value?: string) => {
 
 const statusVariant = (value?: string) => {
   switch (value) {
-    case "PAST_DUE":
-      return "destructive"
     case "ACTIVE":
       return "secondary"
+    case "PAUSED":
+      return "outline"
     case "CANCELED":
     case "ENDED":
     case "DRAFT":

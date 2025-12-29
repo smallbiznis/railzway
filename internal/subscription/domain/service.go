@@ -42,6 +42,8 @@ type GetSubscriptionItemRequest struct {
 	MeterCode      string
 }
 
+type TransitionReason string
+
 //go:generate mockgen -source=service.go -destination=./mocks/mock_service.go -package=mocks
 type Service interface {
 	List(context.Context, ListSubscriptionRequest) (ListSubscriptionResponse, error)
@@ -49,6 +51,7 @@ type Service interface {
 	GetByID(context.Context, string) (Subscription, error)
 	GetActiveByCustomerID(context.Context, GetActiveByCustomerIDRequest) (Subscription, error)
 	GetSubscriptionItem(context.Context, GetSubscriptionItemRequest) (SubscriptionItem, error)
+	TransitionSubscription(ctx context.Context, subscriptionID string, targetStatus SubscriptionStatus, reason TransitionReason) error
 }
 
 type CreateSubscriptionItemResponse struct {
@@ -84,6 +87,13 @@ var (
 	ErrUnsupportedPricingModel  = errors.New("unsupported_pricing_model")
 	ErrInvalidMeterCode         = errors.New("invalid_meter_code")
 	ErrInvalidStatus            = errors.New("invalid_status")
+	ErrInvalidTargetStatus      = errors.New("invalid_target_status")
+	ErrInvalidTransition        = errors.New("invalid_transition")
+	ErrMissingSubscriptionItems = errors.New("missing_subscription_items")
+	ErrMissingPricing           = errors.New("missing_pricing")
+	ErrMissingCustomer          = errors.New("missing_customer")
+	ErrBillingCyclesOpen        = errors.New("billing_cycles_open")
+	ErrInvoicesNotFinalized     = errors.New("invoices_not_finalized")
 	ErrInvalidCollectionMode    = errors.New("invalid_collection_mode")
 	ErrInvalidBillingCycleType  = errors.New("invalid_billing_cycle_type")
 	ErrInvalidStartAt           = errors.New("invalid_start_at")

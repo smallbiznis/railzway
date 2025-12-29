@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
-import { auth, authLocal } from "@/api/client"
+import { auth } from "@/api/client"
 
 type User = {
   id: string
@@ -15,9 +15,23 @@ type User = {
 type AuthState = {
   user: User | null
   isAuthenticated: boolean
+  mustChangePassword: boolean
   login: (payload: { email: string; password: string }) => Promise<void>
   signup: (payload: { email: string; password: string; displayName?: string; orgName?: string }) => Promise<void>
   logout: () => Promise<void>
+  setMustChangePassword: (value: boolean) => void
+}
+
+const resolveMustChangePassword = (payload: any): boolean => {
+  if (!payload) {
+    return false
+  }
+
+  if (!payload.is_default && payload.last_password_changed != null) {
+    return false
+  }
+
+  return true
 }
 
 const buildUser = (payload: any): User | null => {
@@ -48,10 +62,11 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
+      mustChangePassword: false,
       login: async (payload) => {
         try {
           const email = payload.email.trim().toLowerCase()
-          const res = await authLocal.post("/login", {
+          const res = await auth.post("/login", {
             email,
             password: payload.password,
           })
@@ -59,9 +74,10 @@ export const useAuthStore = create<AuthState>()(
           if (!user) {
             throw new Error("invalid_login_response")
           }
-          set({ user, isAuthenticated: true })
+          const mustChangePassword = resolveMustChangePassword(res.data)
+          set({ user, isAuthenticated: true, mustChangePassword })
         } catch (err) {
-          set({ user: null, isAuthenticated: false })
+          set({ user: null, isAuthenticated: false, mustChangePassword: false })
           throw err
         }
       },
@@ -86,26 +102,29 @@ export const useAuthStore = create<AuthState>()(
           if (!user) {
             throw new Error("invalid_signup_response")
           }
-          set({ user, isAuthenticated: true })
+          const mustChangePassword = resolveMustChangePassword(res.data)
+          set({ user, isAuthenticated: true, mustChangePassword })
         } catch (err) {
-          set({ user: null, isAuthenticated: false })
+          set({ user: null, isAuthenticated: false, mustChangePassword: false })
           throw err
         }
       },
       logout: async () => {
         try {
-          await authLocal.post("/logout")
+          await auth.post("/logout")
         } catch (err) {
           console.warn("logout failed", err)
         }
-        set({ user: null, isAuthenticated: false })
+        set({ user: null, isAuthenticated: false, mustChangePassword: false })
       },
+      setMustChangePassword: (value) => set({ mustChangePassword: value }),
     }),
     {
       name: "valora-auth",
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
+        mustChangePassword: state.mustChangePassword,
       }),
     }
   )

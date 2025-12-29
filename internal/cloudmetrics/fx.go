@@ -6,11 +6,9 @@ import (
 )
 
 var Module = fx.Module("cloud.metrics",
-	fx.Provide(func () *prometheus.Registry {
+	fx.Provide(func() *prometheus.Registry {
 		return prometheus.NewRegistry()
 	}),
-	fx.Invoke(
-		Register,
-		RegisterInstrumentation,
-	),
+	fx.Provide(NewPusher),
+	fx.Provide(New),
 )

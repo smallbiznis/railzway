@@ -1,14 +1,20 @@
 package local
 
 import (
+	"context"
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
 	"github.com/smallbiznis/valora/internal/auth/session"
+	"github.com/smallbiznis/valora/internal/config"
+	orgdomain "github.com/smallbiznis/valora/internal/organization/domain"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Handler manages local auth endpoints.
@@ -16,13 +22,19 @@ type Handler struct {
 	authsvc  authdomain.Service
 	sessions *session.Manager
 	log      *zap.Logger
+	cfg      config.Config
+	db       *gorm.DB
+	genID    *snowflake.Node
 }
 
-func NewHandler(authsvc authdomain.Service, sessions *session.Manager, log *zap.Logger) *Handler {
+func NewHandler(authsvc authdomain.Service, sessions *session.Manager, log *zap.Logger, cfg config.Config, db *gorm.DB, genID *snowflake.Node) *Handler {
 	return &Handler{
 		authsvc:  authsvc,
 		sessions: sessions,
 		log:      log.Named("auth.local.handler"),
+		cfg:      cfg,
+		db:       db,
+		genID:    genID,
 	}
 }
 
@@ -53,6 +65,11 @@ type userResponse struct {
 }
 
 func (h *Handler) Signup(c *gin.Context) {
+	if h.cfg.IsCloud() || !h.cfg.Bootstrap.AllowSignUp {
+		writeLocalError(c, http.StatusForbidden, "signup_disabled")
+		return
+	}
+
 	var req signupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeLocalError(c, http.StatusBadRequest, "invalid_request")
@@ -79,6 +96,11 @@ func (h *Handler) Signup(c *gin.Context) {
 			writeLocalError(c, http.StatusConflict, "user_exists")
 			return
 		}
+		writeLocalError(c, http.StatusBadRequest, "invalid_request")
+		return
+	}
+
+	if err := h.ensureAutoOrgMembership(c.Request.Context(), user.ID); err != nil {
 		writeLocalError(c, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -181,4 +203,71 @@ func requestID(c *gin.Context) string {
 		return v
 	}
 	return ""
+}
+
+func (h *Handler) ensureAutoOrgMembership(ctx context.Context, userID snowflake.ID) error {
+	if h.cfg.IsCloud() {
+		return nil
+	}
+	cfg := h.cfg.Bootstrap
+	if !cfg.AllowSignUp || !cfg.AllowAssignOrg {
+		return nil
+	}
+	orgIDRaw := strings.TrimSpace(cfg.AutoAssignOrgID)
+	role := strings.ToUpper(strings.TrimSpace(cfg.AutoAssignOrgRole))
+	if orgIDRaw == "" || role == "" {
+		return nil
+	}
+	if !roleAllowed(cfg.AllowAssignUserRole, role) {
+		return nil
+	}
+
+	orgID, err := snowflake.ParseString(orgIDRaw)
+	if err != nil {
+		return err
+	}
+
+	var org orgdomain.Organization
+	if err := h.db.WithContext(ctx).First(&org, "id = ?", orgID).Error; err != nil {
+		return err
+	}
+
+	var count int64
+	if err := h.db.WithContext(ctx).
+		Model(&orgdomain.OrganizationMember{}).
+		Where("org_id = ? AND user_id = ?", orgID, userID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	member := orgdomain.OrganizationMember{
+		ID:        h.genID.Generate(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Role:      role,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := h.db.WithContext(ctx).Create(&member).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func roleAllowed(allowedRaw string, role string) bool {
+	allowedRaw = strings.TrimSpace(allowedRaw)
+	if allowedRaw == "" || role == "" {
+		return false
+	}
+	parts := strings.FieldsFunc(allowedRaw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	for _, part := range parts {
+		if strings.ToUpper(strings.TrimSpace(part)) == role {
+			return true
+		}
+	}
+	return false
 }

@@ -18,9 +18,10 @@ func (r *repo) Insert(ctx context.Context, db *gorm.DB, subscription *subscripti
 	return db.WithContext(ctx).Exec(
 		`INSERT INTO subscriptions (
 			id, org_id, customer_id, status, collection_mode, start_at, end_at, cancel_at,
-			cancel_at_period_end, canceled_at, billing_anchor_day, billing_cycle_type,
-			default_payment_term_days, default_currency, default_tax_behavior, metadata, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cancel_at_period_end, canceled_at, activated_at, paused_at, resumed_at, ended_at,
+			billing_anchor_day, billing_cycle_type, default_payment_term_days, default_currency,
+			default_tax_behavior, metadata, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		subscription.ID,
 		subscription.OrgID,
 		subscription.CustomerID,
@@ -31,6 +32,10 @@ func (r *repo) Insert(ctx context.Context, db *gorm.DB, subscription *subscripti
 		subscription.CancelAt,
 		subscription.CancelAtPeriodEnd,
 		subscription.CanceledAt,
+		subscription.ActivatedAt,
+		subscription.PausedAt,
+		subscription.ResumedAt,
+		subscription.EndedAt,
 		subscription.BillingAnchorDay,
 		subscription.BillingCycleType,
 		subscription.DefaultPaymentTermDays,
@@ -83,9 +88,30 @@ func (r *repo) FindByID(ctx context.Context, db *gorm.DB, orgID, id snowflake.ID
 	var subscription subscriptiondomain.Subscription
 	err := db.WithContext(ctx).Raw(
 		`SELECT id, org_id, customer_id, status, collection_mode, start_at, end_at, cancel_at,
-		 cancel_at_period_end, canceled_at, billing_anchor_day, billing_cycle_type,
-		 default_payment_term_days, default_currency, default_tax_behavior, metadata, created_at, updated_at
+		 cancel_at_period_end, canceled_at, activated_at, paused_at, resumed_at, ended_at,
+		 billing_anchor_day, billing_cycle_type, default_payment_term_days, default_currency,
+		 default_tax_behavior, metadata, created_at, updated_at
 		 FROM subscriptions WHERE org_id = ? AND id = ?`,
+		orgID,
+		id,
+	).Scan(&subscription).Error
+	if err != nil {
+		return nil, err
+	}
+	if subscription.ID == 0 {
+		return nil, nil
+	}
+	return &subscription, nil
+}
+
+func (r *repo) FindByIDForUpdate(ctx context.Context, db *gorm.DB, orgID, id snowflake.ID) (*subscriptiondomain.Subscription, error) {
+	var subscription subscriptiondomain.Subscription
+	err := db.WithContext(ctx).Raw(
+		`SELECT id, org_id, customer_id, status, collection_mode, start_at, end_at, cancel_at,
+		 cancel_at_period_end, canceled_at, activated_at, paused_at, resumed_at, ended_at,
+		 billing_anchor_day, billing_cycle_type, default_payment_term_days, default_currency,
+		 default_tax_behavior, metadata, created_at, updated_at
+		 FROM subscriptions WHERE org_id = ? AND id = ? FOR UPDATE`,
 		orgID,
 		id,
 	).Scan(&subscription).Error
@@ -102,8 +128,9 @@ func (r *repo) List(ctx context.Context, db *gorm.DB, orgID snowflake.ID) ([]sub
 	var subscriptions []subscriptiondomain.Subscription
 	err := db.WithContext(ctx).Raw(
 		`SELECT id, org_id, customer_id, status, collection_mode, start_at, end_at, cancel_at,
-		 cancel_at_period_end, canceled_at, billing_anchor_day, billing_cycle_type,
-		 default_payment_term_days, default_currency, default_tax_behavior, metadata, created_at, updated_at
+		 cancel_at_period_end, canceled_at, activated_at, paused_at, resumed_at, ended_at,
+		 billing_anchor_day, billing_cycle_type, default_payment_term_days, default_currency,
+		 default_tax_behavior, metadata, created_at, updated_at
 		 FROM subscriptions WHERE org_id = ? ORDER BY created_at ASC`,
 		orgID,
 	).Scan(&subscriptions).Error
@@ -117,8 +144,9 @@ func (r *repo) FindActiveByCustomerID(ctx context.Context, db *gorm.DB, orgID, c
 	var subscription subscriptiondomain.Subscription
 	err := db.WithContext(ctx).Raw(
 		`SELECT id, org_id, customer_id, status, collection_mode, start_at, end_at, cancel_at,
-		 cancel_at_period_end, canceled_at, billing_anchor_day, billing_cycle_type,
-		 default_payment_term_days, default_currency, default_tax_behavior, metadata, created_at, updated_at
+		 cancel_at_period_end, canceled_at, activated_at, paused_at, resumed_at, ended_at,
+		 billing_anchor_day, billing_cycle_type, default_payment_term_days, default_currency,
+		 default_tax_behavior, metadata, created_at, updated_at
 		 FROM subscriptions
 		 WHERE org_id = ? AND customer_id = ? AND status IN ?
 		 ORDER BY created_at DESC

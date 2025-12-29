@@ -12,11 +12,11 @@ import (
 type SubscriptionStatus string
 
 const (
-	SubscriptionStatusPending   SubscriptionStatus = "PENDING"
-	SubscriptionStatusActive    SubscriptionStatus = "ACTIVE"
-	SubscriptionStatusPastDue   SubscriptionStatus = "PAST_DUE"
-	SubscriptionStatusSuspended SubscriptionStatus = "SUSPENDED"
-	SubscriptionStatusCanceled  SubscriptionStatus = "CANCELED"
+	SubscriptionStatusDraft    SubscriptionStatus = "DRAFT"
+	SubscriptionStatusActive   SubscriptionStatus = "ACTIVE"
+	SubscriptionStatusPaused   SubscriptionStatus = "PAUSED"
+	SubscriptionStatusCanceled SubscriptionStatus = "CANCELED"
+	SubscriptionStatusEnded    SubscriptionStatus = "ENDED"
 )
 
 type SubscriptionCollectionMode string
@@ -40,6 +40,10 @@ type Subscription struct {
 	CancelAt               *time.Time                 `gorm:""`
 	CancelAtPeriodEnd      bool                       `gorm:"not null;default:false"`
 	CanceledAt             *time.Time                 `gorm:""`
+	ActivatedAt            *time.Time                 `gorm:"column:activated_at"`
+	PausedAt               *time.Time                 `gorm:"column:paused_at"`
+	ResumedAt              *time.Time                 `gorm:"column:resumed_at"`
+	EndedAt                *time.Time                 `gorm:"column:ended_at"`
 	BillingAnchorDay       *int16                     `gorm:"type:smallint"`
 	BillingCycleType       string                     `gorm:"type:text;not null"`
 	DefaultPaymentTermDays *int                       `gorm:""`
@@ -65,35 +69,6 @@ func (s *Subscription) SetTrial(trialDurationDays int) *Subscription {
 // IsTrial checks if the subscription is currently in a trial period.
 func (s *Subscription) IsTrial(now time.Time) bool {
 	return s.TrialEndsAt != nil && now.Before(*s.TrialEndsAt)
-}
-
-// RecalculateState updates the subscription status based on current time and invoice status.
-func (s *Subscription) RecalculateState(
-	now time.Time,
-	hasOverdueInvoice bool,
-	overdueDuration time.Duration,
-	gracePeriod time.Duration,
-) {
-	if s.CanceledAt != nil {
-		s.Status = SubscriptionStatusCanceled
-		return
-	}
-
-	if now.Before(s.StartAt) {
-		s.Status = SubscriptionStatusPending
-		return
-	}
-
-	if hasOverdueInvoice {
-		if overdueDuration <= gracePeriod {
-			s.Status = SubscriptionStatusPastDue
-		} else {
-			s.Status = SubscriptionStatusSuspended
-		}
-		return
-	}
-
-	s.Status = SubscriptionStatusActive
 }
 
 // SubscriptionItem associates subscriptions to prices/meters.

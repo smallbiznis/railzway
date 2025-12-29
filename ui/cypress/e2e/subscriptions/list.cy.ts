@@ -3,8 +3,8 @@ const formatStatus = (value?: string) => {
   switch (value.toUpperCase()) {
     case "ACTIVE":
       return "Active"
-    case "PAST_DUE":
-      return "Past due"
+    case "PAUSED":
+      return "Paused"
     case "CANCELED":
       return "Canceled"
     case "ENDED":

@@ -4,30 +4,22 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/mail"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/google/uuid"
 	"github.com/smallbiznis/valora/internal/auth/domain"
+	"github.com/smallbiznis/valora/internal/auth/password"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/argon2"
 )
 
 const (
-	argonTime    uint32 = 1
-	argonMemory  uint32 = 64 * 1024
-	argonThreads uint8  = 4
-	argonKeyLen  uint32 = 32
-	argonSaltLen        = 16
-
 	sessionTokenBytes = 32
 	sessionTTL        = 7 * 24 * time.Hour
 
@@ -67,7 +59,7 @@ func (s *Service) CreateUser(ctx context.Context, req domain.CreateUserRequest) 
 		return nil, err
 	}
 
-	hashed, err := hashPassword(req.Password)
+	hashed, err := password.Hash(req.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +111,7 @@ func (s *Service) Login(ctx context.Context, req domain.LoginRequest) (*domain.L
 		return nil, err
 	}
 
-	if user.PasswordHash == nil || !verifyPassword(req.Password, *user.PasswordHash) {
+	if user.PasswordHash == nil || !password.Verify(req.Password, *user.PasswordHash) {
 		fmt.Printf("invalid_credentials")
 		return nil, domain.ErrInvalidCredentials
 	}
@@ -145,8 +137,9 @@ func (s *Service) Login(ctx context.Context, req domain.LoginRequest) (*domain.L
 		return nil, err
 	}
 
+	mustChangePassword := user.IsDefault || user.LastPasswordChanged == nil
 	passwordState := "rotated"
-	if user.IsDefault || user.LastPasswordChanged == nil {
+	if mustChangePassword {
 		passwordState = "default"
 	}
 
@@ -160,6 +153,7 @@ func (s *Service) Login(ctx context.Context, req domain.LoginRequest) (*domain.L
 				"email":                 user.Email,
 				"is_default":            user.IsDefault,
 				"last_password_changed": user.LastPasswordChanged,
+				"must_change_password":  mustChangePassword,
 				"password_state":        passwordState,
 				"auth_provider":         "local",
 			},
@@ -236,7 +230,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID string, newPassword
 		return err
 	}
 
-	hashed, err := hashPassword(newPassword)
+	hashed, err := password.Hash(newPassword)
 	if err != nil {
 		return err
 	}
@@ -288,75 +282,4 @@ func newSessionToken() (string, error) {
 func hashToken(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
-}
-
-func hashPassword(password string) (string, error) {
-	salt := make([]byte, argonSaltLen)
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
-	}
-	hash := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
-
-	saltB64 := base64.RawStdEncoding.EncodeToString(salt)
-	hashB64 := base64.RawStdEncoding.EncodeToString(hash)
-	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", argonMemory, argonTime, argonThreads, saltB64, hashB64), nil
-}
-
-func verifyPassword(password, encoded string) bool {
-	parts := strings.Split(encoded, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
-		return false
-	}
-
-	var memory uint32
-	var timeCost uint32
-	var threads uint8
-	{
-		params := strings.Split(parts[3], ",")
-		if len(params) != 3 {
-			return false
-		}
-
-		m, ok := strings.CutPrefix(params[0], "m=")
-		if !ok {
-			return false
-		}
-		t, ok := strings.CutPrefix(params[1], "t=")
-		if !ok {
-			return false
-		}
-		p, ok := strings.CutPrefix(params[2], "p=")
-		if !ok {
-			return false
-		}
-
-		m64, err := strconv.ParseUint(m, 10, 32)
-		if err != nil {
-			return false
-		}
-		t64, err := strconv.ParseUint(t, 10, 32)
-		if err != nil {
-			return false
-		}
-		p64, err := strconv.ParseUint(p, 10, 8)
-		if err != nil {
-			return false
-		}
-
-		memory = uint32(m64)
-		timeCost = uint32(t64)
-		threads = uint8(p64)
-	}
-
-	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil {
-		return false
-	}
-	hash, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
-		return false
-	}
-
-	check := argon2.IDKey([]byte(password), salt, timeCost, memory, threads, uint32(len(hash)))
-	return subtle.ConstantTimeCompare(hash, check) == 1
 }

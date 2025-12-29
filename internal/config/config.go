@@ -21,7 +21,8 @@ type Config struct {
 
 	OTLPEndpoint string
 
-	Cloud CloudConfig
+	Cloud     CloudConfig
+	Bootstrap BootstrapConfig
 
 	DBType            string
 	DBHost            string
@@ -50,6 +51,15 @@ type CloudMetricsConfig struct {
 	Exporter  string
 	Endpoint  string
 	AuthToken string
+}
+
+type BootstrapConfig struct {
+	EnsureDefaultOrgAndUser bool
+	AllowSignUp             bool
+	AllowAssignOrg          bool
+	AllowAssignUserRole     string
+	AutoAssignOrgID         string
+	AutoAssignOrgRole       string
 }
 
 // Load loads configuration from environment variables and .env file.
@@ -82,13 +92,21 @@ func Load() Config {
 				AuthToken: strings.TrimSpace(getenv("CLOUD_METRICS_AUTH_TOKEN", "")),
 			},
 		},
-		DBType:             getenv("DATABASE_TYPE", "postgres"),
-		DBHost:             getenv("DATABASE_HOST", "localhost"),
-		DBPort:             getenv("DATABASE_PORT", "5433"),
-		DBName:             getenv("DATABASE_NAME", "postgres"),
-		DBUser:             getenv("DATABASE_USER", "postgres"),
-		DBPassword:         getenv("DATABASE_PASSWORD", "35411231"),
-		DBSSLMode:          getenv("DATABASE_SSLMODE", "disable"),
+		Bootstrap: BootstrapConfig{
+			EnsureDefaultOrgAndUser: getenvBool("ENSURE_DEFAULT_ORG_AND_USER", false),
+			AllowSignUp:             getenvBool("ALLOW_SIGNUP", false),
+			AllowAssignOrg:          getenvBool("ALLOW_ASSIGN_ORG", false),
+			AllowAssignUserRole:     strings.TrimSpace(getenv("ALLOW_ASSIGN_USER_ROLE", "")),
+			AutoAssignOrgID:         strings.TrimSpace(getenv("AUTO_ASSIGN_ORG_ID", "")),
+			AutoAssignOrgRole:       strings.TrimSpace(getenv("AUTO_ASSIGN_ORG_ROLE", "")),
+		},
+		DBType:             getenv("DB_TYPE", "postgres"),
+		DBHost:             getenv("DB_HOST", "localhost"),
+		DBPort:             getenv("DB_PORT", "5433"),
+		DBName:             getenv("DB_NAME", "postgres"),
+		DBUser:             getenv("DB_USER", "postgres"),
+		DBPassword:         getenv("DB_PASSWORD", "35411231"),
+		DBSSLMode:          getenv("DB_SSL_MODE", "disable"),
 		OAuth2ClientID:     strings.TrimSpace(getenv("OAUTH2_CLIENT_ID", "")),
 		OAuth2ClientSecret: strings.TrimSpace(getenv("OAUTH2_CLIENT_SECRET", "")),
 	}

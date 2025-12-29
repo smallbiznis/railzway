@@ -32,12 +32,16 @@ import {
 type Invoice = {
   id?: string | number
   ID?: string | number
+  invoice_number?: number | string
+  InvoiceNumber?: number | string
   customer_id?: string | number
   CustomerID?: string | number
   subscription_id?: string | number
   SubscriptionID?: string | number
   status?: string
   Status?: string
+  subtotal_amount?: number | string
+  SubtotalAmount?: number | string
   total_amount?: number | string
   TotalAmount?: number | string
   currency?: string
@@ -46,8 +50,10 @@ type Invoice = {
   IssuedAt?: string
   due_at?: string
   DueAt?: string
-  paid_at?: string
-  PaidAt?: string
+  finalized_at?: string
+  FinalizedAt?: string
+  voided_at?: string
+  VoidedAt?: string
   created_at?: string
   CreatedAt?: string
   metadata?: Record<string, unknown>
@@ -154,19 +160,22 @@ export default function OrgInvoiceDetailPage() {
       }
     }
 
-    const total = readNumber(invoice, ["total_amount", "TotalAmount"])
+    const total = readNumber(invoice, [
+      "subtotal_amount",
+      "SubtotalAmount",
+      "total_amount",
+      "TotalAmount",
+    ])
     const currency = readField(invoice, ["currency", "Currency"]) ?? "USD"
     const metadata = invoice.metadata ?? invoice.Metadata
-    const tax = readMetadataNumber(metadata, ["tax", "tax_amount", "tax_amount_cents"])
+    const tax = readMetadataNumber(metadata, [
+      "tax",
+      "tax_amount",
+      "tax_amount_cents",
+    ])
     const subtotal = total !== null && tax !== null ? total - tax : total
-    const paid =
-      status === "PAID"
-        ? total
-        : readMetadataNumber(metadata, ["amount_paid", "paid_amount"])
-    const remaining =
-      total !== null
-        ? total - (paid ?? 0)
-        : null
+    const paid = readMetadataNumber(metadata, ["amount_paid", "paid_amount"])
+    const remaining = total !== null ? total - (paid ?? 0) : null
 
     return { total, tax, subtotal, paid, remaining, currency }
   }, [invoice, status])
@@ -551,6 +560,11 @@ const readMetadataValue = (
 }
 
 const getInvoiceNumber = (invoice: Invoice) => {
+  const invoiceNumber = readField(invoice, [
+    "invoice_number",
+    "InvoiceNumber",
+  ])
+  if (invoiceNumber) return String(invoiceNumber)
   const metadata = invoice.metadata ?? invoice.Metadata
   const fromMetadata = readMetadataValue(metadata, ["invoice_number", "number"])
   if (fromMetadata) return fromMetadata
@@ -558,37 +572,19 @@ const getInvoiceNumber = (invoice: Invoice) => {
 }
 
 const deriveStatus = (invoice: Invoice) => {
-  const raw =
+  return (
     readField(invoice, ["status", "Status"])?.toUpperCase() ?? "UNKNOWN"
-  const paidAt = readField(invoice, ["paid_at", "PaidAt"])
-  const dueAt = readField(invoice, ["due_at", "DueAt"])
-  const dueDate = dueAt ? new Date(dueAt) : null
-  if (paidAt || raw === "PAID") return "PAID"
-  if (raw === "VOID") return "VOID"
-  if (raw === "UNCOLLECTIBLE") return "UNCOLLECTIBLE"
-  if (raw === "DRAFT") return "DRAFT"
-  if (raw === "OPEN" || raw === "ISSUED") {
-    if (dueDate && dueDate.getTime() < Date.now()) return "PAST_DUE"
-    return "OPEN"
-  }
-  if (dueDate && dueDate.getTime() < Date.now()) return "PAST_DUE"
-  return raw
+  )
 }
 
 const formatStatus = (status?: string) => {
   switch (status) {
-    case "PAST_DUE":
-      return "Past due"
     case "DRAFT":
       return "Draft"
-    case "OPEN":
-      return "Open"
-    case "PAID":
-      return "Paid"
+    case "FINALIZED":
+      return "Finalized"
     case "VOID":
       return "Void"
-    case "UNCOLLECTIBLE":
-      return "Uncollectible"
     default:
       return status ?? "-"
   }
@@ -596,10 +592,7 @@ const formatStatus = (status?: string) => {
 
 const statusVariant = (status?: string) => {
   switch (status) {
-    case "PAST_DUE":
-    case "UNCOLLECTIBLE":
-      return "destructive"
-    case "PAID":
+    case "FINALIZED":
       return "secondary"
     case "DRAFT":
     case "VOID":
@@ -640,7 +633,8 @@ const normalizeLineItem = (item: unknown): InvoiceLineItem | null => {
   const description =
     readField(record, ["description", "name", "title"]) ?? "Line item"
   const quantity = readNumber(record, ["quantity", "qty"]) ?? 0
-  const unitAmount = readNumber(record, ["unit_amount", "unitAmount"]) ?? 0
+  const unitAmount =
+    readNumber(record, ["unit_price", "unit_amount", "unitAmount"]) ?? 0
   const amount = readNumber(record, ["amount", "total"]) ?? 0
   return { description, quantity, unitAmount, amount }
 }

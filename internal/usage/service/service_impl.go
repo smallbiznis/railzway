@@ -30,6 +30,7 @@ type ServiceParam struct {
 	GenID    *snowflake.Node
 	MeterSvc meterdomain.Service
 	SubSvc   subscriptiondomain.Service
+	Metrics  *cloudmetrics.CloudMetrics
 }
 
 type Service struct {
@@ -39,7 +40,8 @@ type Service struct {
 	genID     *snowflake.Node
 	metersvc  meterdomain.Service
 	subSvc    subscriptiondomain.Service
-	usagerepo repository.Repository[usagedomain.UsageRecord]
+	usagerepo repository.Repository[usagedomain.UsageEvent]
+	metrics   *cloudmetrics.CloudMetrics
 }
 
 func NewService(p ServiceParam) usagedomain.Service {
@@ -50,11 +52,16 @@ func NewService(p ServiceParam) usagedomain.Service {
 		genID:     p.GenID,
 		metersvc:  p.MeterSvc,
 		subSvc:    p.SubSvc,
-		usagerepo: repository.ProvideStore[usagedomain.UsageRecord](p.DB),
+		usagerepo: repository.ProvideStore[usagedomain.UsageEvent](p.DB),
+		metrics:   p.Metrics,
 	}
 }
 
-func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestRequest) (*usagedomain.UsageRecord, error) {
+func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestRequest) (*usagedomain.UsageEvent, error) {
+	if s.metrics != nil {
+		// Cloud accounting metric: emitted usage events are not billing inputs.
+		s.metrics.IncUsageEvent("2004619450745098240", req.MeterCode)
+	}
 	orgID, err := s.orgIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -70,47 +77,19 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 		return nil, usagedomain.ErrInvalidMeterCode
 	}
 
-	meter, err := s.metersvc.GetByCode(ctx, meterCode)
+	meter, err := s.resolveMeter(ctx, meterCode)
 	if err != nil {
-		switch {
-		case errors.Is(err, meterdomain.ErrInvalidCode), errors.Is(err, meterdomain.ErrNotFound):
-			return nil, usagedomain.ErrInvalidMeterCode
-		default:
-			return nil, err
-		}
+		return nil, err
 	}
 
-	subscription, err := s.subSvc.GetActiveByCustomerID(ctx, subscriptiondomain.GetActiveByCustomerIDRequest{
-		CustomerID: req.CustomerID,
-	})
+	subscription, err := s.resolveActiveSubscription(ctx, req.CustomerID)
 	if err != nil {
-		switch {
-		case errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound):
-			return nil, usagedomain.ErrInvalidSubscription
-		case errors.Is(err, subscriptiondomain.ErrInvalidCustomer):
-			return nil, usagedomain.ErrInvalidCustomer
-		default:
-			return nil, err
-		}
+		return nil, err
 	}
 
-	subscriptionItem, err := s.subSvc.GetSubscriptionItem(ctx, subscriptiondomain.GetSubscriptionItemRequest{
-		SubscriptionID: subscription.ID.String(),
-		MeterID:        meter.ID,
-	})
+	subscriptionItem, err := s.resolveSubscriptionItem(ctx, subscription.ID.String(), meter.ID)
 	if err != nil {
-		switch {
-		case errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound):
-			return nil, usagedomain.ErrInvalidSubscriptionItem
-		case errors.Is(err, subscriptiondomain.ErrInvalidMeterID):
-			return nil, usagedomain.ErrInvalidMeter
-		case errors.Is(err, subscriptiondomain.ErrInvalidMeterCode):
-			return nil, usagedomain.ErrInvalidMeterCode
-		case errors.Is(err, subscriptiondomain.ErrInvalidSubscription):
-			return nil, usagedomain.ErrInvalidSubscription
-		default:
-			return nil, err
-		}
+		return nil, err
 	}
 
 	meterID, err := s.parseID(meter.ID, usagedomain.ErrInvalidMeter)
@@ -122,23 +101,13 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 		return nil, usagedomain.ErrInvalidMeter
 	}
 
-	if req.RecordedAt.IsZero() {
-		return nil, usagedomain.ErrInvalidRecordedAt
+	if err := validateUsageEvent(req); err != nil {
+		return nil, err
 	}
 
-	if math.IsNaN(req.Value) || math.IsInf(req.Value, 0) {
-		return nil, usagedomain.ErrInvalidValue
-	}
+	idempotencyKey := normalizeIdempotencyKey(req.IdempotencyKey)
 
-	var idempotencyKey *string
-	if req.IdempotencyKey != nil {
-		key := strings.TrimSpace(*req.IdempotencyKey)
-		if key != "" {
-			idempotencyKey = &key
-		}
-	}
-
-	record := &usagedomain.UsageRecord{
+	record := &usagedomain.UsageEvent{
 		ID:                 s.genID.Generate(),
 		OrgID:              orgID,
 		CustomerID:         customerID,
@@ -160,47 +129,17 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 		return nil, err
 	}
 
-	cloudmetrics.RecordUsageEvent(orgID.String(), meterCode)
+	if s.metrics != nil {
+		// Cloud accounting metric: emitted usage events are not billing inputs.
+		s.metrics.IncUsageEvent(orgID.String(), meterCode)
+	}
 	return record, nil
 }
 
 func (s *Service) List(ctx context.Context, req usagedomain.ListUsageRequest) (usagedomain.ListUsageResponse, error) {
-	orgID, err := s.orgIDFromContext(ctx)
+	filter, pageSize, err := s.buildUsageFilter(ctx, req)
 	if err != nil {
 		return usagedomain.ListUsageResponse{}, err
-	}
-
-	filter := &usagedomain.UsageRecord{
-		OrgID: orgID,
-	}
-
-	if req.CustomerID != "" {
-		customerID, err := s.parseID(req.CustomerID, usagedomain.ErrInvalidCustomer)
-		if err != nil {
-			return usagedomain.ListUsageResponse{}, err
-		}
-		filter.CustomerID = customerID
-	}
-
-	if req.SubscriptionID != "" {
-		subscriptionID, err := s.parseID(req.SubscriptionID, usagedomain.ErrInvalidSubscription)
-		if err != nil {
-			return usagedomain.ListUsageResponse{}, err
-		}
-		filter.SubscriptionID = subscriptionID
-	}
-
-	if req.MeterID != "" {
-		meterID, err := s.parseID(req.MeterID, usagedomain.ErrInvalidMeter)
-		if err != nil {
-			return usagedomain.ListUsageResponse{}, err
-		}
-		filter.MeterID = meterID
-	}
-
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 50
 	}
 
 	items, err := s.usagerepo.Find(ctx, filter,
@@ -213,37 +152,7 @@ func (s *Service) List(ctx context.Context, req usagedomain.ListUsageRequest) (u
 	if err != nil {
 		return usagedomain.ListUsageResponse{}, err
 	}
-
-	pageInfo := pagination.BuildCursorPageInfo(items, pageSize, func(record *usagedomain.UsageRecord) string {
-		token, err := pagination.EncodeCursor(pagination.Cursor{
-			ID:        record.ID.String(),
-			CreatedAt: record.CreatedAt.Format(time.RFC3339),
-		})
-		if err != nil {
-			return ""
-		}
-		return token
-	})
-	if pageInfo != nil && pageInfo.HasMore && len(items) > int(pageSize) {
-		items = items[:pageSize]
-	}
-
-	records := make([]usagedomain.UsageRecord, 0, len(items))
-	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		records = append(records, *item)
-	}
-
-	resp := usagedomain.ListUsageResponse{
-		UsageRecords: records,
-	}
-	if pageInfo != nil {
-		resp.PageInfo = *pageInfo
-	}
-
-	return resp, nil
+	return buildUsageListResponse(items, pageSize)
 }
 
 func (s *Service) parseID(value string, invalidErr error) (snowflake.ID, error) {
@@ -260,4 +169,152 @@ func (s *Service) orgIDFromContext(ctx context.Context) (snowflake.ID, error) {
 		return 0, usagedomain.ErrInvalidOrganization
 	}
 	return snowflake.ID(orgID), nil
+}
+
+func (s *Service) resolveMeter(ctx context.Context, meterCode string) (*meterdomain.Response, error) {
+	meter, err := s.metersvc.GetByCode(ctx, meterCode)
+	if err != nil {
+		switch {
+		case errors.Is(err, meterdomain.ErrInvalidCode), errors.Is(err, meterdomain.ErrNotFound):
+			return nil, usagedomain.ErrInvalidMeterCode
+		default:
+			return nil, err
+		}
+	}
+	return meter, nil
+}
+
+func (s *Service) resolveActiveSubscription(ctx context.Context, customerID string) (subscriptiondomain.Subscription, error) {
+	subscription, err := s.subSvc.GetActiveByCustomerID(ctx, subscriptiondomain.GetActiveByCustomerIDRequest{
+		CustomerID: customerID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound):
+			return subscriptiondomain.Subscription{}, usagedomain.ErrInvalidSubscription
+		case errors.Is(err, subscriptiondomain.ErrInvalidCustomer):
+			return subscriptiondomain.Subscription{}, usagedomain.ErrInvalidCustomer
+		default:
+			return subscriptiondomain.Subscription{}, err
+		}
+	}
+	return subscription, nil
+}
+
+func (s *Service) resolveSubscriptionItem(ctx context.Context, subscriptionID, meterID string) (subscriptiondomain.SubscriptionItem, error) {
+	item, err := s.subSvc.GetSubscriptionItem(ctx, subscriptiondomain.GetSubscriptionItemRequest{
+		SubscriptionID: subscriptionID,
+		MeterID:        meterID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound):
+			return subscriptiondomain.SubscriptionItem{}, usagedomain.ErrInvalidSubscriptionItem
+		case errors.Is(err, subscriptiondomain.ErrInvalidMeterID):
+			return subscriptiondomain.SubscriptionItem{}, usagedomain.ErrInvalidMeter
+		case errors.Is(err, subscriptiondomain.ErrInvalidMeterCode):
+			return subscriptiondomain.SubscriptionItem{}, usagedomain.ErrInvalidMeterCode
+		case errors.Is(err, subscriptiondomain.ErrInvalidSubscription):
+			return subscriptiondomain.SubscriptionItem{}, usagedomain.ErrInvalidSubscription
+		default:
+			return subscriptiondomain.SubscriptionItem{}, err
+		}
+	}
+	return item, nil
+}
+
+func validateUsageEvent(req usagedomain.CreateIngestRequest) error {
+	if req.RecordedAt.IsZero() {
+		return usagedomain.ErrInvalidRecordedAt
+	}
+	if math.IsNaN(req.Value) || math.IsInf(req.Value, 0) {
+		return usagedomain.ErrInvalidValue
+	}
+	return nil
+}
+
+func normalizeIdempotencyKey(key *string) *string {
+	if key == nil {
+		return nil
+	}
+	value := strings.TrimSpace(*key)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func (s *Service) buildUsageFilter(ctx context.Context, req usagedomain.ListUsageRequest) (*usagedomain.UsageEvent, int32, error) {
+	orgID, err := s.orgIDFromContext(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	filter := &usagedomain.UsageEvent{
+		OrgID: orgID,
+	}
+
+	if req.CustomerID != "" {
+		customerID, err := s.parseID(req.CustomerID, usagedomain.ErrInvalidCustomer)
+		if err != nil {
+			return nil, 0, err
+		}
+		filter.CustomerID = customerID
+	}
+
+	if req.SubscriptionID != "" {
+		subscriptionID, err := s.parseID(req.SubscriptionID, usagedomain.ErrInvalidSubscription)
+		if err != nil {
+			return nil, 0, err
+		}
+		filter.SubscriptionID = subscriptionID
+	}
+
+	if req.MeterID != "" {
+		meterID, err := s.parseID(req.MeterID, usagedomain.ErrInvalidMeter)
+		if err != nil {
+			return nil, 0, err
+		}
+		filter.MeterID = meterID
+	}
+
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+
+	return filter, pageSize, nil
+}
+
+func buildUsageListResponse(items []*usagedomain.UsageEvent, pageSize int32) (usagedomain.ListUsageResponse, error) {
+	pageInfo := pagination.BuildCursorPageInfo(items, pageSize, func(record *usagedomain.UsageEvent) string {
+		token, err := pagination.EncodeCursor(pagination.Cursor{
+			ID:        record.ID.String(),
+			CreatedAt: record.CreatedAt.Format(time.RFC3339),
+		})
+		if err != nil {
+			return ""
+		}
+		return token
+	})
+	if pageInfo != nil && pageInfo.HasMore && len(items) > int(pageSize) {
+		items = items[:pageSize]
+	}
+
+	records := make([]usagedomain.UsageEvent, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		records = append(records, *item)
+	}
+
+	resp := usagedomain.ListUsageResponse{
+		UsageEvents: records,
+	}
+	if pageInfo != nil {
+		resp.PageInfo = *pageInfo
+	}
+
+	return resp, nil
 }

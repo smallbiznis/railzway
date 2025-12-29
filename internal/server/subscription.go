@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	"github.com/smallbiznis/valora/internal/authorization"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
 )
 
@@ -26,6 +27,15 @@ func (s *Server) CreateSubscription(c *gin.Context) {
 	if err != nil {
 		AbortWithError(c, err)
 		return
+	}
+
+	if s.auditSvc != nil {
+		targetID := resp.ID
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "subscription.created", "subscription", &targetID, map[string]any{
+			"subscription_id": resp.ID,
+			"customer_id":     resp.CustomerID,
+			"status":          string(resp.Status),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": resp})
@@ -74,7 +84,72 @@ func (s *Server) GetSubscriptionByID(c *gin.Context) {
 }
 
 func (s *Server) CancelSubscription(c *gin.Context) {
-	AbortWithError(c, ErrServiceUnavailable)
+	s.transitionSubscription(
+		c,
+		subscriptiondomain.SubscriptionStatusCanceled,
+		"subscription.canceled",
+		authorization.ActionSubscriptionCancel,
+	)
+}
+
+func (s *Server) ActivateSubscription(c *gin.Context) {
+	s.transitionSubscription(
+		c,
+		subscriptiondomain.SubscriptionStatusActive,
+		"subscription.activated",
+		authorization.ActionSubscriptionActivate,
+	)
+}
+
+func (s *Server) PauseSubscription(c *gin.Context) {
+	s.transitionSubscription(
+		c,
+		subscriptiondomain.SubscriptionStatusPaused,
+		"subscription.paused",
+		authorization.ActionSubscriptionPause,
+	)
+}
+
+func (s *Server) ResumeSubscription(c *gin.Context) {
+	s.transitionSubscription(
+		c,
+		subscriptiondomain.SubscriptionStatusActive,
+		"subscription.resumed",
+		authorization.ActionSubscriptionResume,
+	)
+}
+
+func (s *Server) transitionSubscription(c *gin.Context, target subscriptiondomain.SubscriptionStatus, auditAction string, capabilityAction string) {
+	id := strings.TrimSpace(c.Param("id"))
+	if _, err := snowflake.ParseString(id); err != nil {
+		AbortWithError(c, newValidationError("id", "invalid_id", "invalid id"))
+		return
+	}
+
+	if err := s.authorizeOrgAction(c, authorization.ObjectSubscription, capabilityAction); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	if err := s.subscriptionSvc.TransitionSubscription(
+		c.Request.Context(),
+		id,
+		target,
+		"",
+	); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	if s.auditSvc != nil && strings.TrimSpace(auditAction) != "" {
+		targetID := id
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, auditAction, "subscription", &targetID, map[string]any{
+			"subscription_id": id,
+			"status":          string(target),
+		})
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 func normalizeSubscriptionItems(items []subscriptiondomain.CreateSubscriptionItemRequest) []subscriptiondomain.CreateSubscriptionItemRequest {
@@ -100,6 +175,13 @@ func isSubscriptionValidationError(err error) bool {
 		errors.Is(err, subscriptiondomain.ErrInvalidMeterID),
 		errors.Is(err, subscriptiondomain.ErrInvalidMeterCode),
 		errors.Is(err, subscriptiondomain.ErrInvalidStatus),
+		errors.Is(err, subscriptiondomain.ErrInvalidTargetStatus),
+		errors.Is(err, subscriptiondomain.ErrInvalidTransition),
+		errors.Is(err, subscriptiondomain.ErrMissingSubscriptionItems),
+		errors.Is(err, subscriptiondomain.ErrMissingPricing),
+		errors.Is(err, subscriptiondomain.ErrMissingCustomer),
+		errors.Is(err, subscriptiondomain.ErrBillingCyclesOpen),
+		errors.Is(err, subscriptiondomain.ErrInvoicesNotFinalized),
 		errors.Is(err, subscriptiondomain.ErrInvalidCollectionMode),
 		errors.Is(err, subscriptiondomain.ErrInvalidBillingCycleType),
 		errors.Is(err, subscriptiondomain.ErrInvalidStartAt),

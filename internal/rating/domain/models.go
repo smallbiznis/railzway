@@ -5,37 +5,26 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
-	"gorm.io/datatypes"
 )
 
-// RatingResult captures the aggregated charge outcome for a billing cycle.
+// RatingResult captures the priced usage output for a billing cycle.
 type RatingResult struct {
-	ID             snowflake.ID      `gorm:"primaryKey"`
-	OrgID          snowflake.ID      `gorm:"not null;index"`
-	BillingCycleID snowflake.ID      `gorm:"not null;index;uniqueIndex:ux_rating_billing_cycle"`
-	SubscriptionID snowflake.ID      `gorm:"not null;index"`
-	TotalAmount    int64             `gorm:"not null;default:0"`
-	Currency       string            `gorm:"type:text;not null"`
-	Metadata       datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt      time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	ID             snowflake.ID `gorm:"primaryKey"`
+	OrgID          snowflake.ID `gorm:"not null;index"`
+	SubscriptionID snowflake.ID `gorm:"not null;index"`
+	BillingCycleID snowflake.ID `gorm:"not null;index"`
+	MeterID        snowflake.ID `gorm:"not null;index"`
+	PriceID        snowflake.ID `gorm:"not null"`
+	Quantity       float64      `gorm:"not null"`
+	UnitPrice      int64        `gorm:"not null"`
+	Amount         int64        `gorm:"not null"`
+	Currency       string       `gorm:"type:text;not null"`
+	PeriodStart    time.Time    `gorm:"not null"`
+	PeriodEnd      time.Time    `gorm:"not null"`
+	Source         string       `gorm:"type:text;not null"`
+	Checksum       string       `gorm:"type:text;not null;uniqueIndex"`
+	CreatedAt      time.Time    `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
 // TableName sets the database table name.
 func (RatingResult) TableName() string { return "rating_results" }
-
-// RatingResultItem stores line-level rating breakdown.
-type RatingResultItem struct {
-	ID                 snowflake.ID      `gorm:"primaryKey"`
-	OrgID              snowflake.ID      `gorm:"not null;index"`
-	RatingResultID     snowflake.ID      `gorm:"not null;index"`
-	SubscriptionItemID snowflake.ID      `gorm:"not null;index"`
-	Quantity           int64             `gorm:"not null"`
-	UnitAmount         int64             `gorm:"not null"`
-	Amount             int64             `gorm:"not null"`
-	TierBreakdown      datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}'"`
-	Metadata           datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt          time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
-}
-
-// TableName sets the database table name.
-func (RatingResultItem) TableName() string { return "rating_result_items" }

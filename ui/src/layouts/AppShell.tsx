@@ -40,11 +40,15 @@ export function AppShell() {
     setIsLoading(true)
     api
       .post(`/user/using/${orgId}`)
-      .then(() => api.get(`/orgs/${orgId}`))
+      .then(() => api.get("/user/orgs"))
       .then((res) => {
         if (!isMounted) return
-        const org = res.data?.org ?? { id: orgId, name: `Org ${orgId}` }
-        setCurrentOrg(org)
+        const list = res.data?.orgs ?? []
+        setOrgs(list)
+        const match = list.find(
+          (item: any) => String(item?.id ?? item?.ID ?? item?.org_id ?? "") === orgId
+        )
+        setCurrentOrg(match ?? { id: orgId, name: `Org ${orgId}` })
         setIsLoading(false)
       })
       .catch(() => {
@@ -52,16 +56,6 @@ export function AppShell() {
         setIsLoading(false)
         setCurrentOrg(null)
         navigate("/orgs", { replace: true })
-      })
-
-    api
-      .get("/user/orgs")
-      .then((res) => {
-        if (!isMounted) return
-        setOrgs(res.data?.orgs ?? [])
-      })
-      .catch(() => {
-        /* ignore */
       })
 
     return () => {

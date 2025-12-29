@@ -1,15 +1,21 @@
 package oauth2provider
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
 	"github.com/smallbiznis/valora/internal/auth/session"
+	"github.com/smallbiznis/valora/internal/config"
+	orgdomain "github.com/smallbiznis/valora/internal/organization/domain"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Handler handles OAuth2 provider endpoints.
@@ -18,14 +24,20 @@ type Handler struct {
 	authsvc  authdomain.Service
 	sessions *session.Manager
 	log      *zap.Logger
+	cfg      config.Config
+	db       *gorm.DB
+	genID    *snowflake.Node
 }
 
-func NewHandler(svc *Service, authsvc authdomain.Service, sessions *session.Manager, log *zap.Logger) *Handler {
+func NewHandler(svc *Service, authsvc authdomain.Service, sessions *session.Manager, log *zap.Logger, cfg config.Config, db *gorm.DB, genID *snowflake.Node) *Handler {
 	return &Handler{
 		svc:      svc,
 		authsvc:  authsvc,
 		sessions: sessions,
 		log:      log.Named("auth.oauth2.handler"),
+		cfg:      cfg,
+		db:       db,
+		genID:    genID,
 	}
 }
 
@@ -130,6 +142,10 @@ func (h *Handler) Token(c *gin.Context) {
 		writeOAuthError(c, mapTokenErrorStatus(err), mapTokenErrorCode(err))
 		return
 	}
+	if err := h.ensureAutoOrgMembership(c.Request.Context(), resp.UserID); err != nil {
+		writeOAuthError(c, http.StatusInternalServerError, "server_error")
+		return
+	}
 
 	h.log.Info("oauth2 token issued",
 		zap.String("request_id", requestID(c)),
@@ -199,6 +215,73 @@ func appendAuthCode(rawRedirectURI, code, state string) (string, error) {
 	}
 	redirectURL.RawQuery = query.Encode()
 	return redirectURL.String(), nil
+}
+
+func (h *Handler) ensureAutoOrgMembership(ctx context.Context, userID snowflake.ID) error {
+	if !h.cfg.IsCloud() || userID == 0 {
+		return nil
+	}
+	cfg := h.cfg.Bootstrap
+	if !cfg.AllowAssignOrg {
+		return nil
+	}
+	orgIDRaw := strings.TrimSpace(cfg.AutoAssignOrgID)
+	role := strings.ToUpper(strings.TrimSpace(cfg.AutoAssignOrgRole))
+	if orgIDRaw == "" || role == "" {
+		return nil
+	}
+	if !roleAllowed(cfg.AllowAssignUserRole, role) {
+		return nil
+	}
+
+	orgID, err := snowflake.ParseString(orgIDRaw)
+	if err != nil {
+		return err
+	}
+
+	var org orgdomain.Organization
+	if err := h.db.WithContext(ctx).First(&org, "id = ?", orgID).Error; err != nil {
+		return err
+	}
+
+	var count int64
+	if err := h.db.WithContext(ctx).
+		Model(&orgdomain.OrganizationMember{}).
+		Where("org_id = ? AND user_id = ?", orgID, userID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	member := orgdomain.OrganizationMember{
+		ID:        h.genID.Generate(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Role:      role,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := h.db.WithContext(ctx).Create(&member).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func roleAllowed(allowedRaw string, role string) bool {
+	allowedRaw = strings.TrimSpace(allowedRaw)
+	if allowedRaw == "" || role == "" {
+		return false
+	}
+	parts := strings.FieldsFunc(allowedRaw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	for _, part := range parts {
+		if strings.ToUpper(strings.TrimSpace(part)) == role {
+			return true
+		}
+	}
+	return false
 }
 
 func writeOAuthError(c *gin.Context, status int, code string) {

@@ -49,46 +49,17 @@ func (s *Service) Create(ctx context.Context, req pricetierdomain.CreateRequest)
 		return nil, err
 	}
 
-	priceID, err := parseID(req.PriceID)
-	if err != nil {
-		return nil, pricetierdomain.ErrInvalidPrice
-	}
-
-	if req.TierMode < 0 {
-		return nil, pricetierdomain.ErrInvalidTierMode
-	}
-
-	if req.StartQuantity <= 0 {
-		return nil, pricetierdomain.ErrInvalidStartQty
-	}
-
-	if req.EndQuantity != nil && *req.EndQuantity <= req.StartQuantity {
-		return nil, pricetierdomain.ErrInvalidEndQty
-	}
-
-	if req.UnitAmountCents != nil && *req.UnitAmountCents < 0 {
-		return nil, pricetierdomain.ErrInvalidUnitAmount
-	}
-
-	if req.FlatAmountCents != nil && *req.FlatAmountCents < 0 {
-		return nil, pricetierdomain.ErrInvalidFlatAmount
-	}
-
-	if req.UnitAmountCents == nil && req.FlatAmountCents == nil {
-		return nil, pricetierdomain.ErrInvalidUnitAmount
-	}
-
-	unit := strings.TrimSpace(req.Unit)
-	if unit == "" {
-		return nil, pricetierdomain.ErrInvalidUnit
-	}
-
-	priceExists, err := s.priceExists(ctx, orgID, priceID)
+	priceID, unit, err := s.parseTierIdentifiers(req)
 	if err != nil {
 		return nil, err
 	}
-	if !priceExists {
-		return nil, pricetierdomain.ErrInvalidPrice
+
+	if err := validateTierValues(req); err != nil {
+		return nil, err
+	}
+
+	if err := s.ensurePriceExists(ctx, orgID, priceID); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -173,6 +144,17 @@ func (s *Service) priceExists(ctx context.Context, orgID, priceID snowflake.ID) 
 	return item != nil, nil
 }
 
+func (s *Service) ensurePriceExists(ctx context.Context, orgID, priceID snowflake.ID) error {
+	exists, err := s.priceExists(ctx, orgID, priceID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return pricetierdomain.ErrInvalidPrice
+	}
+	return nil
+}
+
 func (s *Service) toResponse(t *pricetierdomain.PriceTier) *pricetierdomain.Response {
 	return &pricetierdomain.Response{
 		ID:              t.ID.String(),
@@ -191,4 +173,46 @@ func (s *Service) toResponse(t *pricetierdomain.PriceTier) *pricetierdomain.Resp
 
 func parseID(value string) (snowflake.ID, error) {
 	return snowflake.ParseString(strings.TrimSpace(value))
+}
+
+func (s *Service) parseTierIdentifiers(req pricetierdomain.CreateRequest) (snowflake.ID, string, error) {
+	priceID, err := parseID(req.PriceID)
+	if err != nil {
+		return 0, "", pricetierdomain.ErrInvalidPrice
+	}
+
+	unit := strings.TrimSpace(req.Unit)
+	if unit == "" {
+		return 0, "", pricetierdomain.ErrInvalidUnit
+	}
+
+	return priceID, unit, nil
+}
+
+func validateTierValues(req pricetierdomain.CreateRequest) error {
+	if req.TierMode < 0 {
+		return pricetierdomain.ErrInvalidTierMode
+	}
+
+	if req.StartQuantity <= 0 {
+		return pricetierdomain.ErrInvalidStartQty
+	}
+
+	if req.EndQuantity != nil && *req.EndQuantity <= req.StartQuantity {
+		return pricetierdomain.ErrInvalidEndQty
+	}
+
+	if req.UnitAmountCents != nil && *req.UnitAmountCents < 0 {
+		return pricetierdomain.ErrInvalidUnitAmount
+	}
+
+	if req.FlatAmountCents != nil && *req.FlatAmountCents < 0 {
+		return pricetierdomain.ErrInvalidFlatAmount
+	}
+
+	if req.UnitAmountCents == nil && req.FlatAmountCents == nil {
+		return pricetierdomain.ErrInvalidUnitAmount
+	}
+
+	return nil
 }

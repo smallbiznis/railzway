@@ -1,0 +1,2 @@
+ALTER TABLE billing_cycles
+    ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ;

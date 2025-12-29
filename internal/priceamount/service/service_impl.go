@@ -49,47 +49,17 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 		return nil, err
 	}
 
-	priceID, err := parseID(req.PriceID)
-	if err != nil {
-		return nil, priceamountdomain.ErrInvalidPrice
-	}
-
-	var meterID *snowflake.ID
-	if req.MeterID != nil && strings.TrimSpace(*req.MeterID) != "" {
-		parsedMeterID, err := parseID(*req.MeterID)
-		if err != nil {
-			return nil, priceamountdomain.ErrInvalidMeterID
-		}
-		meterID = &parsedMeterID
-	}
-
-	currency := strings.TrimSpace(req.Currency)
-	if currency == "" {
-		return nil, priceamountdomain.ErrInvalidCurrency
-	}
-
-	if req.UnitAmountCents < 0 {
-		return nil, priceamountdomain.ErrInvalidUnitAmount
-	}
-
-	if req.MinimumAmountCents != nil && *req.MinimumAmountCents < 0 {
-		return nil, priceamountdomain.ErrInvalidMinAmount
-	}
-
-	if req.MaximumAmountCents != nil && *req.MaximumAmountCents < 0 {
-		return nil, priceamountdomain.ErrInvalidMaxAmount
-	}
-
-	if req.MinimumAmountCents != nil && req.MaximumAmountCents != nil && *req.MaximumAmountCents < *req.MinimumAmountCents {
-		return nil, priceamountdomain.ErrInvalidMaxAmount
-	}
-
-	priceExists, err := s.priceExists(ctx, orgID, priceID)
+	priceID, meterID, currency, err := s.parseAmountIdentifiers(req)
 	if err != nil {
 		return nil, err
 	}
-	if !priceExists {
-		return nil, priceamountdomain.ErrInvalidPrice
+
+	if err := validateAmountValues(req); err != nil {
+		return nil, err
+	}
+
+	if err := s.ensurePriceExists(ctx, orgID, priceID); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -185,6 +155,17 @@ func (s *Service) priceExists(ctx context.Context, orgID, priceID snowflake.ID) 
 	return item != nil, nil
 }
 
+func (s *Service) ensurePriceExists(ctx context.Context, orgID, priceID snowflake.ID) error {
+	exists, err := s.priceExists(ctx, orgID, priceID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return priceamountdomain.ErrInvalidPrice
+	}
+	return nil
+}
+
 func (s *Service) toResponse(a *priceamountdomain.PriceAmount) *priceamountdomain.Response {
 	var meterID *string
 	if a.MeterID != nil {
@@ -207,4 +188,47 @@ func (s *Service) toResponse(a *priceamountdomain.PriceAmount) *priceamountdomai
 
 func parseID(value string) (snowflake.ID, error) {
 	return snowflake.ParseString(strings.TrimSpace(value))
+}
+
+func (s *Service) parseAmountIdentifiers(req priceamountdomain.CreateRequest) (snowflake.ID, *snowflake.ID, string, error) {
+	priceID, err := parseID(req.PriceID)
+	if err != nil {
+		return 0, nil, "", priceamountdomain.ErrInvalidPrice
+	}
+
+	var meterID *snowflake.ID
+	if req.MeterID != nil && strings.TrimSpace(*req.MeterID) != "" {
+		parsedMeterID, err := parseID(*req.MeterID)
+		if err != nil {
+			return 0, nil, "", priceamountdomain.ErrInvalidMeterID
+		}
+		meterID = &parsedMeterID
+	}
+
+	currency := strings.TrimSpace(req.Currency)
+	if currency == "" {
+		return 0, nil, "", priceamountdomain.ErrInvalidCurrency
+	}
+
+	return priceID, meterID, currency, nil
+}
+
+func validateAmountValues(req priceamountdomain.CreateRequest) error {
+	if req.UnitAmountCents < 0 {
+		return priceamountdomain.ErrInvalidUnitAmount
+	}
+
+	if req.MinimumAmountCents != nil && *req.MinimumAmountCents < 0 {
+		return priceamountdomain.ErrInvalidMinAmount
+	}
+
+	if req.MaximumAmountCents != nil && *req.MaximumAmountCents < 0 {
+		return priceamountdomain.ErrInvalidMaxAmount
+	}
+
+	if req.MinimumAmountCents != nil && req.MaximumAmountCents != nil && *req.MaximumAmountCents < *req.MinimumAmountCents {
+		return priceamountdomain.ErrInvalidMaxAmount
+	}
+
+	return nil
 }

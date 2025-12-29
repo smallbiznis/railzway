@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
+	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
@@ -215,7 +216,7 @@ func (s *Service) Create(ctx context.Context, req subscriptiondomain.CreateSubsc
 		ID:             s.genID.Generate(),
 		OrgID:          orgID,
 		CustomerID:     customerID,
-		Status:         subscriptiondomain.SubscriptionStatusPending,
+		Status:         subscriptiondomain.SubscriptionStatusDraft,
 		CollectionMode: req.CollectionMode,
 		StartAt:        now,
 		CreatedAt:      now,
@@ -225,94 +226,9 @@ func (s *Service) Create(ctx context.Context, req subscriptiondomain.CreateSubsc
 		subscription.Metadata = datatypes.JSONMap(req.Metadata)
 	}
 
-	priceCache := make(map[string]*pricedomain.Response, len(req.Items))
-	flatCount := 0
-	subscriptionItems := make([]subscriptiondomain.SubscriptionItem, 0, len(req.Items))
-
-	for _, item := range req.Items {
-		priceID := strings.TrimSpace(item.PriceID)
-		if priceID == "" {
-			return subscriptiondomain.CreateSubscriptionResponse{},
-				subscriptiondomain.ErrInvalidPrice
-		}
-
-		price, ok := priceCache[priceID]
-		if !ok {
-			loadedPrice, err := s.pricesvc.Get(ctx, priceID)
-			if err != nil {
-				return subscriptiondomain.CreateSubscriptionResponse{}, err
-			}
-			if !loadedPrice.Active || loadedPrice.RetiredAt != nil {
-				return subscriptiondomain.CreateSubscriptionResponse{},
-					subscriptiondomain.ErrInvalidPrice
-			}
-			price = loadedPrice
-			priceCache[priceID] = loadedPrice
-		}
-
-		// --- PricingModel constraints ---
-		switch price.PricingModel {
-		case pricedomain.Flat:
-			flatCount++
-			if flatCount > 1 {
-				return subscriptiondomain.CreateSubscriptionResponse{},
-					subscriptiondomain.ErrMultipleFlatPrices
-			}
-
-		case pricedomain.PerUnit,
-			pricedomain.TieredVolume,
-			pricedomain.TieredGraduated:
-
-		default:
-			return subscriptiondomain.CreateSubscriptionResponse{},
-				pricedomain.ErrUnsupportedPricingModel
-		}
-
-		// --- Quantity & BillingMode rules ---
-		quantity := item.Quantity
-		if quantity <= 0 {
-			quantity = 1 // Stripe-like default
-		}
-
-		switch price.BillingMode {
-		case pricedomain.Licensed:
-			if quantity < 1 {
-				return subscriptiondomain.CreateSubscriptionResponse{},
-					pricedomain.ErrInvalidPricingModel
-			}
-
-		case pricedomain.Metered:
-			// quantity is ignored or treated as multiplier
-			// do not block here
-
-		default:
-			return subscriptiondomain.CreateSubscriptionResponse{},
-				pricedomain.ErrInvalidBillingMode
-		}
-
-		parsedPriceID, err := s.parseID(price.ID, subscriptiondomain.ErrInvalidPrice)
-		if err != nil {
-			return subscriptiondomain.CreateSubscriptionResponse{}, err
-		}
-
-		var priceCodePtr *string
-		if price.Code != "" {
-			code := price.Code
-			priceCodePtr = &code
-		}
-
-		subscriptionItems = append(subscriptionItems, subscriptiondomain.SubscriptionItem{
-			ID:               s.genID.Generate(),
-			OrgID:            orgID,
-			SubscriptionID:   subscription.ID,
-			PriceID:          parsedPriceID,
-			PriceCode:        priceCodePtr, // snapshot
-			Quantity:         quantity,
-			BillingMode:      string(price.BillingMode), // snapshot
-			BillingThreshold: price.BillingThreshold,    // snapshot
-			CreatedAt:        now,
-			UpdatedAt:        now,
-		})
+	subscriptionItems, err := s.buildSubscriptionItems(ctx, orgID, subscription.ID, req.Items, now)
+	if err != nil {
+		return subscriptiondomain.CreateSubscriptionResponse{}, err
 	}
 
 	if err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -352,6 +268,79 @@ func (s *Service) GetByID(ctx context.Context, id string) (subscriptiondomain.Su
 	return *item, nil
 }
 
+func (s *Service) TransitionSubscription(
+	ctx context.Context,
+	subscriptionID string,
+	targetStatus subscriptiondomain.SubscriptionStatus,
+	reason subscriptiondomain.TransitionReason,
+) error {
+	orgID, err := s.orgIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	_ = reason
+
+	id, err := s.parseID(subscriptionID, subscriptiondomain.ErrInvalidSubscription)
+	if err != nil {
+		return err
+	}
+
+	if !isValidStatus(targetStatus) {
+		return subscriptiondomain.ErrInvalidTargetStatus
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		subscription, err := s.repo.FindByIDForUpdate(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if subscription == nil {
+			return subscriptiondomain.ErrSubscriptionNotFound
+		}
+
+		if subscription.Status == targetStatus {
+			return nil
+		}
+
+		if !isTransitionAllowed(subscription.Status, targetStatus) {
+			return subscriptiondomain.ErrInvalidTransition
+		}
+
+		now := time.Now().UTC()
+		switch targetStatus {
+		case subscriptiondomain.SubscriptionStatusActive:
+			if subscription.Status == subscriptiondomain.SubscriptionStatusDraft {
+				if err := s.validateActivation(ctx, tx, subscription); err != nil {
+					return err
+				}
+				if subscription.ActivatedAt == nil {
+					subscription.ActivatedAt = &now
+				}
+			}
+			if subscription.Status == subscriptiondomain.SubscriptionStatusPaused {
+				subscription.ResumedAt = &now
+			}
+		case subscriptiondomain.SubscriptionStatusPaused:
+			subscription.PausedAt = &now
+		case subscriptiondomain.SubscriptionStatusCanceled:
+			subscription.CanceledAt = &now
+		case subscriptiondomain.SubscriptionStatusEnded:
+			if err := s.validateEnd(ctx, tx, subscription); err != nil {
+				return err
+			}
+			subscription.EndedAt = &now
+		default:
+			return subscriptiondomain.ErrInvalidTargetStatus
+		}
+
+		subscription.Status = targetStatus
+		subscription.UpdatedAt = now
+
+		return s.updateLifecycle(ctx, tx, subscription)
+	})
+}
+
 func (s *Service) parseID(value string, invalidErr error) (snowflake.ID, error) {
 	id, err := snowflake.ParseString(strings.TrimSpace(value))
 	if err != nil || id == 0 {
@@ -368,6 +357,169 @@ func (s *Service) orgIDFromContext(ctx context.Context) (snowflake.ID, error) {
 	return snowflake.ID(orgID), nil
 }
 
+func (s *Service) validateActivation(ctx context.Context, tx *gorm.DB, subscription *subscriptiondomain.Subscription) error {
+	itemCount, err := s.countSubscriptionItems(ctx, tx, subscription.OrgID, subscription.ID)
+	if err != nil {
+		return err
+	}
+	if itemCount == 0 {
+		return subscriptiondomain.ErrMissingSubscriptionItems
+	}
+
+	pricedCount, err := s.countSubscriptionItemsWithPrice(ctx, tx, subscription.OrgID, subscription.ID)
+	if err != nil {
+		return err
+	}
+	if pricedCount < itemCount {
+		return subscriptiondomain.ErrMissingPricing
+	}
+
+	hasCustomer, err := s.hasCustomer(ctx, tx, subscription.OrgID, subscription.CustomerID)
+	if err != nil {
+		return err
+	}
+	if !hasCustomer {
+		return subscriptiondomain.ErrMissingCustomer
+	}
+
+	return nil
+}
+
+func (s *Service) validateEnd(ctx context.Context, tx *gorm.DB, subscription *subscriptiondomain.Subscription) error {
+	openCycles, err := s.countOpenBillingCycles(ctx, tx, subscription.OrgID, subscription.ID)
+	if err != nil {
+		return err
+	}
+	if openCycles > 0 {
+		return subscriptiondomain.ErrBillingCyclesOpen
+	}
+
+	openInvoices, err := s.countUnfinalizedInvoices(ctx, tx, subscription.OrgID, subscription.ID)
+	if err != nil {
+		return err
+	}
+	if openInvoices > 0 {
+		return subscriptiondomain.ErrInvoicesNotFinalized
+	}
+
+	return nil
+}
+
+func (s *Service) updateLifecycle(ctx context.Context, tx *gorm.DB, subscription *subscriptiondomain.Subscription) error {
+	return tx.WithContext(ctx).Exec(
+		`UPDATE subscriptions
+		 SET status = ?, activated_at = ?, paused_at = ?, resumed_at = ?, canceled_at = ?, ended_at = ?, updated_at = ?
+		 WHERE org_id = ? AND id = ?`,
+		subscription.Status,
+		subscription.ActivatedAt,
+		subscription.PausedAt,
+		subscription.ResumedAt,
+		subscription.CanceledAt,
+		subscription.EndedAt,
+		subscription.UpdatedAt,
+		subscription.OrgID,
+		subscription.ID,
+	).Error
+}
+
+func (s *Service) countSubscriptionItems(ctx context.Context, tx *gorm.DB, orgID, subscriptionID snowflake.ID) (int64, error) {
+	var count int64
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT COUNT(1) FROM subscription_items WHERE org_id = ? AND subscription_id = ?`,
+		orgID,
+		subscriptionID,
+	).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Service) countSubscriptionItemsWithPrice(ctx context.Context, tx *gorm.DB, orgID, subscriptionID snowflake.ID) (int64, error) {
+	var count int64
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT COUNT(1)
+		 FROM subscription_items si
+		 JOIN prices p ON p.id = si.price_id AND p.org_id = si.org_id
+		 WHERE si.org_id = ? AND si.subscription_id = ?`,
+		orgID,
+		subscriptionID,
+	).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Service) hasCustomer(ctx context.Context, tx *gorm.DB, orgID, customerID snowflake.ID) (bool, error) {
+	var count int64
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT COUNT(1) FROM customers WHERE org_id = ? AND id = ?`,
+		orgID,
+		customerID,
+	).Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Service) countOpenBillingCycles(ctx context.Context, tx *gorm.DB, orgID, subscriptionID snowflake.ID) (int64, error) {
+	var count int64
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT COUNT(1)
+		 FROM billing_cycles
+		 WHERE org_id = ? AND subscription_id = ? AND status != ?`,
+		orgID,
+		subscriptionID,
+		billingcycledomain.BillingCycleStatusClosed,
+	).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Service) countUnfinalizedInvoices(ctx context.Context, tx *gorm.DB, orgID, subscriptionID snowflake.ID) (int64, error) {
+	var count int64
+	if err := tx.WithContext(ctx).Raw(
+		`SELECT COUNT(1)
+		 FROM invoices
+		 WHERE org_id = ? AND subscription_id = ? AND status NOT IN (?, ?)`,
+		orgID,
+		subscriptionID,
+		invoicedomain.InvoiceStatusFinalized,
+		invoicedomain.InvoiceStatusVoid,
+	).Scan(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func isValidStatus(status subscriptiondomain.SubscriptionStatus) bool {
+	switch status {
+	case subscriptiondomain.SubscriptionStatusDraft,
+		subscriptiondomain.SubscriptionStatusActive,
+		subscriptiondomain.SubscriptionStatusPaused,
+		subscriptiondomain.SubscriptionStatusCanceled,
+		subscriptiondomain.SubscriptionStatusEnded:
+		return true
+	default:
+		return false
+	}
+}
+
+func isTransitionAllowed(current, target subscriptiondomain.SubscriptionStatus) bool {
+	switch current {
+	case subscriptiondomain.SubscriptionStatusDraft:
+		return target == subscriptiondomain.SubscriptionStatusActive
+	case subscriptiondomain.SubscriptionStatusActive:
+		return target == subscriptiondomain.SubscriptionStatusPaused || target == subscriptiondomain.SubscriptionStatusCanceled
+	case subscriptiondomain.SubscriptionStatusPaused:
+		return target == subscriptiondomain.SubscriptionStatusActive || target == subscriptiondomain.SubscriptionStatusCanceled
+	case subscriptiondomain.SubscriptionStatusCanceled:
+		return target == subscriptiondomain.SubscriptionStatusEnded
+	default:
+		return false
+	}
+}
+
 func parseStatusFilter(value string) (*subscriptiondomain.SubscriptionStatus, error) {
 	status := strings.TrimSpace(value)
 	if status == "" {
@@ -376,11 +528,11 @@ func parseStatusFilter(value string) (*subscriptiondomain.SubscriptionStatus, er
 
 	status = strings.ToUpper(status)
 	switch subscriptiondomain.SubscriptionStatus(status) {
-	case subscriptiondomain.SubscriptionStatusPending,
+	case subscriptiondomain.SubscriptionStatusDraft,
 		subscriptiondomain.SubscriptionStatusActive,
-		subscriptiondomain.SubscriptionStatusPastDue,
 		subscriptiondomain.SubscriptionStatusCanceled,
-		subscriptiondomain.SubscriptionStatusSuspended:
+		subscriptiondomain.SubscriptionStatusPaused,
+		subscriptiondomain.SubscriptionStatusEnded:
 		parsed := subscriptiondomain.SubscriptionStatus(status)
 		return &parsed, nil
 	default:
@@ -395,11 +547,11 @@ func parseStatus(value string) (subscriptiondomain.SubscriptionStatus, error) {
 	}
 
 	switch subscriptiondomain.SubscriptionStatus(status) {
-	case subscriptiondomain.SubscriptionStatusPending,
+	case subscriptiondomain.SubscriptionStatusDraft,
 		subscriptiondomain.SubscriptionStatusActive,
-		subscriptiondomain.SubscriptionStatusPastDue,
 		subscriptiondomain.SubscriptionStatusCanceled,
-		subscriptiondomain.SubscriptionStatusSuspended:
+		subscriptiondomain.SubscriptionStatusPaused,
+		subscriptiondomain.SubscriptionStatusEnded:
 		return subscriptiondomain.SubscriptionStatus(status), nil
 	default:
 		return "", subscriptiondomain.ErrInvalidStatus
@@ -418,6 +570,124 @@ func parseCollectionMode(value string) (subscriptiondomain.SubscriptionCollectio
 		return subscriptiondomain.SubscriptionCollectionMode(mode), nil
 	default:
 		return "", subscriptiondomain.ErrInvalidCollectionMode
+	}
+}
+
+func (s *Service) buildSubscriptionItems(
+	ctx context.Context,
+	orgID snowflake.ID,
+	subscriptionID snowflake.ID,
+	items []subscriptiondomain.CreateSubscriptionItemRequest,
+	now time.Time,
+) ([]subscriptiondomain.SubscriptionItem, error) {
+	priceCache := make(map[string]*pricedomain.Response, len(items))
+	flatCount := 0
+	subscriptionItems := make([]subscriptiondomain.SubscriptionItem, 0, len(items))
+
+	for _, item := range items {
+		price, err := s.loadPrice(ctx, item.PriceID, priceCache)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := validateSubscriptionPricingModel(price, &flatCount); err != nil {
+			return nil, err
+		}
+
+		quantity := normalizeSubscriptionQuantity(item.Quantity)
+		if err := validateSubscriptionBillingMode(price, quantity); err != nil {
+			return nil, err
+		}
+
+		parsedPriceID, err := s.parseID(price.ID, subscriptiondomain.ErrInvalidPrice)
+		if err != nil {
+			return nil, err
+		}
+
+		var priceCodePtr *string
+		if price.Code != "" {
+			code := price.Code
+			priceCodePtr = &code
+		}
+
+		subscriptionItems = append(subscriptionItems, subscriptiondomain.SubscriptionItem{
+			ID:               s.genID.Generate(),
+			OrgID:            orgID,
+			SubscriptionID:   subscriptionID,
+			PriceID:          parsedPriceID,
+			PriceCode:        priceCodePtr, // snapshot
+			Quantity:         quantity,
+			BillingMode:      string(price.BillingMode), // snapshot
+			BillingThreshold: price.BillingThreshold,    // snapshot
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		})
+	}
+
+	return subscriptionItems, nil
+}
+
+func (s *Service) loadPrice(
+	ctx context.Context,
+	priceID string,
+	cache map[string]*pricedomain.Response,
+) (*pricedomain.Response, error) {
+	trimmed := strings.TrimSpace(priceID)
+	if trimmed == "" {
+		return nil, subscriptiondomain.ErrInvalidPrice
+	}
+
+	if cached, ok := cache[trimmed]; ok {
+		return cached, nil
+	}
+
+	loaded, err := s.pricesvc.Get(ctx, trimmed)
+	if err != nil {
+		return nil, err
+	}
+	if !loaded.Active || loaded.RetiredAt != nil {
+		return nil, subscriptiondomain.ErrInvalidPrice
+	}
+
+	cache[trimmed] = loaded
+	return loaded, nil
+}
+
+func validateSubscriptionPricingModel(price *pricedomain.Response, flatCount *int) error {
+	switch price.PricingModel {
+	case pricedomain.Flat:
+		*flatCount++
+		if *flatCount > 1 {
+			return subscriptiondomain.ErrMultipleFlatPrices
+		}
+		return nil
+	case pricedomain.PerUnit,
+		pricedomain.TieredVolume,
+		pricedomain.TieredGraduated:
+		return nil
+	default:
+		return pricedomain.ErrUnsupportedPricingModel
+	}
+}
+
+func normalizeSubscriptionQuantity(quantity int8) int8 {
+	if quantity <= 0 {
+		return 1
+	}
+	return quantity
+}
+
+func validateSubscriptionBillingMode(price *pricedomain.Response, quantity int8) error {
+	switch price.BillingMode {
+	case pricedomain.Licensed:
+		if quantity < 1 {
+			return pricedomain.ErrInvalidPricingModel
+		}
+		return nil
+	case pricedomain.Metered:
+		return nil
+	default:
+		return pricedomain.ErrInvalidBillingMode
 	}
 }
 

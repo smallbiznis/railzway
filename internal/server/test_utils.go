@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -30,93 +31,89 @@ func (s *Server) TestCleanup(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	like := prefix + "%"
+	orgIDs, err := s.loadOrgIDsByPrefix(ctx, prefix)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+	if err := s.deleteOrgData(ctx, orgIDs); err != nil {
+		AbortWithError(c, err)
+		return
+	}
 
+	userIDs, err := s.loadUserIDsByPrefix(ctx, prefix)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+	if err := s.deleteUserData(ctx, userIDs); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *Server) loadOrgIDsByPrefix(ctx context.Context, prefix string) ([]int64, error) {
+	like := strings.TrimSpace(prefix) + "%"
 	var orgIDs []int64
 	if err := s.db.WithContext(ctx).
 		Table("organizations").
 		Select("id").
 		Where("name LIKE ?", like).
 		Scan(&orgIDs).Error; err != nil {
-		AbortWithError(c, err)
-		return
+		return nil, err
 	}
+	return orgIDs, nil
+}
 
-	if len(orgIDs) > 0 {
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM price_tiers WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM price_amounts WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM prices WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM products WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM customers WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM organization_members WHERE org_id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM organizations WHERE id IN ?`, orgIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
+func (s *Server) deleteOrgData(ctx context.Context, orgIDs []int64) error {
+	if len(orgIDs) == 0 {
+		return nil
+	}
+	queries := []string{
+		`DELETE FROM price_tiers WHERE org_id IN ?`,
+		`DELETE FROM price_amounts WHERE org_id IN ?`,
+		`DELETE FROM prices WHERE org_id IN ?`,
+		`DELETE FROM products WHERE org_id IN ?`,
+		`DELETE FROM customers WHERE org_id IN ?`,
+		`DELETE FROM organization_members WHERE org_id IN ?`,
+		`DELETE FROM organizations WHERE id IN ?`,
+	}
+	for _, query := range queries {
+		if err := s.db.WithContext(ctx).Exec(query, orgIDs).Error; err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+func (s *Server) loadUserIDsByPrefix(ctx context.Context, prefix string) ([]int64, error) {
+	like := strings.TrimSpace(prefix) + "%"
 	var userIDs []int64
 	if err := s.db.WithContext(ctx).
 		Table("users").
 		Select("id").
 		Where("username LIKE ?", like).
 		Scan(&userIDs).Error; err != nil {
-		AbortWithError(c, err)
-		return
+		return nil, err
 	}
+	return userIDs, nil
+}
 
-	if len(userIDs) > 0 {
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM sessions WHERE user_id IN ?`, userIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM organization_members WHERE user_id IN ?`, userIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
-		}
-		if err := s.db.WithContext(ctx).Exec(
-			`DELETE FROM users WHERE id IN ?`, userIDs,
-		).Error; err != nil {
-			AbortWithError(c, err)
-			return
+func (s *Server) deleteUserData(ctx context.Context, userIDs []int64) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+	queries := []string{
+		`DELETE FROM sessions WHERE user_id IN ?`,
+		`DELETE FROM organization_members WHERE user_id IN ?`,
+		`DELETE FROM users WHERE id IN ?`,
+	}
+	for _, query := range queries {
+		if err := s.db.WithContext(ctx).Exec(query, userIDs).Error; err != nil {
+			return err
 		}
 	}
-
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	return nil
 }
