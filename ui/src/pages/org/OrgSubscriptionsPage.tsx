@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 
 import { api } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   Empty,
   EmptyContent,
@@ -11,6 +19,8 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Table,
   TableBody,
@@ -124,31 +134,49 @@ const PAGE_SIZE = 20
 
 export default function OrgSubscriptionsPage() {
   const { orgId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null)
   const [pageTokens, setPageTokens] = useState<string[]>([""])
   const [pageIndex, setPageIndex] = useState(0)
-  const [statusFilter, setStatusFilter] = useState(statusTabs[0].value)
   const createPath = orgId ? `/orgs/${orgId}/subscriptions/create` : "/orgs"
+  const statusParam = searchParams.get("status") ?? "ALL"
+  const statusFilter = statusTabs.some((tab) => tab.value === statusParam)
+    ? statusParam
+    : "ALL"
+  const customerIdFilter = searchParams.get("customer_id") ?? ""
+  const createdFrom = searchParams.get("created_from") ?? ""
+  const createdTo = searchParams.get("created_to") ?? ""
+  const hasFilters = Boolean(
+    statusFilter !== "ALL" || customerIdFilter || createdFrom || createdTo
+  )
 
   const pageToken = pageTokens[pageIndex] ?? ""
-  const activeTabLabel = useMemo(() => {
-    return statusTabs.find((tab) => tab.value === statusFilter)?.label ?? "All"
-  }, [statusFilter])
-
   const handleStatusChange = (value: string) => {
-    setStatusFilter(value)
-    setPageTokens([""])
-    setPageIndex(0)
+    const next = new URLSearchParams(searchParams)
+    if (value === "ALL") {
+      next.delete("status")
+    } else {
+      next.set("status", value)
+    }
+    setSearchParams(next, { replace: true })
   }
 
   const handleClearFilters = () => {
-    setStatusFilter("ALL")
+    const next = new URLSearchParams(searchParams)
+    next.delete("status")
+    next.delete("customer_id")
+    next.delete("created_from")
+    next.delete("created_to")
+    setSearchParams(next, { replace: true })
+  }
+
+  useEffect(() => {
     setPageTokens([""])
     setPageIndex(0)
-  }
+  }, [customerIdFilter, createdFrom, createdTo, statusFilter])
 
   useEffect(() => {
     if (!orgId) {
@@ -164,6 +192,9 @@ export default function OrgSubscriptionsPage() {
       .get("/subscriptions", {
         params: {
           status: statusFilter === "ALL" ? undefined : statusFilter,
+          customer_id: customerIdFilter || undefined,
+          created_from: createdFrom || undefined,
+          created_to: createdTo || undefined,
           page_token: pageToken || undefined,
           page_size: PAGE_SIZE,
         },
@@ -185,7 +216,7 @@ export default function OrgSubscriptionsPage() {
     return () => {
       isMounted = false
     }
-  }, [orgId, pageToken, statusFilter])
+  }, [createdFrom, createdTo, customerIdFilter, orgId, pageToken, statusFilter])
 
   const hasPrevious = pageIndex > 0
   const hasNext = Boolean(pageInfo?.has_more && pageInfo?.next_page_token)
@@ -222,22 +253,84 @@ export default function OrgSubscriptionsPage() {
         </TabsList>
       </Tabs>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm">
-            Status: {activeTabLabel}
-          </Button>
-          <Button variant="outline" size="sm">
-            Customer ID
-          </Button>
-          <Button variant="outline" size="sm">
-            Created date
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleClearFilters}>
-            Clear filters
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Filters</CardTitle>
+              <CardDescription>Filter by customer and created date.</CardDescription>
+            </div>
+            <CardAction>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!hasFilters}
+                onClick={handleClearFilters}
+              >
+                Clear filters
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="subscription-filter-customer">Customer ID</Label>
+                <Input
+                  id="subscription-filter-customer"
+                  placeholder="e.g. 1234567890"
+                  value={customerIdFilter}
+                  onChange={(event) => {
+                    const next = new URLSearchParams(searchParams)
+                    const value = event.target.value.trim()
+                    if (value) {
+                      next.set("customer_id", value)
+                    } else {
+                      next.delete("customer_id")
+                    }
+                    setSearchParams(next, { replace: true })
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="subscription-filter-created-from">Created from</Label>
+                <Input
+                  id="subscription-filter-created-from"
+                  type="date"
+                  value={createdFrom}
+                  onChange={(event) => {
+                    const next = new URLSearchParams(searchParams)
+                    const value = event.target.value
+                    if (value) {
+                      next.set("created_from", value)
+                    } else {
+                      next.delete("created_from")
+                    }
+                    setSearchParams(next, { replace: true })
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="subscription-filter-created-to">Created to</Label>
+                <Input
+                  id="subscription-filter-created-to"
+                  type="date"
+                  value={createdTo}
+                  onChange={(event) => {
+                    const next = new URLSearchParams(searchParams)
+                    const value = event.target.value
+                    if (value) {
+                      next.set("created_to", value)
+                    } else {
+                      next.delete("created_to")
+                    }
+                    setSearchParams(next, { replace: true })
+                  }}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" size="sm">
             Edit columns
           </Button>

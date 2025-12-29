@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import {
   IconDotsVertical,
   IconPlus,
@@ -9,6 +9,19 @@ import { api } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -16,6 +29,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Table,
   TableBody,
@@ -28,12 +42,39 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function OrgInvoicesPage() {
   const { orgId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState("ALL")
-  const [searchQuery, setSearchQuery] = useState("")
+  const statusParam = searchParams.get("status") ?? "ALL"
+  const statusFilter = statusTabs.some((tab) => tab.value === statusParam)
+    ? statusParam
+    : "ALL"
+  const invoiceNumberFilter = searchParams.get("invoice_number") ?? ""
+  const customerIdFilter = searchParams.get("customer_id") ?? ""
+  const createdFrom = searchParams.get("created_from") ?? ""
+  const createdTo = searchParams.get("created_to") ?? ""
+  const dueFrom = searchParams.get("due_from") ?? ""
+  const dueTo = searchParams.get("due_to") ?? ""
+  const finalizedFrom = searchParams.get("finalized_from") ?? ""
+  const finalizedTo = searchParams.get("finalized_to") ?? ""
+  const totalMin = searchParams.get("total_min") ?? ""
+  const totalMax = searchParams.get("total_max") ?? ""
+  const hasFilters = Boolean(
+    statusFilter !== "ALL" ||
+      invoiceNumberFilter ||
+      customerIdFilter ||
+      createdFrom ||
+      createdTo ||
+      dueFrom ||
+      dueTo ||
+      finalizedFrom ||
+      finalizedTo ||
+      totalMin ||
+      totalMax
+  )
+  const hasAdvancedDateFilters = Boolean(dueFrom || dueTo || finalizedFrom || finalizedTo)
 
   useEffect(() => {
     if (!orgId) {
@@ -46,7 +87,21 @@ export default function OrgInvoicesPage() {
     setError(null)
 
     Promise.allSettled([
-      api.get("/invoices"),
+      api.get("/invoices", {
+        params: {
+          status: statusFilter === "ALL" ? undefined : statusFilter,
+          invoice_number: invoiceNumberFilter || undefined,
+          customer_id: customerIdFilter || undefined,
+          created_from: createdFrom || undefined,
+          created_to: createdTo || undefined,
+          due_from: dueFrom || undefined,
+          due_to: dueTo || undefined,
+          finalized_from: finalizedFrom || undefined,
+          finalized_to: finalizedTo || undefined,
+          total_min: totalMin || undefined,
+          total_max: totalMax || undefined,
+        },
+      }),
       api.get("/customers", {
         params: { page_size: 200 },
       }),
@@ -76,7 +131,20 @@ export default function OrgInvoicesPage() {
     return () => {
       isMounted = false
     }
-  }, [orgId])
+  }, [
+    createdFrom,
+    createdTo,
+    customerIdFilter,
+    dueFrom,
+    dueTo,
+    finalizedFrom,
+    finalizedTo,
+    invoiceNumberFilter,
+    orgId,
+    statusFilter,
+    totalMax,
+    totalMin,
+  ])
 
   const customersById = useMemo(() => {
     const map = new Map<string, Customer>()
@@ -89,32 +157,10 @@ export default function OrgInvoicesPage() {
     return map
   }, [customers])
 
-  const filteredInvoices = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    return invoices.filter((invoice) => {
-      const status = deriveStatus(invoice)
-      if (statusFilter !== "ALL" && status !== statusFilter) {
-        return false
-      }
-      if (!query) return true
-      const invoiceNumber = getInvoiceNumber(invoice).toLowerCase()
-      const customerId = readField(invoice, ["customer_id", "CustomerID"]) ?? ""
-      const customer = customersById.get(customerId)
-      const customerName = readField(customer, ["name", "Name"]) ?? ""
-      const customerEmail = readField(customer, ["email", "Email"]) ?? ""
-      return (
-        invoiceNumber.includes(query) ||
-        customerId.toLowerCase().includes(query) ||
-        customerName.toLowerCase().includes(query) ||
-        customerEmail.toLowerCase().includes(query)
-      )
-    })
-  }, [customersById, invoices, searchQuery, statusFilter])
-
   const countLabel = useMemo(() => {
-    const total = filteredInvoices.length
+    const total = invoices.length
     return `${total} item${total === 1 ? "" : "s"}`
-  }, [filteredInvoices.length])
+  }, [invoices.length])
 
   return (
     <div className="space-y-6">
@@ -143,7 +189,18 @@ export default function OrgInvoicesPage() {
         </div>
       </div>
 
-      <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+      <Tabs
+        value={statusFilter}
+        onValueChange={(value) => {
+          const next = new URLSearchParams(searchParams)
+          if (value === "ALL") {
+            next.delete("status")
+          } else {
+            next.set("status", value)
+          }
+          setSearchParams(next, { replace: true })
+        }}
+      >
         <TabsList className="flex w-full flex-wrap justify-start">
           {statusTabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
@@ -153,18 +210,242 @@ export default function OrgInvoicesPage() {
         </TabsList>
       </Tabs>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {filters.map((filter) => (
-            <Button key={filter} variant="outline" size="sm" className="gap-2">
-              <IconPlus />
-              {filter}
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Filters</CardTitle>
+            <CardDescription>Filter invoices by customer, totals, and dates.</CardDescription>
+          </div>
+          <CardAction>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!hasFilters}
+              onClick={() => {
+                const next = new URLSearchParams(searchParams)
+                next.delete("status")
+                next.delete("invoice_number")
+                next.delete("customer_id")
+                next.delete("created_from")
+                next.delete("created_to")
+                next.delete("due_from")
+                next.delete("due_to")
+                next.delete("finalized_from")
+                next.delete("finalized_to")
+                next.delete("total_min")
+                next.delete("total_max")
+                setSearchParams(next, { replace: true })
+              }}
+            >
+              Clear filters
             </Button>
-          ))}
-          <Button variant="ghost" size="sm" onClick={() => setStatusFilter("ALL")}>
-            Clear filters
-          </Button>
-        </div>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-customer">Customer ID</Label>
+              <Input
+                id="invoice-filter-customer"
+                placeholder="e.g. 1234567890"
+                value={customerIdFilter}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value.trim()
+                  if (value) {
+                    next.set("customer_id", value)
+                  } else {
+                    next.delete("customer_id")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-number">Invoice number</Label>
+              <Input
+                id="invoice-filter-number"
+                placeholder="e.g. INV-1001"
+                value={invoiceNumberFilter}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value.trim()
+                  if (value) {
+                    next.set("invoice_number", value)
+                  } else {
+                    next.delete("invoice_number")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-total-min">Total min</Label>
+              <Input
+                id="invoice-filter-total-min"
+                type="number"
+                placeholder="0"
+                value={totalMin}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("total_min", value)
+                  } else {
+                    next.delete("total_min")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-total-max">Total max</Label>
+              <Input
+                id="invoice-filter-total-max"
+                type="number"
+                placeholder="0"
+                value={totalMax}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("total_max", value)
+                  } else {
+                    next.delete("total_max")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-created-from">Created from</Label>
+              <Input
+                id="invoice-filter-created-from"
+                type="date"
+                value={createdFrom}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("created_from", value)
+                  } else {
+                    next.delete("created_from")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-filter-created-to">Created to</Label>
+              <Input
+                id="invoice-filter-created-to"
+                type="date"
+                value={createdTo}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("created_to", value)
+                  } else {
+                    next.delete("created_to")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+          </div>
+
+          <Collapsible defaultOpen={hasAdvancedDateFilters}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-fit px-0">
+                Due and finalized dates
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-filter-due-from">Due from</Label>
+                  <Input
+                    id="invoice-filter-due-from"
+                    type="date"
+                    value={dueFrom}
+                    onChange={(event) => {
+                      const next = new URLSearchParams(searchParams)
+                      const value = event.target.value
+                      if (value) {
+                        next.set("due_from", value)
+                      } else {
+                        next.delete("due_from")
+                      }
+                      setSearchParams(next, { replace: true })
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-filter-due-to">Due to</Label>
+                  <Input
+                    id="invoice-filter-due-to"
+                    type="date"
+                    value={dueTo}
+                    onChange={(event) => {
+                      const next = new URLSearchParams(searchParams)
+                      const value = event.target.value
+                      if (value) {
+                        next.set("due_to", value)
+                      } else {
+                        next.delete("due_to")
+                      }
+                      setSearchParams(next, { replace: true })
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-filter-finalized-from">Finalized from</Label>
+                  <Input
+                    id="invoice-filter-finalized-from"
+                    type="date"
+                    value={finalizedFrom}
+                    onChange={(event) => {
+                      const next = new URLSearchParams(searchParams)
+                      const value = event.target.value
+                      if (value) {
+                        next.set("finalized_from", value)
+                      } else {
+                        next.delete("finalized_from")
+                      }
+                      setSearchParams(next, { replace: true })
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-filter-finalized-to">Finalized to</Label>
+                  <Input
+                    id="invoice-filter-finalized-to"
+                    type="date"
+                    value={finalizedTo}
+                    onChange={(event) => {
+                      const next = new URLSearchParams(searchParams)
+                      const value = event.target.value
+                      if (value) {
+                        next.set("finalized_to", value)
+                      } else {
+                        next.delete("finalized_to")
+                      }
+                      setSearchParams(next, { replace: true })
+                    }}
+                  />
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-text-muted text-sm">{countLabel}</div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm">
             Export
@@ -178,21 +459,11 @@ export default function OrgInvoicesPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          className="w-full max-w-md"
-          placeholder="Search by invoice number or customer"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-        />
-        <div className="text-text-muted text-sm">{countLabel}</div>
-      </div>
-
       {isLoading && (
         <div className="text-text-muted text-sm">Loading invoices...</div>
       )}
       {error && <div className="text-status-error text-sm">{error}</div>}
-      {!isLoading && !error && filteredInvoices.length === 0 && (
+      {!isLoading && !error && invoices.length === 0 && (
         <Empty>
           <EmptyHeader>
             <EmptyTitle>No invoices yet</EmptyTitle>
@@ -208,7 +479,7 @@ export default function OrgInvoicesPage() {
           </EmptyContent>
         </Empty>
       )}
-      {!isLoading && !error && filteredInvoices.length > 0 && (
+      {!isLoading && !error && invoices.length > 0 && (
         <div className="rounded-lg border">
           <Table className="min-w-[920px]">
             <TableHeader>
@@ -223,7 +494,7 @@ export default function OrgInvoicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredInvoices.map((invoice) => {
+              {invoices.map((invoice) => {
                 const invoiceId = readField(invoice, ["id", "ID"]) ?? "-"
                 const invoiceNumber = getInvoiceNumber(invoice)
                 const status = deriveStatus(invoice)
@@ -339,15 +610,6 @@ const statusTabs = [
   { value: "DRAFT", label: "Draft" },
   { value: "FINALIZED", label: "Finalized" },
   { value: "VOID", label: "Void" },
-]
-
-const filters = [
-  "Status",
-  "Created",
-  "Due date",
-  "Scheduled finalization date",
-  "Total",
-  "More filters",
 ]
 
 const readField = <T extends Record<string, unknown>>(

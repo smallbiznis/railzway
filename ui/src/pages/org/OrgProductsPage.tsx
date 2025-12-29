@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 
 import { api } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,13 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -55,12 +62,35 @@ const readMetadataValue = (
 
 export default function OrgProductsPage() {
   const { orgId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const totalCount = products.length
   const activeCount = products.filter((product) => product.active).length
   const archivedCount = totalCount - activeCount
+  const nameFilter = searchParams.get("name") ?? ""
+  const activeParam = searchParams.get("active")
+  const sortBy = searchParams.get("sort_by") ?? "created_at"
+  const orderBy = searchParams.get("order_by") ?? "asc"
+  const activeFilter =
+    activeParam === "true" ? true : activeParam === "false" ? false : undefined
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    let changed = false
+    if (!searchParams.get("sort_by")) {
+      next.set("sort_by", "created_at")
+      changed = true
+    }
+    if (!searchParams.get("order_by")) {
+      next.set("order_by", "asc")
+      changed = true
+    }
+    if (changed) {
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     if (!orgId) {
@@ -73,7 +103,14 @@ export default function OrgProductsPage() {
     setError(null)
 
     api
-      .get("/products")
+      .get("/products", {
+        params: {
+          name: nameFilter || undefined,
+          active: activeFilter,
+          sort_by: sortBy,
+          order_by: orderBy,
+        },
+      })
       .then((response) => {
         if (!isMounted) return
         setProducts(response.data?.data ?? [])
@@ -90,7 +127,7 @@ export default function OrgProductsPage() {
     return () => {
       isMounted = false
     }
-  }, [orgId])
+  }, [orgId, nameFilter, activeFilter, sortBy, orderBy])
 
   return (
     <div className="space-y-6">
@@ -118,8 +155,19 @@ export default function OrgProductsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Input
           className="w-full max-w-md"
-          placeholder="Search products or plans"
-          aria-label="Search products"
+          placeholder="Filter by product name"
+          aria-label="Filter products by name"
+          value={nameFilter}
+          onChange={(event) => {
+            const next = new URLSearchParams(searchParams)
+            const value = event.target.value.trim()
+            if (value) {
+              next.set("name", value)
+            } else {
+              next.delete("name")
+            }
+            setSearchParams(next, { replace: true })
+          }}
         />
       </div>
 
@@ -146,13 +194,56 @@ export default function OrgProductsPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm">
-            Sort: Created
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams)
+              const nextOrder = orderBy === "asc" ? "desc" : "asc"
+              next.set("sort_by", "created_at")
+              next.set("order_by", nextOrder)
+              setSearchParams(next, { replace: true })
+            }}
+          >
+            Sort: Created ({orderBy === "asc" ? "Oldest" : "Newest"})
           </Button>
-          <Button variant="outline" size="sm">
-            Status: Active
-          </Button>
-          <Button variant="ghost" size="sm">
+          <Select
+            value={
+              activeFilter === undefined
+                ? "all"
+                : activeFilter
+                  ? "active"
+                  : "archived"
+            }
+            onValueChange={(value) => {
+              const next = new URLSearchParams(searchParams)
+              if (value === "all") {
+                next.delete("active")
+              } else {
+                next.set("active", value === "active" ? "true" : "false")
+              }
+              setSearchParams(next, { replace: true })
+            }}
+          >
+            <SelectTrigger className="h-8 w-[160px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Status: All</SelectItem>
+              <SelectItem value="active">Status: Active</SelectItem>
+              <SelectItem value="archived">Status: Archived</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams)
+              next.delete("name")
+              next.delete("active")
+              setSearchParams(next, { replace: true })
+            }}
+          >
             Clear filters
           </Button>
         </div>

@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useSearchParams } from "react-router-dom"
 import { IconPlus } from "@tabler/icons-react"
 
 import { api } from "@/api/client"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -65,6 +73,7 @@ const formatDateTime = (value?: string) => {
 
 export default function OrgCustomersPage() {
   const { orgId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -77,6 +86,13 @@ export default function OrgCustomersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [nextPageToken, setNextPageToken] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
+  const nameFilter = searchParams.get("name") ?? ""
+  const emailFilter = searchParams.get("email") ?? ""
+  const createdFrom = searchParams.get("created_from") ?? ""
+  const createdTo = searchParams.get("created_to") ?? ""
+  const hasFilters = Boolean(
+    nameFilter || emailFilter || createdFrom || createdTo
+  )
 
   const loadCustomers = useCallback(async (options?: { pageToken?: string; append?: boolean }) => {
     if (!orgId) {
@@ -95,6 +111,10 @@ export default function OrgCustomersPage() {
     try {
       const res = await api.get("/customers", {
         params: {
+          name: nameFilter || undefined,
+          email: emailFilter || undefined,
+          created_from: createdFrom || undefined,
+          created_to: createdTo || undefined,
           page_token: pageToken,
           page_size: PAGE_SIZE,
         },
@@ -122,7 +142,7 @@ export default function OrgCustomersPage() {
         setIsLoading(false)
       }
     }
-  }, [orgId])
+  }, [createdFrom, createdTo, emailFilter, nameFilter, orgId])
 
   useEffect(() => {
     void loadCustomers()
@@ -134,17 +154,12 @@ export default function OrgCustomersPage() {
     setIsCreating(true)
     setCreateError(null)
     try {
-      const res = await api.post("/customers", {
+      await api.post("/customers", {
         organization_id: orgId,
         name,
         email,
       })
-      const created = res.data?.data
-      if (created) {
-        setCustomers((prev) => [created, ...prev])
-      } else {
-        await loadCustomers()
-      }
+      await loadCustomers()
       setName("")
       setEmail("")
       setLanguage("en-US")
@@ -255,48 +270,121 @@ export default function OrgCustomersPage() {
         </Dialog>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
-        <Input placeholder="All customers" aria-label="Search customers" />
-        <Input placeholder="Remaining balances" aria-label="Filter by balance" />
-      </div>
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Filters</CardTitle>
+            <CardDescription>Filter customers by name, email, or created date.</CardDescription>
+          </div>
+          <CardAction>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!hasFilters}
+              onClick={() => {
+                const next = new URLSearchParams(searchParams)
+                next.delete("name")
+                next.delete("email")
+                next.delete("created_from")
+                next.delete("created_to")
+                setSearchParams(next, { replace: true })
+              }}
+            >
+              Clear filters
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="customer-filter-name">Customer name</Label>
+              <Input
+                id="customer-filter-name"
+                placeholder="e.g. Acme Corp"
+                value={nameFilter}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value.trim()
+                  if (value) {
+                    next.set("name", value)
+                  } else {
+                    next.delete("name")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-filter-email">Email</Label>
+              <Input
+                id="customer-filter-email"
+                placeholder="billing@company.com"
+                value={emailFilter}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value.trim()
+                  if (value) {
+                    next.set("email", value)
+                  } else {
+                    next.delete("email")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-filter-created-from">Created from</Label>
+              <Input
+                id="customer-filter-created-from"
+                type="date"
+                value={createdFrom}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("created_from", value)
+                  } else {
+                    next.delete("created_from")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customer-filter-created-to">Created to</Label>
+              <Input
+                id="customer-filter-created-to"
+                type="date"
+                value={createdTo}
+                onChange={(event) => {
+                  const next = new URLSearchParams(searchParams)
+                  const value = event.target.value
+                  if (value) {
+                    next.set("created_to", value)
+                  } else {
+                    next.delete("created_to")
+                  }
+                  setSearchParams(next, { replace: true })
+                }}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            Email
-          </Button>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            Name
-          </Button>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            Created date
-          </Button>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            Type
-          </Button>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            More filters
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm">
-            Copy
-          </Button>
-          <Button variant="outline" size="sm">
-            Export
-          </Button>
-          <Button variant="outline" size="sm">
-            Analyze
-          </Button>
-          <Button variant="outline" size="sm">
-            Edit columns
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm">
+          Copy
+        </Button>
+        <Button variant="outline" size="sm">
+          Export
+        </Button>
+        <Button variant="outline" size="sm">
+          Analyze
+        </Button>
+        <Button variant="outline" size="sm">
+          Edit columns
+        </Button>
       </div>
 
       {listError && <Alert variant="destructive">{listError}</Alert>}
