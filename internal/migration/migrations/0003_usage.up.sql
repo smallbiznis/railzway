@@ -13,27 +13,6 @@ CREATE TABLE IF NOT EXISTS meters (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_meters_org_code ON meters(org_id, code);
 CREATE INDEX IF NOT EXISTS idx_meters_org_id ON meters(org_id);
 
--- CREATE TABLE IF NOT EXISTS usage_records (
---     id BIGINT PRIMARY KEY,
---     org_id BIGINT NOT NULL,
---     customer_id BIGINT NOT NULL,
---     subscription_id BIGINT NOT NULL,
---     subscription_item_id BIGINT NOT NULL,
---     meter_id BIGINT NOT NULL,
---     meter_code TEXT NOT NULL,
---     value DOUBLE PRECISION NOT NULL,
---     recorded_at TIMESTAMPTZ NOT NULL,
---     idempotency_key TEXT,
---     metadata JSONB DEFAULT '{}',
---     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
--- );
-
--- CREATE INDEX IF NOT EXISTS idx_usage_records_org_id ON usage_records(org_id);
--- CREATE INDEX IF NOT EXISTS idx_usage_records_customer_id ON usage_records(customer_id);
--- CREATE INDEX IF NOT EXISTS idx_usage_records_subscription_id ON usage_records(subscription_id);
--- CREATE INDEX IF NOT EXISTS idx_usage_records_meter_id ON usage_records(meter_id);
-
 CREATE TABLE IF NOT EXISTS usage_events (
     id BIGINT PRIMARY KEY,
     org_id BIGINT NOT NULL,
@@ -50,6 +29,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_usage_idempotency_key ON usage_events (org_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_usage_events_org_id ON usage_events(org_id);
 CREATE INDEX IF NOT EXISTS idx_usage_events_customer_id ON usage_events(customer_id);
 CREATE INDEX IF NOT EXISTS idx_usage_events_subscription_id ON usage_events(subscription_id);

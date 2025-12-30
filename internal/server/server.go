@@ -20,7 +20,6 @@ import (
 	authoauth2provider "github.com/smallbiznis/valora/internal/auth/oauth2provider"
 	"github.com/smallbiznis/valora/internal/auth/session"
 	"github.com/smallbiznis/valora/internal/authorization"
-	"github.com/smallbiznis/valora/internal/billingprovisioning"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
@@ -43,6 +42,7 @@ import (
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/internal/reference"
 	referencedomain "github.com/smallbiznis/valora/internal/reference/domain"
+	"github.com/smallbiznis/valora/internal/scheduler"
 	signupdomain "github.com/smallbiznis/valora/internal/signup/domain"
 	"github.com/smallbiznis/valora/internal/subscription"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
@@ -63,7 +63,6 @@ var Module = fx.Module("http.server",
 	authoauth2provider.Module,
 	session.Module,
 	apikey.Module,
-	billingprovisioning.Module,
 	customer.Module,
 	invoice.Module,
 	meter.Module,
@@ -137,6 +136,8 @@ type Server struct {
 	ratingSvc       ratingdomain.Service
 	subscriptionSvc subscriptiondomain.Service
 	usagesvc        usagedomain.Service
+
+	scheduler *scheduler.Scheduler
 }
 
 type ServerParams struct {
@@ -164,6 +165,8 @@ type ServerParams struct {
 	RatingSvc       ratingdomain.Service
 	SubscriptionSvc subscriptiondomain.Service
 	Usagesvc        usagedomain.Service
+
+	Scheduler *scheduler.Scheduler
 }
 
 func NewServer(p ServerParams) *Server {
@@ -191,6 +194,7 @@ func NewServer(p ServerParams) *Server {
 		ratingSvc:       p.RatingSvc,
 		subscriptionSvc: p.SubscriptionSvc,
 		usagesvc:        p.Usagesvc,
+		scheduler:       p.Scheduler,
 	}
 
 	svc.registerAuthRoutes()
@@ -198,6 +202,7 @@ func NewServer(p ServerParams) *Server {
 	svc.registerAdminRoutes()
 	svc.registerUIRoutes()
 	svc.registerFallback()
+	svc.RegisterDevBillingRoutes()
 
 	return svc
 }

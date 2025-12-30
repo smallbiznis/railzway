@@ -17,4 +17,5 @@ var (
 	ErrMissingPriceAmount     = errors.New("missing_price_amount")
 	ErrMissingMeter           = errors.New("missing_meter")
 	ErrInvalidQuantity        = errors.New("invalid_quantity")
+	ErrNoSubscriptionItems    = errors.New("no_subscription_items")
 )

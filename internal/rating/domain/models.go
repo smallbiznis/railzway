@@ -9,21 +9,21 @@ import (
 
 // RatingResult captures the priced usage output for a billing cycle.
 type RatingResult struct {
-	ID             snowflake.ID `gorm:"primaryKey"`
-	OrgID          snowflake.ID `gorm:"not null;index"`
-	SubscriptionID snowflake.ID `gorm:"not null;index"`
-	BillingCycleID snowflake.ID `gorm:"not null;index"`
-	MeterID        snowflake.ID `gorm:"not null;index"`
-	PriceID        snowflake.ID `gorm:"not null"`
-	Quantity       float64      `gorm:"not null"`
-	UnitPrice      int64        `gorm:"not null"`
-	Amount         int64        `gorm:"not null"`
-	Currency       string       `gorm:"type:text;not null"`
-	PeriodStart    time.Time    `gorm:"not null"`
-	PeriodEnd      time.Time    `gorm:"not null"`
-	Source         string       `gorm:"type:text;not null"`
-	Checksum       string       `gorm:"type:text;not null;uniqueIndex"`
-	CreatedAt      time.Time    `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	ID             snowflake.ID  `gorm:"primaryKey"`
+	OrgID          snowflake.ID  `gorm:"not null;index"`
+	SubscriptionID snowflake.ID  `gorm:"not null;index"`
+	BillingCycleID snowflake.ID  `gorm:"not null;index"`
+	PriceID        snowflake.ID  `gorm:"not null"`
+	MeterID        *snowflake.ID `gorm:"not null;index"`
+	Quantity       float64       `gorm:"not null"`
+	UnitPrice      int64         `gorm:"not null"`
+	Amount         int64         `gorm:"not null"`
+	Currency       string        `gorm:"type:text;not null"`
+	PeriodStart    time.Time     `gorm:"not null"`
+	PeriodEnd      time.Time     `gorm:"not null"`
+	Source         string        `gorm:"type:text;not null"`
+	Checksum       string        `gorm:"type:text;not null;uniqueIndex"`
+	CreatedAt      time.Time     `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
 // TableName sets the database table name.
