@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useParams } from "react-router-dom"
 
-import {api} from "@/api/client"
+import { admin } from "@/api/client"
 
 export default function OrgPricingsPage() {
   const { orgId } = useParams()
@@ -19,7 +19,7 @@ export default function OrgPricingsPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get("/pricings")
       .then((response) => {
         if (!isMounted) return

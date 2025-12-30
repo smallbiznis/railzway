@@ -2,7 +2,7 @@ import type { CSSProperties } from "react"
 import { useEffect, useMemo, useState } from "react"
 import { Outlet, useNavigate, useParams } from "react-router-dom"
 
-import { api } from "@/api/client"
+import { auth } from "@/api/client"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 // import { WorkbenchDock } from "@/components/workbench-dock"
@@ -24,9 +24,9 @@ export default function DashboardLayout() {
     let active = true
     setIsLoading(true)
 
-    api
+    auth
       .post(`/user/using/${orgId}`)
-      .then(() => api.get("/user/orgs"))
+      .then(() => auth.get("/user/orgs"))
       .then((res) => {
         if (!active) return
         const list = res.data?.orgs ?? []

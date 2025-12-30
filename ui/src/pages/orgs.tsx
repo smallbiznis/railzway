@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import {api} from "@/api/client"
+import { auth } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert } from "@/components/ui/alert"
@@ -23,7 +23,7 @@ export default function OrgResolverPage() {
     setIsLoading(true)
     setError(null)
     try {
-      await api.post(`/user/using/${org.id}`)
+      await auth.post(`/user/using/${org.id}`)
       setCurrentOrg(org)
       navigate(`/orgs/${org.id}/dashboard`, { replace: true })
     } catch (err: any) {
@@ -36,9 +36,11 @@ export default function OrgResolverPage() {
     let isMounted = true
     setIsLoading(true)
     setError(null)
-    api
+
+    auth
       .get("/user/orgs")
       .then((res) => {
+        console.log("orgs: ", res.data)
         if (!isMounted) return
         const orgList: OrgResponse[] = res.data?.orgs ?? []
         setOrgs(orgList)

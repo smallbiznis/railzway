@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { useAuthStore } from "@/stores/authStore"
 import { useOrgStore } from "@/stores/orgStore"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -25,7 +25,7 @@ export function SiteHeader() {
 
   const handleOrgSwitch = async (org: { id: string; name: string }) => {
     try {
-      await api.post(`/user/using/${org.id}`)
+      await admin.post(`/user/using/${org.id}`)
       setCurrentOrg(org)
       navigate(`/orgs/${org.id}/dashboard`)
     } catch (err) {

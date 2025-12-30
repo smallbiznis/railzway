@@ -11,7 +11,6 @@ import (
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
 	"github.com/smallbiznis/valora/internal/authorization"
-	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
 	"gorm.io/gorm"
 )
 
@@ -21,19 +20,6 @@ type createAPIKeyRequest struct {
 
 type revealAPIKeyRequest struct {
 	Password string `json:"password"`
-}
-
-func (s *Server) registerAdminRoutes() {
-	admin := s.engine.Group("/admin")
-	admin.Use(RequestID())
-	admin.Use(s.AuthRequired())
-	admin.Use(s.OrgContext())
-
-	admin.GET("/audit-logs", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListAuditLogs)
-	admin.GET("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListAPIKeys)
-	admin.POST("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateAPIKey)
-	admin.POST("/api-keys/:key_id/reveal", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.RevealAPIKey)
-	admin.POST("/api-keys/:key_id/revoke", s.RequireRole(organizationdomain.RoleOwner), s.RevokeAPIKey)
 }
 
 func (s *Server) ListAPIKeys(c *gin.Context) {

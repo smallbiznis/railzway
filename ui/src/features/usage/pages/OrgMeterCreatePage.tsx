@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -52,7 +52,7 @@ export default function OrgMeterCreatePage() {
         active,
         description: description.trim() || undefined,
       }
-      const res = await api.post("/meters", payload)
+      const res = await admin.post("/meters", payload)
       const meterId = res.data?.data?.id
       if (meterId) {
         navigate(`/orgs/${orgId}/meter/${meterId}`, { replace: true })

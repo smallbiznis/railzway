@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -102,7 +102,7 @@ export default function OrgProductsPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get("/products", {
         params: {
           name: nameFilter || undefined,

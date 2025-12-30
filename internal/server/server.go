@@ -81,8 +81,9 @@ var Module = fx.Module("http.server",
 
 func NewEngine() *gin.Engine {
 	r := gin.New()
-	// r.Use(gin.Recovery())
+	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
+	r.Use(RequestID())
 	r.Use(ErrorHandlingMiddleware())
 
 	r.GET("/health", func(c *gin.Context) {
@@ -202,7 +203,10 @@ func NewServer(p ServerParams) *Server {
 	svc.registerAdminRoutes()
 	svc.registerUIRoutes()
 	svc.registerFallback()
-	svc.RegisterDevBillingRoutes()
+
+	if svc.cfg.Environment != "production" {
+		svc.RegisterDevBillingRoutes()
+	}
 
 	return svc
 }
@@ -213,19 +217,17 @@ func (s *Server) Engine() *gin.Engine {
 
 func (s *Server) registerAuthRoutes() {
 	auth := s.engine.Group("/auth")
-	auth.Use(RequestID())
 
 	auth.POST("/login", s.Login)
-
 	auth.POST("/logout", s.Logout)
-	auth.POST("/change-password", s.AuthRequired(), s.ChangePassword)
+	auth.POST("/change-password", s.WebAuthRequired(), s.ChangePassword)
 	auth.POST("/forgot", s.Forgot)
 	auth.GET("/me", s.Me)
 
-	user := s.engine.Group("/user", s.AuthRequired())
+	user := auth.Group("/user", s.WebAuthRequired())
 	{
 		user.GET("/orgs", s.ListUserOrgs)
-		user.POST("/using/:id", s.UseOrg)
+		user.POST("/using/:orgId", s.UseOrg)
 	}
 }
 
@@ -236,97 +238,133 @@ func (s *Server) registerAPIRoutes() {
 	api.GET("/timezones", s.ListTimezones)
 	api.GET("/currencies", s.ListCurrencies)
 
-	hooks := s.engine.Group("/hooks")
-	hooks.Use(RequestID())
-	hooks.Use(s.APIKeyRequired())
-	hooks.POST("/usage", s.IngestUsage)
-
-	secured := api.Group("")
-
-	// --- global middlewares ---
-	secured.Use(RequestID())
-	secured.Use(s.AuthRequired())
-
-	user := secured.Group("/user")
-	{
-		user.GET("/using/:id", s.UseOrg)
-		user.GET("/orgs", s.ListUserOrgs)
-	}
-
-	secured.Use(s.OrgContext())
-
 	// -------- Meters --------
-	secured.GET("/meters", s.ListMeters)
-	secured.POST("/meters", s.CreateMeter)
-	secured.GET("/meters/:id", s.GetMeterByID)
-	secured.PATCH("/meters/:id", s.UpdateMeter)
-	secured.DELETE("/meters/:id", s.DeleteMeter)
-
+	api.GET("/meters", s.APIKeyRequired(), s.ListMeters)
+	api.POST("/meters", s.APIKeyRequired(), s.CreateMeter)
+	api.GET("/meters/:id", s.APIKeyRequired(), s.GetMeterByID)
+	api.PATCH("/meters/:id", s.APIKeyRequired(), s.UpdateMeter)
+	api.DELETE("/meters/:id", s.APIKeyRequired(), s.DeleteMeter)
 	// -------- Product --------
-	secured.GET("/products", s.ListProducts)
-	secured.POST("/products", s.CreateProduct)
-	secured.GET("/products/:id", s.GetProductByID)
+	api.GET("/products", s.APIKeyRequired(), s.ListProducts)
+	api.POST("/products", s.APIKeyRequired(), s.CreateProduct)
+	api.GET("/products/:id", s.APIKeyRequired(), s.GetProductByID)
 
 	// -------- Pricing --------
-	secured.GET("/pricings", s.ListPricings)
-	secured.POST("/pricings", s.CreatePricing)
-	secured.GET("/pricings/:id", s.GetPricingByID)
+	api.GET("/pricings", s.APIKeyRequired(), s.ListPricings)
+	api.POST("/pricings", s.APIKeyRequired(), s.CreatePricing)
+	api.GET("/pricings/:id", s.APIKeyRequired(), s.GetPricingByID)
 
 	// -------- Prices --------
-	secured.GET("/prices", s.ListPrices)
-	secured.POST("/prices", s.CreatePrice)
-	secured.GET("/prices/:id", s.GetPriceByID)
+	api.GET("/prices", s.APIKeyRequired(), s.ListPrices)
+	api.POST("/prices", s.APIKeyRequired(), s.CreatePrice)
+	api.GET("/prices/:id", s.APIKeyRequired(), s.GetPriceByID)
 
 	// -------- Price Amounts --------
-	secured.GET("/price_amounts", s.ListPriceAmounts)
-	secured.POST("/price_amounts", s.CreatePriceAmount)
-	secured.GET("/price_amounts/:id", s.GetPriceAmountByID)
+	api.GET("/price_amounts", s.APIKeyRequired(), s.ListPriceAmounts)
+	api.POST("/price_amounts", s.APIKeyRequired(), s.CreatePriceAmount)
+	api.GET("/price_amounts/:id", s.APIKeyRequired(), s.GetPriceAmountByID)
 
 	// -------- Tiers ---------
-	secured.GET("/price_tiers", s.ListPriceTiers)
-	secured.POST("/price_tiers", s.CreatePriceTier)
-	secured.GET("/price_tiers/:id", s.GetPriceTierByID)
+	api.GET("/price_tiers", s.APIKeyRequired(), s.ListPriceTiers)
+	api.POST("/price_tiers", s.APIKeyRequired(), s.CreatePriceTier)
+	api.GET("/price_tiers/:id", s.APIKeyRequired(), s.GetPriceTierByID)
 
 	// -------- Subscriptions --------
-	secured.GET("/subscriptions", s.ListSubscriptions)
-	secured.POST("/subscriptions", s.CreateSubscription)
-	secured.GET("/subscriptions/:id", s.GetSubscriptionByID)
-	secured.POST("/subscriptions/:id/activate", s.ActivateSubscription)
-	secured.POST("/subscriptions/:id/pause", s.PauseSubscription)
-	secured.POST("/subscriptions/:id/resume", s.ResumeSubscription)
-	secured.POST("/subscriptions/:id/cancel", s.CancelSubscription)
-
-	// -------- Rating --------
-	secured.POST("/rating/run", s.RunRatingJob)
-
+	api.GET("/subscriptions", s.APIKeyRequired(), s.ListSubscriptions)
+	api.POST("/subscriptions", s.APIKeyRequired(), s.CreateSubscription)
+	api.GET("/subscriptions/:id", s.APIKeyRequired(), s.GetSubscriptionByID)
+	api.POST("/subscriptions/:id/activate", s.APIKeyRequired(), s.ActivateSubscription)
+	api.POST("/subscriptions/:id/pause", s.APIKeyRequired(), s.PauseSubscription)
+	api.POST("/subscriptions/:id/resume", s.APIKeyRequired(), s.ResumeSubscription)
+	api.POST("/subscriptions/:id/cancel", s.APIKeyRequired(), s.CancelSubscription)
 	// -------- Invoices --------
-	secured.GET("/invoices", s.ListInvoices)
-	secured.GET("/invoices/:id", s.GetInvoiceByID)
+	api.GET("/invoices", s.APIKeyRequired(), s.ListInvoices)
+	api.GET("/invoices/:id", s.APIKeyRequired(), s.GetInvoiceByID)
 
 	// -------- Customers --------
-	secured.GET("/customers", s.ListCustomers)
-	secured.POST("/customers", s.CreateCustomer)
-	secured.GET("/customers/:id", s.GetCustomerByID)
+	api.GET("/customers", s.APIKeyRequired(), s.ListCustomers)
+	api.POST("/customers", s.APIKeyRequired(), s.CreateCustomer)
+	api.GET("/customers/:id", s.APIKeyRequired(), s.GetCustomerByID)
 
 	if s.cfg.Environment != "production" {
-		secured.POST("/test/cleanup", s.TestCleanup)
+		api.POST("/test/cleanup", s.TestCleanup)
 	}
+}
+
+func (s *Server) registerAdminRoutes() {
+	admin := s.engine.Group("/admin")
+
+	// --- global middlewares ---
+	admin.Use(s.WebAuthRequired())
+	admin.Use(s.OrgContext())
+
+	admin.GET("/meters", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListMeters)
+	admin.POST("/meters", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateMeter)
+	admin.GET("/meters/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetMeterByID)
+	admin.PATCH("/meters/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.UpdateMeter)
+	admin.DELETE("/meters/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.DeleteMeter)
+
+	// -------- Product --------
+	admin.GET("/products", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListProducts)
+	admin.POST("/products", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateProduct)
+	admin.GET("/products/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetProductByID)
+
+	// -------- Pricing --------
+	admin.GET("/pricings", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListPricings)
+	admin.POST("/pricings", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreatePricing)
+	admin.GET("/pricings/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetPricingByID)
+
+	// -------- Prices --------
+	admin.GET("/prices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListPrices)
+	admin.POST("/prices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreatePrice)
+	admin.GET("/prices/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetPriceByID)
+
+	// -------- Price Amounts --------
+	admin.GET("/price_amounts", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListPriceAmounts)
+	admin.POST("/price_amounts", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreatePriceAmount)
+	admin.GET("/price_amounts/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetPriceAmountByID)
+
+	// -------- Tiers ---------
+	admin.GET("/price_tiers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListPriceTiers)
+	admin.POST("/price_tiers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreatePriceTier)
+	admin.GET("/price_tiers/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetPriceTierByID)
+
+	// -------- Subscriptions --------
+	admin.GET("/subscriptions", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListSubscriptions)
+	admin.POST("/subscriptions", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateSubscription)
+	admin.GET("/subscriptions/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetSubscriptionByID)
+	admin.POST("/subscriptions/:id/activate", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ActivateSubscription)
+	admin.POST("/subscriptions/:id/pause", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.PauseSubscription)
+	admin.POST("/subscriptions/:id/resume", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ResumeSubscription)
+	admin.POST("/subscriptions/:id/cancel", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CancelSubscription)
+
+	// -------- Invoices --------
+	admin.GET("/invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListInvoices)
+	admin.GET("/invoices/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetInvoiceByID)
+
+	// -------- Customers --------
+	admin.GET("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListCustomers)
+	admin.POST("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateCustomer)
+	admin.GET("/customers/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetCustomerByID)
+
+	admin.GET("/audit-logs", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListAuditLogs)
+	admin.GET("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListAPIKeys)
+	admin.POST("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateAPIKey)
+	admin.POST("/api-keys/:key_id/reveal", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.RevealAPIKey)
+	admin.POST("/api-keys/:key_id/revoke", s.RequireRole(organizationdomain.RoleOwner), s.RevokeAPIKey)
 }
 
 func (s *Server) registerUIRoutes() {
 	r := s.engine.Group("/")
-
-	// --- middlewares ---
-	r.Use(RequestID())
 
 	// ---- SPA entry points ----
 	r.GET("/", serveIndex)
 	r.GET("/login", s.redirectIfLoggedIn(), serveIndex)
 	r.GET("/login/:name", s.OAuthLogin)
 	r.GET("/invite/:code", serveIndex)
-	r.GET("/change-password", s.AuthRequired(), serveIndex)
+	r.GET("/change-password", s.WebAuthRequired(), serveIndex)
 
-	orgs := r.Group("/orgs", s.AuthRequired())
+	orgs := r.Group("/orgs", s.WebAuthRequired())
 	{
 		orgs.GET("", serveIndex)
 		org := orgs.Group("/:id")

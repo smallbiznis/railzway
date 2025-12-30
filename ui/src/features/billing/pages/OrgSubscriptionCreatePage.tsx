@@ -48,7 +48,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 
 type Customer = {
   id: string | number
@@ -155,7 +155,7 @@ export default function OrgSubscriptionCreatePage() {
     setCustomersLoading(true)
     setCustomersError(null)
 
-    api
+    admin
       .get("/customers", {
         params: {
           page_size: 200,
@@ -193,7 +193,7 @@ export default function OrgSubscriptionCreatePage() {
     setProductsLoading(true)
     setProductsError(null)
 
-    api
+    admin
       .get("/products")
       .then((response) => {
         if (!isMounted) return

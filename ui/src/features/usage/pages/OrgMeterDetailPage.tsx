@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom"
 
 import { Plus } from "lucide-react"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -54,7 +54,7 @@ export default function OrgMeterDetailPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get(`/meters/${meterId}`)
       .then((response) => {
         if (!isMounted) return

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useFieldArray, useForm } from "react-hook-form"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -220,7 +220,7 @@ export default function CreateProduct() {
     setMetersLoading(true)
     setMetersError(null)
 
-    api
+    admin
       .get("/meters")
       .then((response) => {
         if (!isMounted) return
@@ -270,7 +270,7 @@ export default function CreateProduct() {
       active: values.product.active,
       metadata: mapMetadata(values.product.metadata),
     }
-    const response = await api.post("/products", payload)
+    const response = await admin.post("/products", payload)
     return response.data?.data
   }
 
@@ -295,7 +295,7 @@ export default function CreateProduct() {
       aggregate_usage: isUsageBased ? "SUM" : undefined,
       billing_unit: isUsageBased ? "API_CALL" : undefined,
     }
-    const response = await api.post("/prices", payload)
+    const response = await admin.post("/prices", payload)
     return response.data?.data
   }
 
@@ -314,7 +314,7 @@ export default function CreateProduct() {
         form.setError("flat.unit_amount", { message: "Unit price is required." })
         throw new Error("Missing unit amount.")
       }
-      await api.post("/price_amounts", {
+      await admin.post("/price_amounts", {
         organization_id: orgId,
         price_id: priceId,
         meter_id: null,
@@ -362,7 +362,7 @@ export default function CreateProduct() {
       }
     })
 
-    await Promise.all(payloads.map((payload) => api.post("/price_amounts", payload)))
+    await Promise.all(payloads.map((payload) => admin.post("/price_amounts", payload)))
   }
 
   const runCreateFlow = async (values: CreateProductFormValues) => {

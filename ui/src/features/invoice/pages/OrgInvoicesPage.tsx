@@ -5,7 +5,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -87,7 +87,7 @@ export default function OrgInvoicesPage() {
     setError(null)
 
     Promise.allSettled([
-      api.get("/invoices", {
+      admin.get("/invoices", {
         params: {
           status: statusFilter === "ALL" ? undefined : statusFilter,
           invoice_number: invoiceNumberFilter || undefined,
@@ -102,7 +102,7 @@ export default function OrgInvoicesPage() {
           total_max: totalMax || undefined,
         },
       }),
-      api.get("/customers", {
+      admin.get("/customers", {
         params: { page_size: 200 },
       }),
     ])

@@ -44,21 +44,21 @@ const apiKeys = [
 const webhookEndpoints = [
   {
     id: "wh_92af",
-    url: "https://api.valora.dev/hooks/billing",
+    url: "https://admin.valora.dev/hooks/billing",
     signingSecret: "whsec_c81c9s2Hk12",
     status: "Delivered",
     lastDelivery: "2 minutes ago",
   },
   {
     id: "wh_33bd",
-    url: "https://api.valora.dev/hooks/invoices",
+    url: "https://admin.valora.dev/hooks/invoices",
     signingSecret: "whsec_4k1p2n9Qx6",
     status: "Retrying",
     lastDelivery: "12 minutes ago",
   },
   {
     id: "wh_118c",
-    url: "https://api.valora.dev/hooks/usage",
+    url: "https://admin.valora.dev/hooks/usage",
     signingSecret: "whsec_8u2k9p1Tq3",
     status: "Failed",
     lastDelivery: "42 minutes ago",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import {api} from "@/api/client"
+import { admin } from "@/api/client"
 import { Alert } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,7 +45,7 @@ export default function OnboardingPage() {
     setError(null)
     setLoading(true)
     try {
-      const res = await api.post("/organizations", {
+      const res = await admin.post("/organizations", {
         name: orgName,
         country_code: "ID",
         timezone_name: timezone,
@@ -69,7 +69,7 @@ export default function OnboardingPage() {
     setError(null)
     setLoading(true)
     try {
-      await api.post(`/organizations/${orgId}/invites`, { invites })
+      await admin.post(`/organizations/${orgId}/invites`, { invites })
       nextStep()
     } catch (err: any) {
       setError(err?.message ?? "Unable to send invites.")
@@ -86,7 +86,7 @@ export default function OnboardingPage() {
     setError(null)
     setLoading(true)
     try {
-      await api.post(`/organizations/${orgId}/billing-preferences`, {
+      await admin.post(`/organizations/${orgId}/billing-preferences`, {
         currency,
         timezone,
       })

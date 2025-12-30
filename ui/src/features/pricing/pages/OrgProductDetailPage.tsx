@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom"
 
 import { Box, MoreHorizontal, Pencil, Plus } from "lucide-react"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
@@ -132,7 +132,7 @@ export default function OrgProductDetailPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get(`/products/${productId}`)
       .then((response) => {
         if (!isMounted) return
@@ -163,9 +163,9 @@ export default function OrgProductDetailPage() {
     setPricingError(null)
 
     Promise.all([
-      api.get("/prices"),
-      api.get("/price_amounts"),
-      api.get("/meters"),
+      admin.get("/prices"),
+      admin.get("/price_amounts"),
+      admin.get("/meters"),
     ])
       .then(([priceRes, amountRes, meterRes]) => {
         if (!isMounted) return

@@ -65,6 +65,30 @@ func (s *Server) redirectIfLoggedIn() gin.HandlerFunc {
 	}
 }
 
+func (s *Server) WebAuthRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sid, ok := s.sessions.ReadToken(c)
+		if !ok {
+			c.Redirect(302, "/login")
+			c.Abort()
+			return
+		}
+
+		session, err := s.authsvc.Authenticate(c.Request.Context(), sid)
+		if err != nil {
+			c.Redirect(302, "/login")
+			c.Abort()
+			return
+		}
+
+		c.Set(contextUserIDKey, session.UserID.String())
+		c.Set(contextSessionKey, session)
+		ctx := auditcontext.WithActor(c.Request.Context(), string(auditdomain.ActorTypeUser), session.UserID.String())
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+
 func (s *Server) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sid, ok := s.sessions.ReadToken(c)

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
 import { IconPlus } from "@tabler/icons-react"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -109,7 +109,7 @@ export default function OrgCustomersPage() {
     setListError(null)
 
     try {
-      const res = await api.get("/customers", {
+      const res = await admin.get("/customers", {
         params: {
           name: nameFilter || undefined,
           email: emailFilter || undefined,
@@ -154,7 +154,7 @@ export default function OrgCustomersPage() {
     setIsCreating(true)
     setCreateError(null)
     try {
-      await api.post("/customers", {
+      await admin.post("/customers", {
         organization_id: orgId,
         name,
         email,

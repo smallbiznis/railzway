@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { IconDotsVertical } from "@tabler/icons-react"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -94,7 +94,7 @@ export default function OrgInvoiceDetailPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get(`/invoices/${invoiceId}`)
       .then((response) => {
         if (!isMounted) return
@@ -122,7 +122,7 @@ export default function OrgInvoiceDetailPage() {
     let active = true
     setCustomerError(null)
 
-    api
+    admin
       .get(`/customers/${customerId}`)
       .then((response) => {
         if (!active) return

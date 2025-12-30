@@ -9,11 +9,6 @@ export const auth = axios.create({
   withCredentials: true,
 });
 
-export const api = axios.create({
-  baseURL: "/api",
-  withCredentials: true,
-});
-
 export const admin = axios.create({
   baseURL: "/admin",
   withCredentials: true,
@@ -30,5 +25,4 @@ const attachOrgHeader = (client: AxiosInstance) => {
   });
 };
 
-attachOrgHeader(api);
 attachOrgHeader(admin);

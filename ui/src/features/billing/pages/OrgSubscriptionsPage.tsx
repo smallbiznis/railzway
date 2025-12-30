@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 
-import { api } from "@/api/client"
+import { admin } from "@/api/client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -188,7 +188,7 @@ export default function OrgSubscriptionsPage() {
     setIsLoading(true)
     setError(null)
 
-    api
+    admin
       .get("/subscriptions", {
         params: {
           status: statusFilter === "ALL" ? undefined : statusFilter,

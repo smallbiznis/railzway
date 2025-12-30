@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom"
 
-import {api} from "@/api/client"
+import { auth } from "@/api/client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,9 +38,9 @@ export function AppShell() {
     let isMounted = true
     if (!orgId) return
     setIsLoading(true)
-    api
+    auth
       .post(`/user/using/${orgId}`)
-      .then(() => api.get("/user/orgs"))
+      .then(() => auth.get("/user/orgs"))
       .then((res) => {
         if (!isMounted) return
         const list = res.data?.orgs ?? []
@@ -125,7 +125,7 @@ function Topbar() {
   const initial = currentOrg?.name?.[0]?.toUpperCase() ?? "O"
   const handleOrgSwitch = async (org: { id: string; name: string }) => {
     try {
-      await api.post(`/user/using/${org.id}`)
+      await auth.post(`/user/using/${org.id}`)
       setCurrentOrg(org)
       navigate(`/orgs/${org.id}/dashboard`)
     } catch (err) {
