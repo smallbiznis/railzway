@@ -17,6 +17,7 @@ import (
 	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
+	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
 	paymentproviderdomain "github.com/smallbiznis/valora/internal/paymentprovider/domain"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
@@ -222,6 +223,7 @@ func isValidationError(err error) bool {
 		isInvoiceValidationError(err),
 		isInvoiceTemplateValidationError(err),
 		isRatingValidationError(err),
+		isPaymentValidationError(err),
 		isProductValidationError(err),
 		isPriceValidationError(err),
 		isPricingValidationError(err),
@@ -266,6 +268,7 @@ func isNotFoundError(err error) bool {
 		errors.Is(err, ratingdomain.ErrBillingCycleNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound),
+		errors.Is(err, paymentdomain.ErrProviderNotFound),
 		errors.Is(err, paymentproviderdomain.ErrNotFound),
 		errors.Is(err, gorm.ErrRecordNotFound):
 		return true
@@ -344,6 +347,21 @@ func isPaymentProviderValidationError(err error) bool {
 	case paymentproviderdomain.ErrInvalidOrganization,
 		paymentproviderdomain.ErrInvalidProvider,
 		paymentproviderdomain.ErrInvalidConfig:
+		return true
+	default:
+		return false
+	}
+}
+
+func isPaymentValidationError(err error) bool {
+	switch err {
+	case paymentdomain.ErrInvalidProvider,
+		paymentdomain.ErrInvalidSignature,
+		paymentdomain.ErrInvalidPayload,
+		paymentdomain.ErrInvalidEvent,
+		paymentdomain.ErrInvalidCustomer,
+		paymentdomain.ErrInvalidAmount,
+		paymentdomain.ErrInvalidCurrency:
 		return true
 	default:
 		return false

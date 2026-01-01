@@ -30,6 +30,7 @@ import (
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
+	"github.com/smallbiznis/valora/internal/events"
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/invoicetemplate"
@@ -375,6 +376,7 @@ func startEnv() (*testEnv, error) {
 		cloudmetrics.Module,
 		authorization.Module,
 		audit.Module,
+		events.Module,
 		auth.Module,
 		authlocal.Module,
 		authoauth2provider.Module,

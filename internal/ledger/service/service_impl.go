@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
+	"github.com/smallbiznis/valora/internal/events"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ type Params struct {
 	Log      *zap.Logger
 	GenID    *snowflake.Node
 	AuditSvc auditdomain.Service
+	Outbox   *events.Outbox `optional:"true"`
 }
 
 type Service struct {
@@ -28,6 +30,7 @@ type Service struct {
 	log      *zap.Logger
 	genID    *snowflake.Node
 	auditSvc auditdomain.Service
+	outbox   *events.Outbox
 }
 
 func NewService(p Params) ledgerdomain.Service {
@@ -36,6 +39,7 @@ func NewService(p Params) ledgerdomain.Service {
 		log:      p.Log.Named("ledger.service"),
 		genID:    p.GenID,
 		auditSvc: p.AuditSvc,
+		outbox:   p.Outbox,
 	}
 }
 
@@ -134,6 +138,22 @@ func (s *Service) CreateEntry(
 				line.Amount,
 				now,
 			).Error; err != nil {
+				return err
+			}
+		}
+
+		if s.outbox != nil {
+			payload := map[string]any{
+				"ledger_entry_id": entryID.String(),
+				"source_type":     sourceType,
+				"source_id":       sourceID.String(),
+			}
+			if err := s.outbox.PublishTx(ctx, tx, events.Event{
+				OrgID:     orgID,
+				Type:      events.EventLedgerEntryCreated,
+				Payload:   payload,
+				DedupeKey: "ledger_entry:" + entryID.String(),
+			}); err != nil {
 				return err
 			}
 		}

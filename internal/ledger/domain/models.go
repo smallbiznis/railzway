@@ -18,6 +18,7 @@ const (
 	SourceTypeBillingCycle = "billing_cycle"
 	SourceTypeAdjustment   = "adjustment"
 	SourceTypeRefund       = "refund"
+	SourceTypePaymentEvent = "payment_event"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	AccountCodeRevenue            = "revenue"
 	AccountCodeTaxPayable         = "tax_payable"
 	AccountCodeCredit             = "credit"
+	AccountCodeCashClearing       = "cash_clearing"
 )
 
 // LedgerAccount defines a chart-of-accounts entry.

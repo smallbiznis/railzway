@@ -156,6 +156,9 @@ func (s *Scheduler) RecoverySweepJob(ctx context.Context) error {
 				continue
 			}
 			if updated {
+				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosed, now); err != nil {
+					jobErr = errors.Join(jobErr, err)
+				}
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
 					Action:         "billing_cycle.closed",

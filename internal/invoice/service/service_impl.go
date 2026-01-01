@@ -10,6 +10,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
+	"github.com/smallbiznis/valora/internal/events"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/invoice/render"
 	templatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
@@ -31,6 +32,7 @@ type ServiceParam struct {
 	AuditSvc     auditdomain.Service
 	TemplateRepo templatedomain.Repository
 	Renderer     render.Renderer
+	Outbox       *events.Outbox `optional:"true"`
 }
 
 type Service struct {
@@ -42,6 +44,7 @@ type Service struct {
 	auditSvc     auditdomain.Service
 	templateRepo templatedomain.Repository
 	renderer     render.Renderer
+	outbox       *events.Outbox
 }
 
 func NewService(p ServiceParam) invoicedomain.Service {
@@ -54,6 +57,7 @@ func NewService(p ServiceParam) invoicedomain.Service {
 		auditSvc:     p.AuditSvc,
 		templateRepo: p.TemplateRepo,
 		renderer:     p.Renderer,
+		outbox:       p.Outbox,
 	}
 }
 
@@ -358,6 +362,20 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		}
 		invoice.FinalizedAt = &now
 		finalizedInvoice = invoice
+
+		if s.outbox != nil {
+			if err := s.outbox.PublishTx(ctx, tx, events.Event{
+				OrgID: invoice.OrgID,
+				Type:  events.EventInvoiceFinalized,
+				Payload: map[string]any{
+					"invoice_id":       invoice.ID.String(),
+					"billing_cycle_id": invoice.BillingCycleID.String(),
+				},
+				DedupeKey: "invoice_finalized:" + invoice.ID.String(),
+			}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -410,6 +428,20 @@ func (s *Service) VoidInvoice(ctx context.Context, invoiceID string, reason stri
 			return err
 		}
 		voidedInvoice = invoice
+
+		if s.outbox != nil {
+			if err := s.outbox.PublishTx(ctx, tx, events.Event{
+				OrgID: invoice.OrgID,
+				Type:  events.EventInvoiceVoided,
+				Payload: map[string]any{
+					"invoice_id":       invoice.ID.String(),
+					"billing_cycle_id": invoice.BillingCycleID.String(),
+				},
+				DedupeKey: "invoice_voided:" + invoice.ID.String(),
+			}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {

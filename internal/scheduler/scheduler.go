@@ -11,6 +11,7 @@ import (
 	auditcontext "github.com/smallbiznis/valora/internal/auditcontext"
 	"github.com/smallbiznis/valora/internal/authorization"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
+	"github.com/smallbiznis/valora/internal/billingdashboard/rollup"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
@@ -33,6 +34,7 @@ type Params struct {
 	SubscriptionSvc subscriptiondomain.Service
 	AuditSvc        auditdomain.Service
 	AuthzSvc        authorization.Service
+	RollupSvc       *rollup.Service `optional:"true"`
 	GenID           *snowflake.Node
 	Config          Config `optional:"true"`
 }
@@ -48,6 +50,7 @@ type Scheduler struct {
 	subscriptionSvc subscriptiondomain.Service
 	auditSvc        auditdomain.Service
 	authzSvc        authorization.Service
+	rollupSvc       *rollup.Service
 }
 
 type auditEvent struct {
@@ -76,6 +79,7 @@ func New(p Params) (*Scheduler, error) {
 		subscriptionSvc: p.SubscriptionSvc,
 		auditSvc:        p.AuditSvc,
 		authzSvc:        p.AuthzSvc,
+		rollupSvc:       p.RollupSvc,
 	}, nil
 }
 
@@ -96,6 +100,14 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	}
 	if jobErr := s.InvoiceJob(ctx); jobErr != nil {
 		err = errors.Join(err, jobErr)
+	}
+	if s.rollupSvc != nil {
+		if jobErr := s.rollupSvc.ProcessRebuildRequests(ctx, s.cfg.BatchSize); jobErr != nil {
+			err = errors.Join(err, jobErr)
+		}
+		if jobErr := s.rollupSvc.ProcessPending(ctx, s.cfg.BatchSize); jobErr != nil {
+			err = errors.Join(err, jobErr)
+		}
 	}
 	if jobErr := s.EndCanceledSubscriptionsJob(ctx); jobErr != nil {
 		err = errors.Join(err, jobErr)
@@ -165,6 +177,9 @@ func (s *Scheduler) CloseCyclesJob(ctx context.Context) error {
 				continue
 			}
 			if updated {
+				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosing, now); err != nil {
+					jobErr = errors.Join(jobErr, err)
+				}
 				s.emitAuditEvent(ctx, auditEvent{
 					OrgID:          cycle.OrgID,
 					Action:         "billing_cycle.closing_started",
@@ -311,6 +326,9 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 				continue
 			}
 			if updated {
+				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosed, now); err != nil {
+					jobErr = errors.Join(jobErr, err)
+				}
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
 					Action:         "billing_cycle.closed",

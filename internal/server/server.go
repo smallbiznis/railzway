@@ -22,10 +22,12 @@ import (
 	"github.com/smallbiznis/valora/internal/authorization"
 	"github.com/smallbiznis/valora/internal/billingdashboard"
 	billingdashboarddomain "github.com/smallbiznis/valora/internal/billingdashboard/domain"
+	billingrollup "github.com/smallbiznis/valora/internal/billingdashboard/rollup"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
+	"github.com/smallbiznis/valora/internal/events"
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/invoicetemplate"
@@ -35,6 +37,8 @@ import (
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	"github.com/smallbiznis/valora/internal/organization"
 	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
+	"github.com/smallbiznis/valora/internal/payment"
+	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
 	"github.com/smallbiznis/valora/internal/paymentprovider"
 	paymentproviderdomain "github.com/smallbiznis/valora/internal/paymentprovider/domain"
 	"github.com/smallbiznis/valora/internal/price"
@@ -65,6 +69,7 @@ var Module = fx.Module("http.server",
 	fx.Provide(registerGin),
 	authorization.Module,
 	audit.Module,
+	events.Module,
 	auth.Module,
 	authlocal.Module,
 	authoauth2provider.Module,
@@ -81,6 +86,7 @@ var Module = fx.Module("http.server",
 	priceamount.Module,
 	pricetier.Module,
 	product.Module,
+	payment.Module,
 	paymentprovider.Module,
 	reference.Module,
 	rating.Module,
@@ -136,6 +142,7 @@ type Server struct {
 	authzSvc            authorization.Service
 	auditSvc            auditdomain.Service
 	billingDashboardSvc billingdashboarddomain.Service
+	billingRollup       *billingrollup.Service
 	invoiceSvc          invoicedomain.Service
 	meterSvc            meterdomain.Service
 	organizationSvc     organizationdomain.Service
@@ -144,6 +151,7 @@ type Server struct {
 	priceAmountSvc      priceamountdomain.Service
 	priceTierSvc        pricetierdomain.Service
 	productSvc          productdomain.Service
+	paymentSvc          paymentdomain.Service
 	paymentProviderSvc  paymentproviderdomain.Service
 	invoiceTemplateSvc  invoicetemplatedomain.Service
 	refrepo             referencedomain.Repository
@@ -169,6 +177,7 @@ type ServerParams struct {
 	AuthzSvc            authorization.Service
 	AuditSvc            auditdomain.Service
 	BillingDashboardSvc billingdashboarddomain.Service
+	BillingRollup       *billingrollup.Service
 	InvoiceSvc          invoicedomain.Service
 	MeterSvc            meterdomain.Service
 	OrganizationSvc     organizationdomain.Service
@@ -177,6 +186,7 @@ type ServerParams struct {
 	PriceAmountSvc      priceamountdomain.Service
 	PriceTierSvc        pricetierdomain.Service
 	ProductSvc          productdomain.Service
+	PaymentSvc          paymentdomain.Service
 	PaymentProviderSvc  paymentproviderdomain.Service
 	InvoiceTemplateSvc  invoicetemplatedomain.Service
 	Refrepo             referencedomain.Repository
@@ -201,6 +211,7 @@ func NewServer(p ServerParams) *Server {
 		authzSvc:            p.AuthzSvc,
 		auditSvc:            p.AuditSvc,
 		billingDashboardSvc: p.BillingDashboardSvc,
+		billingRollup:       p.BillingRollup,
 		invoiceSvc:          p.InvoiceSvc,
 		meterSvc:            p.MeterSvc,
 		organizationSvc:     p.OrganizationSvc,
@@ -209,6 +220,7 @@ func NewServer(p ServerParams) *Server {
 		priceAmountSvc:      p.PriceAmountSvc,
 		priceTierSvc:        p.PriceTierSvc,
 		productSvc:          p.ProductSvc,
+		paymentSvc:          p.PaymentSvc,
 		paymentProviderSvc:  p.PaymentProviderSvc,
 		invoiceTemplateSvc:  p.InvoiceTemplateSvc,
 		refrepo:             p.Refrepo,
@@ -305,6 +317,9 @@ func (s *Server) registerAPIRoutes() {
 	api.POST("/customers", s.APIKeyRequired(), s.CreateCustomer)
 	api.GET("/customers/:id", s.APIKeyRequired(), s.GetCustomerByID)
 
+	// -------- Payment Webhooks --------
+	api.POST("/payments/webhooks/:provider", s.HandlePaymentWebhook)
+
 	api.POST("/usage", s.APIKeyRequired(), s.IngestUsage)
 
 	if s.cfg.Environment != "production" {
@@ -368,6 +383,7 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/billing/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCustomers)
 	admin.GET("/billing/cycles", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCycles)
 	admin.GET("/billing/activity", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingActivity)
+	admin.POST("/internal/rebuild-billing-snapshots", s.RequireRole(organizationdomain.RoleOwner), s.RebuildBillingSnapshots)
 
 	// -------- Invoice Templates --------
 	admin.GET("/invoice-templates", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListInvoiceTemplates)
