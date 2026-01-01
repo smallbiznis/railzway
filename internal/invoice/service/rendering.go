@@ -130,7 +130,7 @@ func (s *Service) resolveTemplate(ctx context.Context, db *gorm.DB, orgID snowfl
 func (s *Service) listInvoiceItems(ctx context.Context, db *gorm.DB, orgID, invoiceID snowflake.ID) ([]invoicedomain.InvoiceItem, error) {
 	var items []invoicedomain.InvoiceItem
 	err := db.WithContext(ctx).Raw(
-		`SELECT id, org_id, invoice_id, rating_result_id, subscription_item_id,
+		`SELECT id, org_id, invoice_id, rating_result_id, ledger_entry_line_id, subscription_item_id,
 		        description, quantity, unit_price, amount, metadata, created_at
 		 FROM invoice_items
 		 WHERE org_id = ? AND invoice_id = ?

@@ -51,6 +51,7 @@ type InvoiceItem struct {
 	OrgID              snowflake.ID      `gorm:"not null;index"`
 	InvoiceID          snowflake.ID      `gorm:"not null;index"`
 	RatingResultID     *snowflake.ID     `gorm:"index"`
+	LedgerEntryLineID  *snowflake.ID     `gorm:"column:ledger_entry_line_id;index"`
 	SubscriptionItemID *snowflake.ID     `gorm:"index"`
 	Description        string            `gorm:"type:text"`
 	Quantity           float64           `gorm:"not null"`

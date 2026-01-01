@@ -260,6 +260,7 @@ func isInvoiceValidationError(err error) bool {
 	case invoicedomain.ErrInvalidOrganization,
 		invoicedomain.ErrInvalidBillingCycle,
 		invoicedomain.ErrBillingCycleNotClosed,
+		invoicedomain.ErrMissingLedgerEntry,
 		invoicedomain.ErrMissingRatingResults,
 		invoicedomain.ErrCurrencyMismatch,
 		invoicedomain.ErrInvalidInvoiceID,

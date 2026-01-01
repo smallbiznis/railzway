@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"gorm.io/gorm"
 )
 
@@ -39,7 +40,13 @@ func (s *Server) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	resp, err := s.apiKeySvc.Create(c.Request.Context(), apikeydomain.CreateRequest{Name: req.Name, Scopes: req.Scopes})
+	scopes := authscope.Normalize(req.Scopes)
+	if err := authscope.Validate(scopes); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	resp, err := s.apiKeySvc.Create(c.Request.Context(), apikeydomain.CreateRequest{Name: req.Name, Scopes: scopes})
 	if err != nil {
 		AbortWithError(c, err)
 		return
@@ -53,6 +60,11 @@ func (s *Server) CreateAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Server) ListAPIKeyScopes(c *gin.Context) {
+	scopes := authscope.All()
+	c.JSON(http.StatusOK, scopes)
 }
 
 func (s *Server) RevealAPIKey(c *gin.Context) {

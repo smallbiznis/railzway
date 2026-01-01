@@ -12,6 +12,7 @@ import (
 	"github.com/smallbiznis/valora/internal/authorization"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/internal/scheduler/guard"
@@ -28,6 +29,7 @@ type Params struct {
 	Log             *zap.Logger
 	RatingSvc       ratingdomain.Service
 	InvoiceSvc      invoicedomain.Service
+	LedgerSvc       ledgerdomain.Service
 	SubscriptionSvc subscriptiondomain.Service
 	AuditSvc        auditdomain.Service
 	AuthzSvc        authorization.Service
@@ -42,6 +44,7 @@ type Scheduler struct {
 	genID           *snowflake.Node
 	ratingSvc       ratingdomain.Service
 	invoiceSvc      invoicedomain.Service
+	ledgerSvc       ledgerdomain.Service
 	subscriptionSvc subscriptiondomain.Service
 	auditSvc        auditdomain.Service
 	authzSvc        authorization.Service
@@ -58,7 +61,7 @@ type auditEvent struct {
 }
 
 func New(p Params) (*Scheduler, error) {
-	if p.DB == nil || p.Log == nil || p.RatingSvc == nil || p.InvoiceSvc == nil || p.SubscriptionSvc == nil || p.GenID == nil || p.AuditSvc == nil || p.AuthzSvc == nil {
+	if p.DB == nil || p.Log == nil || p.RatingSvc == nil || p.InvoiceSvc == nil || p.LedgerSvc == nil || p.SubscriptionSvc == nil || p.GenID == nil || p.AuditSvc == nil || p.AuthzSvc == nil {
 		return nil, ErrInvalidConfig
 	}
 	cfg := p.Config.withDefaults()
@@ -69,6 +72,7 @@ func New(p Params) (*Scheduler, error) {
 		genID:           p.GenID,
 		ratingSvc:       p.RatingSvc,
 		invoiceSvc:      p.InvoiceSvc,
+		ledgerSvc:       p.LedgerSvc,
 		subscriptionSvc: p.SubscriptionSvc,
 		auditSvc:        p.AuditSvc,
 		authzSvc:        p.AuthzSvc,
@@ -293,6 +297,13 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 				continue
 			}
 
+			cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
+			if err := s.ensureLedgerEntryForCycle(cycleCtx, cycle); err != nil {
+				jobErr = errors.Join(jobErr, err)
+				_ = s.recordCycleError(ctx, cycle.ID, err)
+				continue
+			}
+
 			updated, err := s.markCycleClosed(ctx, cycle.ID, now)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
@@ -300,7 +311,7 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 				continue
 			}
 			if updated {
-				s.emitAuditEvent(ctx, auditEvent{
+				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
 					Action:         "billing_cycle.closed",
 					TargetType:     "billing_cycle",

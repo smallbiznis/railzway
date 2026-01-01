@@ -28,6 +28,7 @@ import (
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/invoicetemplate"
 	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
+	"github.com/smallbiznis/valora/internal/ledger"
 	"github.com/smallbiznis/valora/internal/meter"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	"github.com/smallbiznis/valora/internal/organization"
@@ -68,6 +69,7 @@ var Module = fx.Module("http.server",
 	customer.Module,
 	invoice.Module,
 	invoicetemplate.Module,
+	ledger.Module,
 	meter.Module,
 	organization.Module,
 	price.Module,

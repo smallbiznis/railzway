@@ -49,6 +49,7 @@ var (
 	ErrInvalidBillingCycle     = errors.New("invalid_billing_cycle")
 	ErrBillingCycleNotFound    = errors.New("billing_cycle_not_found")
 	ErrBillingCycleNotClosed   = errors.New("billing_cycle_not_closed")
+	ErrMissingLedgerEntry      = errors.New("missing_ledger_entry")
 	ErrMissingRatingResults    = errors.New("missing_rating_results")
 	ErrCurrencyMismatch        = errors.New("currency_mismatch")
 	ErrInvalidInvoiceID        = errors.New("invalid_invoice_id")

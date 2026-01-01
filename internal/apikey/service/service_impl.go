@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -78,6 +79,11 @@ func (s *Service) Create(ctx context.Context, req apikeydomain.CreateRequest) (*
 		return nil, apikeydomain.ErrInvalidName
 	}
 
+	scopes := authscope.Normalize(req.Scopes)
+	if err := authscope.Validate(scopes); err != nil {
+		return nil, err
+	}
+
 	now := time.Now().UTC()
 	id := s.genID.Generate()
 	keyID := newKeyID(id)
@@ -91,7 +97,7 @@ func (s *Service) Create(ctx context.Context, req apikeydomain.CreateRequest) (*
 		OrgID:     orgID,
 		KeyID:     keyID,
 		Name:      name,
-		Scopes:    req.Scopes,
+		Scopes:    scopes,
 		KeyHash:   hash,
 		IsActive:  true,
 		CreatedAt: now,
@@ -126,7 +132,13 @@ func (s *Service) Rotate(ctx context.Context, keyID string) (*apikeydomain.Secre
 			return apikeydomain.ErrNotFound
 		}
 
+		scopes := authscope.Normalize(current.Scopes)
+		if err := authscope.Validate(scopes); err != nil {
+			return err
+		}
+
 		now := time.Now().UTC()
+		current.Scopes = scopes
 		current.ExpiresAt = ptrTime(now.Add(apiKeyRotationGracePeriod))
 		current.UpdatedAt = now
 		if err := s.repo.Update(ctx, tx, current); err != nil {
@@ -146,7 +158,7 @@ func (s *Service) Rotate(ctx context.Context, keyID string) (*apikeydomain.Secre
 			OrgID:            orgID,
 			KeyID:            newKeyID,
 			Name:             current.Name,
-			Scopes:           current.Scopes,
+			Scopes:           scopes,
 			KeyHash:          hash,
 			IsActive:         true,
 			CreatedAt:        now,
@@ -188,6 +200,9 @@ func (s *Service) Revoke(ctx context.Context, keyID string) error {
 	}
 
 	now := time.Now().UTC()
+	if key.Scopes == nil {
+		key.Scopes = []string{}
+	}
 	key.IsActive = false
 	key.UpdatedAt = now
 	if key.ExpiresAt == nil || key.ExpiresAt.After(now) {

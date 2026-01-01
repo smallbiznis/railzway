@@ -32,6 +32,8 @@ import (
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/invoicetemplate"
+	"github.com/smallbiznis/valora/internal/ledger"
+	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/meter"
 	"github.com/smallbiznis/valora/internal/migration"
@@ -356,6 +358,7 @@ func startEnv() (*testEnv, error) {
 		genID       *snowflake.Node
 		ratingSvc   ratingdomain.Service
 		invoiceSvc  invoicedomain.Service
+		ledgerSvc   ledgerdomain.Service
 		subSvc      subscriptiondomain.Service
 		auditSvc    auditdomain.Service
 		authzSvc    authorization.Service
@@ -378,6 +381,7 @@ func startEnv() (*testEnv, error) {
 		customer.Module,
 		invoice.Module,
 		invoicetemplate.Module,
+		ledger.Module,
 		meter.Module,
 		organization.Module,
 		price.Module,
@@ -398,7 +402,7 @@ func startEnv() (*testEnv, error) {
 		}),
 		fx.Provide(server.NewEngine),
 		fx.Provide(server.NewServer),
-		fx.Populate(&srv, &dbConn, &cfg, &log, &genID, &ratingSvc, &invoiceSvc, &subSvc, &auditSvc, &authzSvc),
+		fx.Populate(&srv, &dbConn, &cfg, &log, &genID, &ratingSvc, &invoiceSvc, &ledgerSvc, &subSvc, &auditSvc, &authzSvc),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -431,6 +435,7 @@ func startEnv() (*testEnv, error) {
 		Log:             log,
 		RatingSvc:       ratingSvc,
 		InvoiceSvc:      invoiceSvc,
+		LedgerSvc:       ledgerSvc,
 		SubscriptionSvc: subSvc,
 		AuditSvc:        auditSvc,
 		AuthzSvc:        authzSvc,
