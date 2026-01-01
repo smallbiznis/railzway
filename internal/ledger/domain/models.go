@@ -19,6 +19,8 @@ const (
 	SourceTypeAdjustment   = "adjustment"
 	SourceTypeRefund       = "refund"
 	SourceTypePaymentEvent = "payment_event"
+	SourceTypeDisputeWithdrawn  = "dispute_withdrawn"
+	SourceTypeDisputeReinstated = "dispute_reinstated"
 )
 
 const (

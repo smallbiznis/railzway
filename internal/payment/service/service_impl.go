@@ -2,24 +2,16 @@ package service
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
-	"github.com/smallbiznis/valora/internal/config"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
-	"github.com/smallbiznis/valora/internal/payment/adapters"
 	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
-	paymentproviderdomain "github.com/smallbiznis/valora/internal/paymentprovider/domain"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
@@ -35,8 +27,6 @@ type Params struct {
 	LedgerSvc ledgerdomain.Service
 	AuditSvc  auditdomain.Service
 	Repo      paymentdomain.Repository
-	Cfg       config.Config
-	Adapters  *adapters.Registry
 }
 
 type Service struct {
@@ -46,29 +36,9 @@ type Service struct {
 	ledgerSvc ledgerdomain.Service
 	auditSvc  auditdomain.Service
 	repo      paymentdomain.Repository
-	adapters  *adapters.Registry
-	encKey    []byte
 }
 
-type encryptedPayload struct {
-	Version    int    `json:"version"`
-	Nonce      string `json:"nonce"`
-	Ciphertext string `json:"ciphertext"`
-}
-
-type providerConfigRow struct {
-	OrgID  snowflake.ID
-	Config datatypes.JSON
-}
-
-func NewService(p Params) paymentdomain.Service {
-	secret := strings.TrimSpace(p.Cfg.PaymentProviderConfigSecret)
-	var key []byte
-	if secret != "" {
-		sum := sha256.Sum256([]byte(secret))
-		key = sum[:]
-	}
-
+func NewService(p Params) *Service {
 	return &Service{
 		db:        p.DB,
 		log:       p.Log.Named("payment.service"),
@@ -76,50 +46,29 @@ func NewService(p Params) paymentdomain.Service {
 		ledgerSvc: p.LedgerSvc,
 		auditSvc:  p.AuditSvc,
 		repo:      p.Repo,
-		adapters:  p.Adapters,
-		encKey:    key,
 	}
 }
 
-func (s *Service) IngestWebhook(ctx context.Context, provider string, payload []byte, headers http.Header) error {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" {
-		return paymentdomain.ErrInvalidProvider
+func (s *Service) ProcessEvent(ctx context.Context, event *paymentdomain.PaymentEvent, payload []byte) error {
+	if event == nil {
+		return paymentdomain.ErrInvalidEvent
 	}
-	if s.adapters == nil || !s.adapters.ProviderExists(provider) {
-		return paymentdomain.ErrProviderNotFound
+	event.Provider = strings.ToLower(strings.TrimSpace(event.Provider))
+	if event.Provider == "" {
+		return paymentdomain.ErrInvalidProvider
 	}
 	if !json.Valid(payload) {
 		return paymentdomain.ErrInvalidPayload
 	}
-
-	configs, err := s.listActiveConfigs(ctx, provider)
-	if err != nil {
+	if err := validateEvent(event); err != nil {
 		return err
-	}
-	if len(configs) == 0 {
-		return paymentdomain.ErrProviderNotFound
-	}
-
-	_, event, err := s.matchAdapter(ctx, provider, payload, headers, configs)
-	if err != nil {
-		if errors.Is(err, paymentdomain.ErrEventIgnored) {
-			return nil
-		}
-		if errors.Is(err, paymentdomain.ErrInvalidCustomer) {
-			s.log.Warn("payment webhook missing customer mapping", zap.String("provider", provider))
-		}
-		return err
-	}
-	if event == nil {
-		return paymentdomain.ErrInvalidSignature
 	}
 
 	now := time.Now().UTC()
 	received := paymentdomain.EventRecord{
 		ID:              s.genID.Generate(),
 		OrgID:           event.OrgID,
-		Provider:        provider,
+		Provider:        event.Provider,
 		ProviderEventID: event.ProviderEventID,
 		EventType:       event.Type,
 		CustomerID:      event.CustomerID,
@@ -133,7 +82,7 @@ func (s *Service) IngestWebhook(ctx context.Context, provider string, payload []
 	}
 	stored := &received
 	if !inserted {
-		stored, err = s.loadEvent(ctx, provider, event.ProviderEventID)
+		stored, err = s.loadEvent(ctx, event.Provider, event.ProviderEventID)
 		if err != nil {
 			return err
 		}
@@ -154,76 +103,6 @@ func (s *Service) IngestWebhook(ctx context.Context, provider string, payload []
 	}
 
 	return nil
-}
-
-func (s *Service) listActiveConfigs(ctx context.Context, provider string) ([]providerConfigRow, error) {
-	var rows []providerConfigRow
-	err := s.db.WithContext(ctx).Raw(
-		`SELECT org_id, config
-		 FROM payment_provider_configs
-		 WHERE provider = ? AND is_active = TRUE`,
-		provider,
-	).Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) matchAdapter(
-	ctx context.Context,
-	provider string,
-	payload []byte,
-	headers http.Header,
-	configs []providerConfigRow,
-) (paymentdomain.PaymentAdapter, *paymentdomain.PaymentEvent, error) {
-	var configErr error
-	for _, cfg := range configs {
-		decrypted, err := s.decryptConfig(cfg.Config)
-		if err != nil {
-			if errors.Is(err, paymentproviderdomain.ErrEncryptionKeyMissing) {
-				return nil, nil, err
-			}
-			configErr = err
-			continue
-		}
-
-		adapter, err := s.adapters.NewAdapter(provider, paymentdomain.AdapterConfig{
-			OrgID:    cfg.OrgID,
-			Provider: provider,
-			Config:   decrypted,
-		})
-		if err != nil {
-			configErr = err
-			continue
-		}
-
-		if err := adapter.Verify(ctx, payload, headers); err != nil {
-			if errors.Is(err, paymentdomain.ErrInvalidSignature) {
-				continue
-			}
-			return nil, nil, err
-		}
-
-		event, err := adapter.Parse(ctx, payload)
-		if err != nil {
-			if errors.Is(err, paymentdomain.ErrEventIgnored) {
-				return adapter, nil, err
-			}
-			return nil, nil, err
-		}
-		event.Provider = provider
-		event.OrgID = cfg.OrgID
-		if err := validateEvent(event); err != nil {
-			return nil, nil, err
-		}
-		return adapter, event, nil
-	}
-
-	if configErr != nil {
-		return nil, nil, configErr
-	}
-	return nil, nil, paymentdomain.ErrInvalidSignature
 }
 
 func validateEvent(event *paymentdomain.PaymentEvent) error {
@@ -530,19 +409,26 @@ func (s *Service) customerBalance(ctx context.Context, orgID snowflake.ID, custo
 		 LEFT JOIN billing_cycles bc ON bc.id = le.source_id AND le.source_type = ?
 		 LEFT JOIN subscriptions s ON s.id = bc.subscription_id
 		 LEFT JOIN payment_events pe ON pe.id = le.source_id AND le.source_type = ?
+		 LEFT JOIN payment_disputes pd ON pd.id = le.source_id AND le.source_type IN (?, ?)
 		 WHERE le.org_id = ?
 		   AND a.code = ?
 		   AND le.currency = ?
 		   AND ((le.source_type = ? AND s.customer_id = ?)
-		     OR (le.source_type = ? AND pe.customer_id = ?))`,
+		     OR (le.source_type = ? AND pe.customer_id = ?)
+		     OR (le.source_type IN (?, ?) AND pd.customer_id = ?))`,
 		ledgerdomain.SourceTypeBillingCycle,
 		ledgerdomain.SourceTypePaymentEvent,
+		ledgerdomain.SourceTypeDisputeWithdrawn,
+		ledgerdomain.SourceTypeDisputeReinstated,
 		orgID,
 		ledgerdomain.AccountCodeAccountsReceivable,
 		currency,
 		ledgerdomain.SourceTypeBillingCycle,
 		customerID,
 		ledgerdomain.SourceTypePaymentEvent,
+		customerID,
+		ledgerdomain.SourceTypeDisputeWithdrawn,
+		ledgerdomain.SourceTypeDisputeReinstated,
 		customerID,
 	).Scan(&balance).Error
 	if err != nil {
@@ -599,52 +485,4 @@ func (s *Service) loadCustomerName(ctx context.Context, orgID snowflake.ID, cust
 		return ""
 	}
 	return strings.TrimSpace(name)
-}
-
-func (s *Service) decryptConfig(encrypted datatypes.JSON) (map[string]any, error) {
-	if len(s.encKey) == 0 {
-		return nil, paymentproviderdomain.ErrEncryptionKeyMissing
-	}
-	if len(encrypted) == 0 {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-
-	var payload encryptedPayload
-	if err := json.Unmarshal(encrypted, &payload); err != nil {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-	if payload.Version != 1 {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-
-	nonce, err := base64.RawStdEncoding.DecodeString(payload.Nonce)
-	if err != nil {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-	ciphertext, err := base64.RawStdEncoding.DecodeString(payload.Ciphertext)
-	if err != nil {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-
-	block, err := aes.NewCipher(s.encKey)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-
-	var out map[string]any
-	if err := json.Unmarshal(plain, &out); err != nil {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-	if len(out) == 0 {
-		return nil, paymentdomain.ErrInvalidConfig
-	}
-	return out, nil
 }

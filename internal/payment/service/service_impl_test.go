@@ -22,9 +22,12 @@ import (
 	ledgerservice "github.com/smallbiznis/valora/internal/ledger/service"
 	"github.com/smallbiznis/valora/internal/payment/adapters"
 	"github.com/smallbiznis/valora/internal/payment/adapters/stripe"
+	disputerepo "github.com/smallbiznis/valora/internal/payment/dispute/repository"
+	disputeservice "github.com/smallbiznis/valora/internal/payment/dispute/service"
 	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
 	paymentrepo "github.com/smallbiznis/valora/internal/payment/repository"
 	paymentservice "github.com/smallbiznis/valora/internal/payment/service"
+	paymentwebhook "github.com/smallbiznis/valora/internal/payment/webhook"
 	"go.uber.org/zap"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -66,15 +69,29 @@ func TestIngestWebhookCreatesLedgerEntry(t *testing.T) {
 	configSecret := "config_secret"
 	stripeSecret := "whsec_test"
 	adapterRegistry := adapters.NewRegistry(stripe.NewFactory())
-	service := paymentservice.NewService(paymentservice.Params{
+	paymentSvc := paymentservice.NewService(paymentservice.Params{
 		DB:        db,
 		Log:       zap.NewNop(),
 		GenID:     node,
 		LedgerSvc: ledgerSvc,
 		AuditSvc:  auditSvc,
 		Repo:      paymentrepo.Provide(),
-		Cfg:       config.Config{PaymentProviderConfigSecret: configSecret},
-		Adapters:  adapterRegistry,
+	})
+	disputeSvc := disputeservice.NewService(disputeservice.Params{
+		DB:        db,
+		Log:       zap.NewNop(),
+		GenID:     node,
+		LedgerSvc: ledgerSvc,
+		AuditSvc:  auditSvc,
+		Repo:      disputerepo.Provide(),
+	})
+	webhookSvc := paymentwebhook.NewService(paymentwebhook.Params{
+		DB:         db,
+		Log:        zap.NewNop(),
+		PaymentSvc: paymentSvc,
+		DisputeSvc: disputeSvc,
+		Adapters:   adapterRegistry,
+		Cfg:        config.Config{PaymentProviderConfigSecret: configSecret},
 	})
 
 	orgID := node.Generate()
@@ -102,7 +119,7 @@ func TestIngestWebhookCreatesLedgerEntry(t *testing.T) {
 	reqHeader := http.Header{}
 	reqHeader.Set("Stripe-Signature", header)
 
-	if err := service.IngestWebhook(ctx, "stripe", payload, reqHeader); err != nil {
+	if err := webhookSvc.IngestWebhook(ctx, "stripe", payload, reqHeader); err != nil {
 		t.Fatalf("ingest webhook: %v", err)
 	}
 
@@ -135,10 +152,106 @@ func TestIngestWebhookCreatesLedgerEntry(t *testing.T) {
 	}
 }
 
+func TestIngestWebhookCreatesDisputeLedgerEntry(t *testing.T) {
+	ctx := context.Background()
+	db := setupTestDB(t)
+
+	node, err := snowflake.NewNode(11)
+	if err != nil {
+		t.Fatalf("new node: %v", err)
+	}
+
+	auditSvc := noopAuditService{}
+	ledgerSvc := ledgerservice.NewService(ledgerservice.Params{
+		DB:       db,
+		Log:      zap.NewNop(),
+		GenID:    node,
+		AuditSvc: auditSvc,
+	})
+
+	configSecret := "config_secret"
+	stripeSecret := "whsec_test"
+	adapterRegistry := adapters.NewRegistry(stripe.NewFactory())
+	paymentSvc := paymentservice.NewService(paymentservice.Params{
+		DB:        db,
+		Log:       zap.NewNop(),
+		GenID:     node,
+		LedgerSvc: ledgerSvc,
+		AuditSvc:  auditSvc,
+		Repo:      paymentrepo.Provide(),
+	})
+	disputeSvc := disputeservice.NewService(disputeservice.Params{
+		DB:        db,
+		Log:       zap.NewNop(),
+		GenID:     node,
+		LedgerSvc: ledgerSvc,
+		AuditSvc:  auditSvc,
+		Repo:      disputerepo.Provide(),
+	})
+	webhookSvc := paymentwebhook.NewService(paymentwebhook.Params{
+		DB:         db,
+		Log:        zap.NewNop(),
+		PaymentSvc: paymentSvc,
+		DisputeSvc: disputeSvc,
+		Adapters:   adapterRegistry,
+		Cfg:        config.Config{PaymentProviderConfigSecret: configSecret},
+	})
+
+	orgID := node.Generate()
+	customerID := node.Generate()
+
+	if err := seedCustomer(db, orgID, customerID); err != nil {
+		t.Fatalf("seed customer: %v", err)
+	}
+
+	configPayload, err := encryptConfig(configSecret, map[string]any{
+		"webhook_secret": stripeSecret,
+	})
+	if err != nil {
+		t.Fatalf("encrypt config: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := seedProviderConfig(db, node.Generate(), orgID, "stripe", configPayload, now); err != nil {
+		t.Fatalf("seed provider config: %v", err)
+	}
+
+	payload := []byte(fmt.Sprintf(`{"id":"evt_2","type":"charge.dispute.funds_withdrawn","created":%d,"data":{"object":{"id":"dp_1","amount":1200,"currency":"usd","reason":"fraudulent","created":%d,"metadata":{"customer_id":"%s"}}}}`, now.Unix(), now.Unix(), customerID.String()))
+	header := buildStripeSignatureHeader(stripeSecret, payload, now.Unix())
+
+	reqHeader := http.Header{}
+	reqHeader.Set("Stripe-Signature", header)
+
+	if err := webhookSvc.IngestWebhook(ctx, "stripe", payload, reqHeader); err != nil {
+		t.Fatalf("ingest webhook: %v", err)
+	}
+
+	assertCount(t, db, "SELECT COUNT(1) FROM payment_disputes", 1)
+	assertCount(t, db, "SELECT COUNT(1) FROM ledger_entries", 1)
+	assertCount(t, db, "SELECT COUNT(1) FROM ledger_entry_lines", 2)
+
+	var status string
+	if err := db.Raw("SELECT status FROM payment_disputes LIMIT 1").Scan(&status).Error; err != nil {
+		t.Fatalf("scan status: %v", err)
+	}
+	if status != "withdrawn" {
+		t.Fatalf("expected status withdrawn, got %s", status)
+	}
+
+	var sourceType string
+	if err := db.Raw("SELECT source_type FROM ledger_entries LIMIT 1").Scan(&sourceType).Error; err != nil {
+		t.Fatalf("scan source_type: %v", err)
+	}
+	if sourceType != ledgerdomain.SourceTypeDisputeWithdrawn {
+		t.Fatalf("expected source_type %s, got %s", ledgerdomain.SourceTypeDisputeWithdrawn, sourceType)
+	}
+}
+
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -166,6 +279,21 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			processed_at TIMESTAMPTZ
 		)`,
 		`CREATE UNIQUE INDEX ux_payment_events_provider_event_id ON payment_events(provider, provider_event_id)`,
+		`CREATE TABLE payment_disputes (
+			id BIGINT PRIMARY KEY,
+			org_id BIGINT NOT NULL,
+			provider TEXT NOT NULL,
+			provider_dispute_id TEXT NOT NULL,
+			provider_event_id TEXT NOT NULL,
+			customer_id BIGINT NOT NULL,
+			amount BIGINT NOT NULL,
+			currency TEXT NOT NULL,
+			status TEXT NOT NULL,
+			reason TEXT,
+			received_at TIMESTAMPTZ NOT NULL,
+			processed_at TIMESTAMPTZ
+		)`,
+		`CREATE UNIQUE INDEX ux_payment_disputes_provider_dispute_id ON payment_disputes(provider, provider_dispute_id)`,
 		`CREATE TABLE ledger_accounts (
 			id BIGINT PRIMARY KEY,
 			org_id BIGINT NOT NULL,

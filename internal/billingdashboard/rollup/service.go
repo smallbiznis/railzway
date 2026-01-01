@@ -198,6 +198,19 @@ func (s *Service) applyCustomerBalanceDelta(ctx context.Context, tx *gorm.DB, en
 			JOIN payment_events pe ON pe.id = le.source_id AND le.source_type = ?
 			WHERE le.id = ? AND a.code = ?
 			GROUP BY le.org_id, pe.customer_id, le.currency
+
+			UNION ALL
+
+			SELECT le.org_id AS org_id,
+			       pd.customer_id AS customer_id,
+			       le.currency AS currency,
+			       SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS balance
+			FROM ledger_entries le
+			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
+			JOIN ledger_accounts a ON a.id = l.account_id
+			JOIN payment_disputes pd ON pd.id = le.source_id AND le.source_type IN (?, ?)
+			WHERE le.id = ? AND a.code = ?
+			GROUP BY le.org_id, pd.customer_id, le.currency
 		)
 		SELECT org_id, customer_id, currency, SUM(balance) AS delta
 		FROM ledger_balances
@@ -206,6 +219,10 @@ func (s *Service) applyCustomerBalanceDelta(ctx context.Context, tx *gorm.DB, en
 		entryID,
 		ledgerdomain.AccountCodeAccountsReceivable,
 		ledgerdomain.SourceTypePaymentEvent,
+		entryID,
+		ledgerdomain.AccountCodeAccountsReceivable,
+		ledgerdomain.SourceTypeDisputeWithdrawn,
+		ledgerdomain.SourceTypeDisputeReinstated,
 		entryID,
 		ledgerdomain.AccountCodeAccountsReceivable,
 	).Scan(&rows).Error; err != nil {
