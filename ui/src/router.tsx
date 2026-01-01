@@ -45,6 +45,13 @@ const OrgInvoiceTemplateFormPage = lazy(
   () => import("@/features/invoice/pages/OrgInvoiceTemplateFormPage")
 )
 
+const AdminPricingListPage = lazy(
+  () => import("@/features/admin/pricing/pages/AdminPricingListPage")
+)
+const AdminPricingDetailPage = lazy(
+  () => import("@/features/admin/pricing/pages/AdminPricingDetailPage")
+)
+
 // eslint-disable-next-line react-refresh/only-export-components
 function RequireAuth() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -125,6 +132,14 @@ export const router = createBrowserRouter([
       { path: "/change-password", element: <ChangePasswordPage /> },
       { path: "/orgs", element: <OrgResolverPage /> },
       { path: "/onboarding", element: <OnboardingPage /> },
+      {
+        path: "/admin/pricing",
+        element: withFeatureBoundary(<AdminPricingListPage />),
+      },
+      {
+        path: "/admin/pricing/:priceId",
+        element: withFeatureBoundary(<AdminPricingDetailPage />),
+      },
       {
         path: "/orgs/:orgId",
         element: <DashboardLayout />,
