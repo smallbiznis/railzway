@@ -1,3 +1,4 @@
+
 # Valora OSS
 
 **Valora OSS** is an open-source **deterministic billing engine** for modern SaaS and platform products.
@@ -9,7 +10,10 @@
 
 Valora extracts billing concerns—usage metering, pricing, subscriptions, and invoicing—out of application code and into a **dedicated, self-hosted engine** with explicit boundaries.
 
-Valora computes **what should be billed**, not **how payments are executed**.
+> **Valora determines what should be billed.
+> It does not execute payments.**
+
+---
 
 ## What Valora Is (and Is Not)
 
@@ -18,14 +22,14 @@ Valora computes **what should be billed**, not **how payments are executed**.
 - A billing computation engine
 - A control plane for pricing and usage-based billing
 - A deterministic system for generating invoices and billing states
-- Designed for self-hosted, multi-tenant SaaS
+- Designed for self-hosted, multi-tenant SaaS architectures
 
 ### Valora **is not**:
 
 - A payment gateway
 - A merchant of record
 - A settlement or reconciliation system
-- An infrastructure or SLA platform
+- An infrastructure, hosting, or SLA platform
 
 Payment execution is intentionally **out of scope**.
 
@@ -36,7 +40,7 @@ Payment execution is intentionally **out of scope**.
 ### Subscription Management
 
 - Flat-rate and usage-based subscriptions
-- Trialing, active, past_due, canceled states
+- Trialing, active, past_due, and canceled states
 - Scheduled cancellation and renewal windows
 - Organization-scoped isolation
 
@@ -50,9 +54,9 @@ Payment execution is intentionally **out of scope**.
 ### Invoicing
 
 - Automated invoice generation
-- Subscription + usage line items
+- Subscription and usage-based line items
 - Explicit invoice state transitions
-- Proration support (where applicable)
+- Proration support where applicable
 
 ### Multi-Tenancy
 
@@ -64,11 +68,11 @@ Payment execution is intentionally **out of scope**.
 
 ## Design Principles
 
-Valora is built around a few strict principles:
+Valora is built around a small set of strict principles:
 
 - **Deterministic by design**Billing outputs are derived solely from persisted inputs and configuration.
 - **Explicit boundaries**Billing logic is separated from payments, identity, and infrastructure concerns.
-- **Self-hosted ownership**Teams retain control over data, logic, and deployment.
+- **Self-hosted ownership**Teams retain full control over data, logic, and deployment.
 - **Composable primitives**
   Pricing behavior is modeled explicitly, not hidden in application code.
 
@@ -84,8 +88,8 @@ Valora OSS includes first-class documentation:
 
 These documents describe:
 
-- deterministic billing flow
-- tenant isolation model
+- deterministic billing flows
+- tenant isolation models
 - security responsibilities
 - explicit non-goals
 
@@ -108,10 +112,12 @@ Valora makes minimal assumptions about the runtime environment to remain portabl
 
 ## Who Valora Is For
 
-- SaaS teams scaling beyond hardcoded billing
-- Platform products with usage-based pricing
-- Backend engineers building long-lived systems
-- Teams that value clarity, ownership, and auditability
+Valora is designed for teams that:
+
+- are scaling beyond hardcoded billing logic
+- operate usage-based or hybrid pricing models
+- build long-lived SaaS or platform systems
+- value clarity, ownership, and auditability
 
 ---
 
@@ -142,9 +148,11 @@ See the `LICENSE` file for details.
 
 ## Documentation
 
-📚 Read the documentation at:
+📚 Documentation:
 
-- Local: http://localhost:3000 (after `pnpm start` in /docs)
-- Source: ./docs/docs/index.md
+- Local: http://localhost:3000 (after `pnpm start` in `/docs`)
+- Source: `./docs/docs/index.md`
 
-> Valora aims to make billing **boring, predictable, and explainable**—so teams can focus on building their products.
+> Valora aims to make billing **boring, predictable, and explainable**—
+> so teams can focus on building their products.
+>
