@@ -19,6 +19,9 @@ const OrgSubscriptionCreatePage = lazy(
   () => import("@/features/billing/pages/OrgSubscriptionCreatePage")
 )
 const OrgSettings = lazy(() => import("@/features/billing/pages/OrgSettings"))
+const OrgPaymentProvidersPage = lazy(
+  () => import("@/features/billing/pages/OrgPaymentProvidersPage")
+)
 
 const OrgApiKeysPage = lazy(() => import("@/features/guard/pages/OrgApiKeysPage"))
 const OrgAuditLogsPage = lazy(() => import("@/features/guard/pages/OrgAuditLogsPage"))
@@ -43,6 +46,13 @@ const OrgInvoiceTemplatesPage = lazy(
 )
 const OrgInvoiceTemplateFormPage = lazy(
   () => import("@/features/invoice/pages/OrgInvoiceTemplateFormPage")
+)
+
+const AdminPricingListPage = lazy(
+  () => import("@/features/admin/pricing/pages/AdminPricingListPage")
+)
+const AdminPricingDetailPage = lazy(
+  () => import("@/features/admin/pricing/pages/AdminPricingDetailPage")
 )
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -126,6 +136,14 @@ export const router = createBrowserRouter([
       { path: "/orgs", element: <OrgResolverPage /> },
       { path: "/onboarding", element: <OnboardingPage /> },
       {
+        path: "/admin/pricing",
+        element: withFeatureBoundary(<AdminPricingListPage />),
+      },
+      {
+        path: "/admin/pricing/:priceId",
+        element: withFeatureBoundary(<AdminPricingDetailPage />),
+      },
+      {
         path: "/orgs/:orgId",
         element: <DashboardLayout />,
         children: [
@@ -182,6 +200,10 @@ export const router = createBrowserRouter([
           {
             path: "audit-logs",
             element: withFeatureBoundary(<OrgAuditLogsPage />),
+          },
+          {
+            path: "payment-providers",
+            element: withFeatureBoundary(<OrgPaymentProvidersPage />),
           },
           {
             path: "customers",

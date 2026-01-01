@@ -7,11 +7,22 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
+	"github.com/smallbiznis/valora/internal/orgcontext"
 )
 
-type actorContext struct {
-	Type   string
-	ID     snowflake.ID
+type ActorType string
+
+const (
+	ActorUser   ActorType = "user"
+	ActorAPIKey ActorType = "api_key"
+	ActorSystem ActorType = "system"
+)
+
+type Actor struct {
+	Type   ActorType
+	OrgID  snowflake.ID
+	ID     string
 	Scopes []string
 }
 
@@ -31,22 +42,32 @@ func (s *Server) authorizeOrgActionWithContext(c *gin.Context, object string, ac
 		return ErrUnauthorized
 	}
 
-	orgID, err := s.orgIDFromRequest(c)
-	if err != nil {
-		return err
+	orgID := actor.OrgID
+	if orgID == 0 {
+		var err error
+		orgID, err = s.orgIDFromRequest(c)
+		if err != nil {
+			return err
+		}
 	}
 
 	switch actor.Type {
-	case "api_key":
-		if !apiKeyScopeAllows(actor.Scopes, object, action) {
+	case ActorAPIKey:
+		requiredScope := authscope.FromAuthz(object, action)
+		if !authscope.Has(actor.Scopes, requiredScope) {
 			return ErrForbidden
 		}
 		return nil
-	case "user":
+	case ActorUser:
 		if s.authzSvc == nil {
 			return ErrForbidden
 		}
 		return s.authorizeForOrg(c, actor.subject(), orgID, object, action)
+	case ActorSystem:
+		if !allowSystemAction(object, action) {
+			return ErrForbidden
+		}
+		return nil
 	default:
 		return ErrUnauthorized
 	}
@@ -56,38 +77,73 @@ func (s *Server) authorizeForOrg(c *gin.Context, actor string, orgID snowflake.I
 	return s.authzSvc.Authorize(c.Request.Context(), actor, orgID.String(), strings.TrimSpace(object), strings.TrimSpace(action))
 }
 
-func (s *Server) actorFromContext(c *gin.Context) (actorContext, bool) {
+func (s *Server) actorFromContext(c *gin.Context) (Actor, bool) {
 	if c == nil {
-		return actorContext{}, false
+		return Actor{}, false
 	}
 
-	if authType, ok := c.Request.Context().Value(contextAuthTypeKey).(string); ok && strings.TrimSpace(authType) == "api_key" {
-		apiKeyID, ok := apiKeyIDFromContext(c.Request.Context())
-		if !ok {
-			return actorContext{}, false
+	ctx := c.Request.Context()
+	orgID := orgIDFromContext(ctx)
+
+	if authType, ok := ctx.Value(contextAuthTypeKey).(string); ok {
+		normalized := strings.TrimSpace(authType)
+		switch normalized {
+		case string(ActorAPIKey):
+			apiKeyID, ok := apiKeyIDFromContext(ctx)
+			if !ok {
+				return Actor{}, false
+			}
+			return Actor{
+				Type:   ActorAPIKey,
+				OrgID:  orgID,
+				ID:     apiKeyID.String(),
+				Scopes: apiKeyScopesFromContext(ctx),
+			}, true
+		case string(ActorSystem):
+			return Actor{
+				Type:  ActorSystem,
+				OrgID: orgID,
+				ID:    "system",
+			}, true
 		}
-		return actorContext{
-			Type:   "api_key",
-			ID:     apiKeyID,
-			Scopes: apiKeyScopesFromContext(c.Request.Context()),
-		}, true
 	}
 
 	userID, ok := s.userIDFromSession(c)
 	if !ok {
-		return actorContext{}, false
+		return Actor{}, false
 	}
-	return actorContext{Type: "user", ID: userID}, true
+	return Actor{Type: ActorUser, OrgID: orgID, ID: userID.String()}, true
 }
 
-func (a actorContext) subject() string {
+func orgIDFromContext(ctx context.Context) snowflake.ID {
+	if ctx == nil {
+		return 0
+	}
+	orgID, ok := orgcontext.OrgIDFromContext(ctx)
+	if !ok || orgID == 0 {
+		return 0
+	}
+	return snowflake.ID(orgID)
+}
+
+func (a Actor) subject() string {
 	switch a.Type {
-	case "user":
-		return fmt.Sprintf("user:%s", a.ID.String())
-	case "api_key":
-		return fmt.Sprintf("api_key:%s", a.ID.String())
+	case ActorUser:
+		return fmt.Sprintf("user:%s", a.ID)
+	case ActorAPIKey:
+		return fmt.Sprintf("api_key:%s", a.ID)
+	case ActorSystem:
+		return "system"
 	default:
 		return ""
+	}
+}
+
+func allowSystemAction(object string, action string) bool {
+	key := strings.ToLower(strings.TrimSpace(object)) + ":" + strings.ToLower(strings.TrimSpace(action))
+	switch key {
+	default:
+		return false
 	}
 }
 
@@ -128,34 +184,4 @@ func apiKeyScopesFromContext(ctx context.Context) []string {
 		return nil
 	}
 	return scopes
-}
-
-// API key scopes match exact actions or an object wildcard like "subscription.*" or "subscription:*".
-func apiKeyScopeAllows(scopes []string, object string, action string) bool {
-	if len(scopes) == 0 {
-		return false
-	}
-
-	normalizedAction := strings.ToLower(strings.TrimSpace(action))
-	if normalizedAction == "" {
-		return false
-	}
-	normalizedObject := strings.ToLower(strings.TrimSpace(object))
-
-	for _, scope := range scopes {
-		normalizedScope := strings.ToLower(strings.TrimSpace(scope))
-		if normalizedScope == "" {
-			continue
-		}
-		if normalizedScope == "*" {
-			return true
-		}
-		if normalizedScope == normalizedAction {
-			return true
-		}
-		if normalizedObject != "" && (normalizedScope == normalizedObject+".*" || normalizedScope == normalizedObject+":*") {
-			return true
-		}
-	}
-	return false
 }

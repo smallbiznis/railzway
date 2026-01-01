@@ -142,6 +142,13 @@ func (s *Scheduler) RecoverySweepJob(ctx context.Context) error {
 				_ = s.recordCycleError(ctx, cycle.ID, invoicedomain.ErrMissingRatingResults)
 				continue
 			}
+			cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
+			if err := s.ensureLedgerEntryForCycle(cycleCtx, cycle); err != nil {
+				jobErr = errors.Join(jobErr, err)
+				_ = s.recordCycleError(ctx, cycle.ID, err)
+				continue
+			}
+
 			updated, err := s.markCycleClosed(ctx, cycle.ID, now)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
@@ -149,7 +156,9 @@ func (s *Scheduler) RecoverySweepJob(ctx context.Context) error {
 				continue
 			}
 			if updated {
-				cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
+				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosed, now); err != nil {
+					jobErr = errors.Join(jobErr, err)
+				}
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
 					Action:         "billing_cycle.closed",

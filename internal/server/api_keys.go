@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"gorm.io/gorm"
 )
 
@@ -39,7 +40,13 @@ func (s *Server) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	resp, err := s.apiKeySvc.Create(c.Request.Context(), apikeydomain.CreateRequest{Name: req.Name, Scopes: req.Scopes})
+	scopes := authscope.Normalize(req.Scopes)
+	if err := authscope.Validate(scopes); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	resp, err := s.apiKeySvc.Create(c.Request.Context(), apikeydomain.CreateRequest{Name: req.Name, Scopes: scopes})
 	if err != nil {
 		AbortWithError(c, err)
 		return
@@ -55,6 +62,12 @@ func (s *Server) CreateAPIKey(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (s *Server) ListAPIKeyScopes(c *gin.Context) {
+	scopes := authscope.All()
+	c.JSON(http.StatusOK, scopes)
+}
+
+// RevealAPIKey reveals the API key for a user. It requires the user to confirm their password.
 func (s *Server) RevealAPIKey(c *gin.Context) {
 	userID, ok := s.userIDFromSession(c)
 	if !ok {
@@ -93,8 +106,8 @@ func (s *Server) RevealAPIKey(c *gin.Context) {
 
 	if s.auditSvc != nil && resp != nil {
 		targetID := resp.KeyID
-		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "api_key.rotated", "api_key", &targetID, map[string]any{
-			"rotated_from_key_id": keyID,
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "api_key.reveal", "api_key", &targetID, map[string]any{
+			"reveal_from_key_id": keyID,
 		})
 	}
 

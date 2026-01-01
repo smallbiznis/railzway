@@ -64,6 +64,10 @@ func isPriceAmountValidationError(err error) bool {
 		priceamountdomain.ErrInvalidMinAmount,
 		priceamountdomain.ErrInvalidMaxAmount,
 		priceamountdomain.ErrInvalidMeterID,
+		priceamountdomain.ErrInvalidEffectiveFrom,
+		priceamountdomain.ErrInvalidEffectiveTo,
+		priceamountdomain.ErrEffectiveOverlap,
+		priceamountdomain.ErrEffectiveGap,
 		priceamountdomain.ErrInvalidID:
 		return true
 	default:

@@ -6,10 +6,6 @@ import (
 	"time"
 )
 
-const (
-	ScopeUsageWrite = "usage:write"
-)
-
 type Service interface {
 	List(ctx context.Context) ([]Response, error)
 	Create(ctx context.Context, req CreateRequest) (*SecretResponse, error)

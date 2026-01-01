@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,16 +24,18 @@ type Service struct {
 	db  *gorm.DB
 	log *zap.Logger
 
-	genID      *snowflake.Node
-	ratingrepo repository.Repository[ratingdomain.RatingResult]
+	genID           *snowflake.Node
+	ratingrepo      repository.Repository[ratingdomain.RatingResult]
+	priceAmountRepo priceamountdomain.Repository
 }
 
 type ServiceParam struct {
 	fx.In
 
-	DB    *gorm.DB
-	Log   *zap.Logger
-	GenID *snowflake.Node
+	DB              *gorm.DB
+	Log             *zap.Logger
+	GenID           *snowflake.Node
+	PriceAmountRepo priceamountdomain.Repository
 }
 
 func NewService(p ServiceParam) ratingdomain.Service {
@@ -40,8 +43,9 @@ func NewService(p ServiceParam) ratingdomain.Service {
 		db:  p.DB,
 		log: p.Log.Named("rating.service"),
 
-		genID:      p.GenID,
-		ratingrepo: repository.ProvideStore[ratingdomain.RatingResult](p.DB),
+		genID:           p.GenID,
+		ratingrepo:      repository.ProvideStore[ratingdomain.RatingResult](p.DB),
+		priceAmountRepo: p.PriceAmountRepo,
 	}
 }
 
@@ -76,17 +80,20 @@ func (s *Service) RunRating(ctx context.Context, billingCycleID string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
 		for _, item := range items {
-
-			var (
-				quantity float64
-				source   string
-			)
-
 			if item.MeterID == nil {
-				quantity = 1.0
-				source = "flat_rate"
-			} else {
-				qty, err := s.aggregateUsage(tx, cycle.OrgID, cycle.SubscriptionID, *item.MeterID, cycle.PeriodStart, cycle.PeriodEnd)
+				if err := s.rateFlatItem(ctx, tx, cycle, item, now); err != nil {
+					return err
+				}
+				continue
+			}
+
+			windows, err := s.buildPriceWindows(ctx, tx, cycle.OrgID, item.PriceID, item.MeterID, cycle.PeriodStart, cycle.PeriodEnd)
+			if err != nil {
+				return err
+			}
+
+			for _, window := range windows {
+				qty, err := s.aggregateUsage(tx, cycle.OrgID, cycle.SubscriptionID, *item.MeterID, window.Start, window.End)
 				if err != nil {
 					return err
 				}
@@ -95,56 +102,9 @@ func (s *Service) RunRating(ctx context.Context, billingCycleID string) error {
 					return ratingdomain.ErrInvalidQuantity
 				}
 
-				quantity = qty
-				source = "usage_events"
-			}
-
-			priceAmount, err := s.loadPriceAmount(tx, cycle.OrgID, item.PriceID, item.MeterID)
-			if err != nil {
-				return err
-			}
-			if priceAmount == nil {
-				return ratingdomain.ErrMissingPriceAmount
-			}
-
-			unitPrice := priceAmount.UnitAmountCents
-
-			// Calculate raw amount
-			rawAmount := quantity * float64(unitPrice)
-
-			// Apply rounding policy (explicit!)
-			amount := roundMoney(rawAmount)
-
-			// Apply min / max guards (if defined)
-			if priceAmount.MinimumAmountCents != nil && *priceAmount.MinimumAmountCents > 0 {
-				amount = max(amount, *priceAmount.MinimumAmountCents)
-			}
-			if priceAmount.MaximumAmountCents != nil && *priceAmount.MaximumAmountCents > 0 {
-				amount = min(amount, *priceAmount.MaximumAmountCents)
-			}
-
-			// Build deterministic checksum
-			checksum := buildChecksum(cycle.ID, cycle.SubscriptionID, item.PriceID, item.MeterID, cycle.PeriodStart, cycle.PeriodEnd)
-
-			// Insert rating result (idempotent)
-			if err := s.insertRatingResult(tx, ratingdomain.RatingResult{
-				ID:             s.genID.Generate(),
-				OrgID:          cycle.OrgID,
-				SubscriptionID: cycle.SubscriptionID,
-				BillingCycleID: cycle.ID,
-				MeterID:        item.MeterID,
-				PriceID:        item.PriceID,
-				Quantity:       quantity,
-				UnitPrice:      unitPrice,
-				Amount:         amount,
-				Currency:       priceAmount.Currency,
-				PeriodStart:    cycle.PeriodStart,
-				PeriodEnd:      cycle.PeriodEnd,
-				Source:         source,
-				Checksum:       checksum,
-				CreatedAt:      now,
-			}); err != nil {
-				return err
+				if err := s.insertRatingWindow(tx, cycle, item, window, qty, "usage_events", now); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -220,25 +180,177 @@ func (s *Service) aggregateUsage(tx *gorm.DB, orgID, subscriptionID, meterID sno
 	return quantity, nil
 }
 
-func (s *Service) loadPriceAmount(tx *gorm.DB, orgID snowflake.ID, priceID snowflake.ID, meterID *snowflake.ID) (*priceamountdomain.PriceAmount, error) {
-	var amount priceamountdomain.PriceAmount
-	err := tx.Raw(
-		`SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents, created_at, updated_at
-		 FROM price_amounts
-		 WHERE org_id = ? AND price_id = ? AND (meter_id = ? OR meter_id IS NULL)
-		 ORDER BY meter_id DESC
-		 LIMIT 1`,
-		orgID,
-		priceID,
-		meterID,
-	).Scan(&amount).Error
+type priceWindow struct {
+	Start  time.Time
+	End    time.Time
+	Amount *priceamountdomain.PriceAmount
+}
+
+func (s *Service) rateFlatItem(
+	ctx context.Context,
+	tx *gorm.DB,
+	cycle *billingCycleRow,
+	item subscriptionItemRow,
+	now time.Time,
+) error {
+	priceAmount, err := s.resolvePriceAmountAt(ctx, tx, cycle.OrgID, item.PriceID, nil, cycle.PeriodStart)
+	if err != nil {
+		return err
+	}
+	if priceAmount == nil {
+		return ratingdomain.ErrMissingPriceAmount
+	}
+
+	window := priceWindow{
+		Start:  cycle.PeriodStart,
+		End:    cycle.PeriodEnd,
+		Amount: priceAmount,
+	}
+	return s.insertRatingWindow(tx, cycle, item, window, 1.0, "flat_rate", now)
+}
+
+func (s *Service) buildPriceWindows(
+	ctx context.Context,
+	tx *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	periodStart, periodEnd time.Time,
+) ([]priceWindow, error) {
+	boundaries := []time.Time{periodStart, periodEnd}
+
+	specific, err := s.priceAmountRepo.ListOverlapping(ctx, tx, orgID, priceID, meterID, "", periodStart, periodEnd)
 	if err != nil {
 		return nil, err
 	}
-	if amount.ID == 0 {
-		return nil, nil
+	boundaries = appendEffectiveBoundaries(boundaries, specific, periodStart, periodEnd)
+
+	defaults, err := s.priceAmountRepo.ListOverlapping(ctx, tx, orgID, priceID, nil, "", periodStart, periodEnd)
+	if err != nil {
+		return nil, err
 	}
-	return &amount, nil
+	boundaries = appendEffectiveBoundaries(boundaries, defaults, periodStart, periodEnd)
+
+	boundaries = uniqueSortedTimes(boundaries)
+	windows := make([]priceWindow, 0, len(boundaries)-1)
+	for i := 0; i < len(boundaries)-1; i++ {
+		start := boundaries[i]
+		end := boundaries[i+1]
+		if !end.After(start) {
+			continue
+		}
+
+		// Resolve price by usage time to keep rating historically correct.
+		amount, err := s.resolvePriceAmountAt(ctx, tx, orgID, priceID, meterID, start)
+		if err != nil {
+			return nil, err
+		}
+		if amount == nil {
+			return nil, ratingdomain.ErrMissingPriceAmount
+		}
+
+		windows = append(windows, priceWindow{
+			Start:  start,
+			End:    end,
+			Amount: amount,
+		})
+	}
+
+	return windows, nil
+}
+
+func (s *Service) resolvePriceAmountAt(
+	ctx context.Context,
+	tx *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	at time.Time,
+) (*priceamountdomain.PriceAmount, error) {
+	amount, err := s.priceAmountRepo.FindEffectiveAt(ctx, tx, orgID, priceID, meterID, "", at)
+	if err != nil {
+		return nil, err
+	}
+	if amount != nil || meterID == nil {
+		return amount, nil
+	}
+	return s.priceAmountRepo.FindEffectiveAt(ctx, tx, orgID, priceID, nil, "", at)
+}
+
+func (s *Service) insertRatingWindow(
+	tx *gorm.DB,
+	cycle *billingCycleRow,
+	item subscriptionItemRow,
+	window priceWindow,
+	quantity float64,
+	source string,
+	now time.Time,
+) error {
+	if quantity < 0 {
+		return ratingdomain.ErrInvalidQuantity
+	}
+
+	unitPrice := window.Amount.UnitAmountCents
+
+	// Rating is windowed by price versions to keep historical invoices stable.
+	rawAmount := quantity * float64(unitPrice)
+	amount := roundMoney(rawAmount)
+
+	if window.Amount.MinimumAmountCents != nil && *window.Amount.MinimumAmountCents > 0 {
+		amount = max(amount, *window.Amount.MinimumAmountCents)
+	}
+	if window.Amount.MaximumAmountCents != nil && *window.Amount.MaximumAmountCents > 0 {
+		amount = min(amount, *window.Amount.MaximumAmountCents)
+	}
+
+	checksum := buildChecksum(cycle.ID, cycle.SubscriptionID, item.PriceID, item.MeterID, window.Start, window.End)
+
+	return s.insertRatingResult(tx, ratingdomain.RatingResult{
+		ID:             s.genID.Generate(),
+		OrgID:          cycle.OrgID,
+		SubscriptionID: cycle.SubscriptionID,
+		BillingCycleID: cycle.ID,
+		MeterID:        item.MeterID,
+		PriceID:        item.PriceID,
+		Quantity:       quantity,
+		UnitPrice:      unitPrice,
+		Amount:         amount,
+		Currency:       window.Amount.Currency,
+		PeriodStart:    window.Start,
+		PeriodEnd:      window.End,
+		Source:         source,
+		Checksum:       checksum,
+		CreatedAt:      now,
+	})
+}
+
+func appendEffectiveBoundaries(
+	boundaries []time.Time,
+	amounts []priceamountdomain.PriceAmount,
+	periodStart, periodEnd time.Time,
+) []time.Time {
+	for _, amount := range amounts {
+		start := amount.EffectiveFrom.UTC()
+		if start.After(periodStart) && start.Before(periodEnd) {
+			boundaries = append(boundaries, start)
+		}
+		if amount.EffectiveTo != nil {
+			end := amount.EffectiveTo.UTC()
+			if end.After(periodStart) && end.Before(periodEnd) {
+				boundaries = append(boundaries, end)
+			}
+		}
+	}
+	return boundaries
+}
+
+func uniqueSortedTimes(times []time.Time) []time.Time {
+	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
+	out := make([]time.Time, 0, len(times))
+	for _, t := range times {
+		if len(out) == 0 || !t.Equal(out[len(out)-1]) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (s *Service) insertRatingResult(tx *gorm.DB, result ratingdomain.RatingResult) error {

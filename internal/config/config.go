@@ -11,13 +11,14 @@ import (
 
 // Config holds application configuration.
 type Config struct {
-	AppName          string
-	AppVersion       string
-	Mode             string
-	Environment      string
-	AuthCookieSecure bool
-	DefaultOrgID     int64
-	AuthJWTSecret    string
+	AppName                     string
+	AppVersion                  string
+	Mode                        string
+	Environment                 string
+	AuthCookieSecure            bool
+	DefaultOrgID                int64
+	AuthJWTSecret               string
+	PaymentProviderConfigSecret string
 
 	OTLPEndpoint string
 
@@ -74,14 +75,15 @@ func Load() Config {
 	}
 
 	cfg := Config{
-		AppName:          getenv("APP_SERVICE", "valora"),
-		AppVersion:       getenv("APP_VERSION", "0.1.0"),
-		Mode:             mode,
-		Environment:      environment,
-		AuthCookieSecure: authCookieSecure,
-		DefaultOrgID:     getenvInt64("DEFAULT_ORG", 0),
-		AuthJWTSecret:    strings.TrimSpace(getenv("AUTH_JWT_SECRET", "")),
-		OTLPEndpoint:     getenv("OTLP_ENDPOINT", "localhost:4317"),
+		AppName:                     getenv("APP_SERVICE", "valora"),
+		AppVersion:                  getenv("APP_VERSION", "0.1.0"),
+		Mode:                        mode,
+		Environment:                 environment,
+		AuthCookieSecure:            authCookieSecure,
+		DefaultOrgID:                getenvInt64("DEFAULT_ORG", 0),
+		AuthJWTSecret:               strings.TrimSpace(getenv("AUTH_JWT_SECRET", "")),
+		PaymentProviderConfigSecret: strings.TrimSpace(getenv("PAYMENT_PROVIDER_CONFIG_SECRET", "")),
+		OTLPEndpoint:                getenv("OTLP_ENDPOINT", "localhost:4317"),
 		Cloud: CloudConfig{
 			OrganizationID:   strings.TrimSpace(getenv("CLOUD_ORGANIZATION_ID", "")),
 			OrganizationName: getenv("CLOUD_ORGANIZATION_NAME", ""),

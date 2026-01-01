@@ -2,14 +2,19 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/snowflake"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
+	"github.com/smallbiznis/valora/internal/events"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	"github.com/smallbiznis/valora/internal/invoice/render"
+	templatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
+	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	"github.com/smallbiznis/valora/pkg/db/option"
 	"github.com/smallbiznis/valora/pkg/repository"
@@ -21,19 +26,25 @@ import (
 type ServiceParam struct {
 	fx.In
 
-	DB       *gorm.DB
-	Log      *zap.Logger
-	GenID    *snowflake.Node
-	AuditSvc auditdomain.Service
+	DB           *gorm.DB
+	Log          *zap.Logger
+	GenID        *snowflake.Node
+	AuditSvc     auditdomain.Service
+	TemplateRepo templatedomain.Repository
+	Renderer     render.Renderer
+	Outbox       *events.Outbox `optional:"true"`
 }
 
 type Service struct {
 	db  *gorm.DB
 	log *zap.Logger
 
-	genID       *snowflake.Node
-	invoicerepo repository.Repository[invoicedomain.Invoice]
-	auditSvc    auditdomain.Service
+	genID        *snowflake.Node
+	invoicerepo  repository.Repository[invoicedomain.Invoice]
+	auditSvc     auditdomain.Service
+	templateRepo templatedomain.Repository
+	renderer     render.Renderer
+	outbox       *events.Outbox
 }
 
 func NewService(p ServiceParam) invoicedomain.Service {
@@ -42,8 +53,11 @@ func NewService(p ServiceParam) invoicedomain.Service {
 		log:   p.Log.Named("invoice.service"),
 		genID: p.GenID,
 
-		invoicerepo: repository.ProvideStore[invoicedomain.Invoice](p.DB),
-		auditSvc:    p.AuditSvc,
+		invoicerepo:  repository.ProvideStore[invoicedomain.Invoice](p.DB),
+		auditSvc:     p.AuditSvc,
+		templateRepo: p.TemplateRepo,
+		renderer:     p.Renderer,
+		outbox:       p.Outbox,
 	}
 }
 
@@ -204,24 +218,33 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 			return invoicedomain.ErrInvalidBillingCycle
 		}
 
-		ratings, err := s.listRatingResults(ctx, tx, cycle.ID)
+		entry, err := s.loadLedgerEntryForCycle(ctx, tx, cycle.OrgID, cycle.ID)
 		if err != nil {
 			return err
 		}
-		if len(ratings) == 0 {
-			return invoicedomain.ErrMissingRatingResults
+		if entry == nil {
+			return invoicedomain.ErrMissingLedgerEntry
 		}
 
-		currency := ratings[0].Currency
 		var subtotal int64
-		for _, rating := range ratings {
-			if rating.OrgID != cycle.OrgID || rating.SubscriptionID != cycle.SubscriptionID {
-				return invoicedomain.ErrInvalidBillingCycle
+		lines, err := s.listLedgerEntryLines(ctx, tx, entry.ID)
+		if err != nil {
+			return err
+		}
+		if len(lines) == 0 {
+			return invoicedomain.ErrMissingLedgerEntry
+		}
+
+		creditLines := make([]ledgerEntryLineRow, 0, len(lines))
+		for _, line := range lines {
+			if line.Direction != ledgerdomain.LedgerEntryDirectionCredit {
+				continue
 			}
-			if rating.Currency != currency {
-				return invoicedomain.ErrCurrencyMismatch
-			}
-			subtotal += rating.Amount
+			subtotal += line.Amount
+			creditLines = append(creditLines, line)
+		}
+		if len(creditLines) == 0 {
+			return invoicedomain.ErrMissingLedgerEntry
 		}
 
 		invoiceNumber, err := s.nextInvoiceNumber(ctx, tx, cycle.OrgID)
@@ -240,7 +263,7 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 			CustomerID:     subscription.CustomerID,
 			Status:         invoicedomain.InvoiceStatusDraft,
 			SubtotalAmount: subtotal,
-			Currency:       currency,
+			Currency:       entry.Currency,
 			PeriodStart:    &cycle.PeriodStart,
 			PeriodEnd:      &cycle.PeriodEnd,
 			IssuedAt:       &now,
@@ -256,18 +279,24 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 		}
 		createdInvoice = &invoice
 
-		for _, rating := range ratings {
-			description := fmt.Sprintf("Usage for meter %s", rating.MeterID.String())
+		for _, line := range creditLines {
+			description := strings.TrimSpace(line.AccountName)
+			if description == "" {
+				description = strings.TrimSpace(line.AccountCode)
+			}
+			if description == "" {
+				description = "Ledger entry"
+			}
 			if err := s.insertInvoiceItem(ctx, tx, invoicedomain.InvoiceItem{
-				ID:             s.genID.Generate(),
-				OrgID:          cycle.OrgID,
-				InvoiceID:      invoiceID,
-				RatingResultID: &rating.ID,
-				Description:    description,
-				Quantity:       rating.Quantity,
-				UnitPrice:      rating.UnitPrice,
-				Amount:         rating.Amount,
-				CreatedAt:      now,
+				ID:                s.genID.Generate(),
+				OrgID:             cycle.OrgID,
+				InvoiceID:         invoiceID,
+				LedgerEntryLineID: &line.ID,
+				Description:       description,
+				Quantity:          1,
+				UnitPrice:         line.Amount,
+				Amount:            line.Amount,
+				CreatedAt:         now,
 			}); err != nil {
 				return err
 			}
@@ -291,6 +320,7 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 	}
 
 	var finalizedInvoice *invoicedomain.Invoice
+	var renderedChecksum string
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		invoice, err := s.loadInvoiceForUpdate(ctx, tx, id)
 		if err != nil {
@@ -303,28 +333,65 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 			return invoicedomain.ErrInvoiceNotDraft
 		}
 
+		// Snapshot rendered output at finalization so future template edits never change history.
+		renderedHTML, tmpl, err := s.renderInvoiceHTML(ctx, tx, invoice)
+		if err != nil {
+			return err
+		}
+		if tmpl != nil {
+			invoice.InvoiceTemplateID = &tmpl.ID
+		}
+		invoice.RenderedHTML = &renderedHTML
+		checksum := sha256.Sum256([]byte(renderedHTML))
+		renderedChecksum = hex.EncodeToString(checksum[:])
+
 		now := time.Now().UTC()
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE invoices
-			 SET status = ?, finalized_at = ?, updated_at = ?
+			 SET status = ?, finalized_at = ?, invoice_template_id = ?, rendered_html = ?, rendered_pdf_url = ?, updated_at = ?
 			 WHERE id = ?`,
 			invoicedomain.InvoiceStatusFinalized,
 			now,
+			invoice.InvoiceTemplateID,
+			invoice.RenderedHTML,
+			invoice.RenderedPDFURL,
 			now,
 			id,
 		).Error; err != nil {
 			return err
 		}
+		invoice.FinalizedAt = &now
 		finalizedInvoice = invoice
+
+		if s.outbox != nil {
+			if err := s.outbox.PublishTx(ctx, tx, events.Event{
+				OrgID: invoice.OrgID,
+				Type:  events.EventInvoiceFinalized,
+				Payload: map[string]any{
+					"invoice_id":       invoice.ID.String(),
+					"billing_cycle_id": invoice.BillingCycleID.String(),
+				},
+				DedupeKey: "invoice_finalized:" + invoice.ID.String(),
+			}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	if finalizedInvoice != nil {
-		s.emitAudit(ctx, "invoice.finalized", finalizedInvoice, map[string]any{
+		metadata := map[string]any{
 			"previous_status": string(invoicedomain.InvoiceStatusDraft),
-		})
+		}
+		if renderedChecksum != "" {
+			metadata["rendered_checksum"] = renderedChecksum
+		}
+		if finalizedInvoice.InvoiceTemplateID != nil {
+			metadata["invoice_template_id"] = finalizedInvoice.InvoiceTemplateID.String()
+		}
+		s.emitAudit(ctx, "invoice.finalized", finalizedInvoice, metadata)
 	}
 	return nil
 }
@@ -361,6 +428,20 @@ func (s *Service) VoidInvoice(ctx context.Context, invoiceID string, reason stri
 			return err
 		}
 		voidedInvoice = invoice
+
+		if s.outbox != nil {
+			if err := s.outbox.PublishTx(ctx, tx, events.Event{
+				OrgID: invoice.OrgID,
+				Type:  events.EventInvoiceVoided,
+				Payload: map[string]any{
+					"invoice_id":       invoice.ID.String(),
+					"billing_cycle_id": invoice.BillingCycleID.String(),
+				},
+				DedupeKey: "invoice_voided:" + invoice.ID.String(),
+			}); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -392,6 +473,9 @@ func (s *Service) emitAudit(ctx context.Context, action string, invoice *invoice
 	}
 	if invoice.InvoiceNumber != nil {
 		metadata["invoice_number"] = *invoice.InvoiceNumber
+	}
+	if invoice.InvoiceTemplateID != nil {
+		metadata["invoice_template_id"] = invoice.InvoiceTemplateID.String()
 	}
 	if invoice.PeriodStart != nil {
 		metadata["period_start"] = invoice.PeriodStart.Format(time.RFC3339)
@@ -434,17 +518,20 @@ type subscriptionRow struct {
 	CustomerID snowflake.ID
 }
 
-type ratingResultRow struct {
-	ID             snowflake.ID
-	OrgID          snowflake.ID
-	SubscriptionID snowflake.ID
-	BillingCycleID snowflake.ID
-	MeterID        snowflake.ID
-	PriceID        snowflake.ID
-	Quantity       float64
-	UnitPrice      int64
-	Amount         int64
-	Currency       string
+type ledgerEntryRow struct {
+	ID         snowflake.ID
+	OrgID      snowflake.ID
+	Currency   string
+	OccurredAt time.Time
+}
+
+type ledgerEntryLineRow struct {
+	ID          snowflake.ID
+	AccountID   snowflake.ID
+	Direction   ledgerdomain.LedgerEntryDirection
+	Amount      int64
+	AccountCode string `gorm:"column:account_code"`
+	AccountName string `gorm:"column:account_name"`
 }
 
 func (s *Service) loadBillingCycleForUpdate(ctx context.Context, tx *gorm.DB, id snowflake.ID) (*billingCycleRow, error) {
@@ -498,19 +585,41 @@ func (s *Service) findInvoiceByBillingCycle(ctx context.Context, tx *gorm.DB, bi
 	return invoiceID, nil
 }
 
-func (s *Service) listRatingResults(ctx context.Context, tx *gorm.DB, billingCycleID snowflake.ID) ([]ratingResultRow, error) {
-	var results []ratingResultRow
+func (s *Service) loadLedgerEntryForCycle(ctx context.Context, tx *gorm.DB, orgID, billingCycleID snowflake.ID) (*ledgerEntryRow, error) {
+	var entry ledgerEntryRow
 	err := tx.WithContext(ctx).Raw(
-		`SELECT id, org_id, subscription_id, billing_cycle_id, meter_id, price_id,
-		        quantity, unit_price, amount, currency
-		 FROM rating_results
-		 WHERE billing_cycle_id = ?`,
+		`SELECT id, org_id, currency, occurred_at
+		 FROM ledger_entries
+		 WHERE org_id = ? AND source_type = ? AND source_id = ?
+		 LIMIT 1`,
+		orgID,
+		ledgerdomain.SourceTypeBillingCycle,
 		billingCycleID,
-	).Scan(&results).Error
+	).Scan(&entry).Error
 	if err != nil {
 		return nil, err
 	}
-	return results, nil
+	if entry.ID == 0 {
+		return nil, nil
+	}
+	return &entry, nil
+}
+
+func (s *Service) listLedgerEntryLines(ctx context.Context, tx *gorm.DB, ledgerEntryID snowflake.ID) ([]ledgerEntryLineRow, error) {
+	var lines []ledgerEntryLineRow
+	err := tx.WithContext(ctx).Raw(
+		`SELECT l.id, l.account_id, l.direction, l.amount,
+		        a.code AS account_code, a.name AS account_name
+		 FROM ledger_entry_lines l
+		 JOIN ledger_accounts a ON a.id = l.account_id
+		 WHERE l.ledger_entry_id = ?
+		 ORDER BY l.id ASC`,
+		ledgerEntryID,
+	).Scan(&lines).Error
+	if err != nil {
+		return nil, err
+	}
+	return lines, nil
 }
 
 func (s *Service) lockOrganization(ctx context.Context, tx *gorm.DB, orgID snowflake.ID) error {
@@ -549,9 +658,9 @@ func (s *Service) insertInvoice(ctx context.Context, tx *gorm.DB, invoice invoic
 	result := tx.WithContext(ctx).Exec(
 		`INSERT INTO invoices (
 			id, org_id, invoice_number, billing_cycle_id, subscription_id, customer_id,
-			status, subtotal_amount, currency, period_start, period_end, issued_at,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			invoice_template_id, status, subtotal_amount, currency, period_start, period_end,
+			issued_at, due_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (billing_cycle_id) DO NOTHING`,
 		invoice.ID,
 		invoice.OrgID,
@@ -559,12 +668,14 @@ func (s *Service) insertInvoice(ctx context.Context, tx *gorm.DB, invoice invoic
 		invoice.BillingCycleID,
 		invoice.SubscriptionID,
 		invoice.CustomerID,
+		invoice.InvoiceTemplateID,
 		invoice.Status,
 		invoice.SubtotalAmount,
 		invoice.Currency,
 		invoice.PeriodStart,
 		invoice.PeriodEnd,
 		invoice.IssuedAt,
+		invoice.DueAt,
 		invoice.CreatedAt,
 		invoice.UpdatedAt,
 	)
@@ -580,13 +691,14 @@ func (s *Service) insertInvoice(ctx context.Context, tx *gorm.DB, invoice invoic
 func (s *Service) insertInvoiceItem(ctx context.Context, tx *gorm.DB, item invoicedomain.InvoiceItem) error {
 	return tx.WithContext(ctx).Exec(
 		`INSERT INTO invoice_items (
-			id, org_id, invoice_id, rating_result_id,
+			id, org_id, invoice_id, rating_result_id, ledger_entry_line_id,
 			description, quantity, unit_price, amount, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID,
 		item.OrgID,
 		item.InvoiceID,
 		item.RatingResultID,
+		item.LedgerEntryLineID,
 		item.Description,
 		item.Quantity,
 		item.UnitPrice,
@@ -599,8 +711,9 @@ func (s *Service) loadInvoiceForUpdate(ctx context.Context, tx *gorm.DB, id snow
 	var invoice invoicedomain.Invoice
 	err := tx.WithContext(ctx).Raw(
 		`SELECT id, org_id, invoice_number, billing_cycle_id, subscription_id, customer_id,
-		        status, subtotal_amount, currency, period_start, period_end,
-		        issued_at, finalized_at, voided_at, created_at, updated_at
+		        invoice_template_id, status, subtotal_amount, currency, period_start, period_end,
+		        issued_at, due_at, finalized_at, voided_at, rendered_html, rendered_pdf_url,
+		        created_at, updated_at
 		 FROM invoices
 		 WHERE id = ?
 		 FOR UPDATE`,

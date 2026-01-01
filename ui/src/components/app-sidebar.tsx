@@ -7,6 +7,7 @@ import {
   IconKey,
   IconListDetails,
   IconMeterCube,
+  IconPlugConnected,
   IconShieldCheck,
   IconSettings,
   IconUsers,
@@ -82,6 +83,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       title: "API Keys",
       url: `${orgBasePath}/api-keys`,
       icon: IconKey,
+    },
+    {
+      title: "Payment providers",
+      url: `${orgBasePath}/payment-providers`,
+      icon: IconPlugConnected,
     },
     {
       title: "Audit Logs",

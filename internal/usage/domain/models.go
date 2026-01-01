@@ -8,6 +8,12 @@ import (
 	"gorm.io/datatypes"
 )
 
+const (
+	UsageStatusAccepted = "accepted"
+	UsageStatusInvalid  = "invalid"
+	UsageStatusRated    = "rated"
+)
+
 // UsageEvent stores a single unit of metered activity.
 type UsageEvent struct {
 	ID                 snowflake.ID      `gorm:"primaryKey"`
@@ -19,6 +25,8 @@ type UsageEvent struct {
 	MeterCode          string            `gorm:"type:text;not null"` // snapshot
 	Value              float64           `gorm:"not null"`
 	RecordedAt         time.Time         `gorm:"not null"`
+	Status             string            `gorm:"type:text;not null;default:accepted"`
+	Error              *string           `gorm:"type:text"`
 	IdempotencyKey     *string           `gorm:"type:text"`
 	Metadata           datatypes.JSONMap `gorm:"type:jsonb"`
 	CreatedAt          time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`

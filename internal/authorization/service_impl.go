@@ -20,11 +20,13 @@ import (
 var modelText string
 
 const (
-	ObjectSubscription = "subscription"
-	ObjectBillingCycle = "billing_cycle"
-	ObjectInvoice      = "invoice"
-	ObjectAPIKey       = "api_key"
-	ObjectAuditLog     = "audit_log"
+	ObjectSubscription     = "subscription"
+	ObjectBillingCycle     = "billing_cycle"
+	ObjectInvoice          = "invoice"
+	ObjectBillingDashboard = "billing_dashboard"
+	ObjectAPIKey           = "api_key"
+	ObjectAuditLog         = "audit_log"
+	ObjectPaymentProvider  = "payment_provider"
 )
 
 const (
@@ -43,12 +45,16 @@ const (
 	ActionInvoiceFinalize = "invoice.finalize"
 	ActionInvoiceVoid     = "invoice.void"
 
+	ActionBillingDashboardView = "billing_dashboard.view"
+
 	ActionAPIKeyView   = "api_key.view"
 	ActionAPIKeyCreate = "api_key.create"
 	ActionAPIKeyRotate = "api_key.rotate"
 	ActionAPIKeyRevoke = "api_key.revoke"
 
 	ActionAuditLogView = "audit_log.view"
+
+	ActionPaymentProviderManage = "payment_provider.manage"
 )
 
 type Params struct {
@@ -288,10 +294,12 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:admin", ObjectSubscription, ActionSubscriptionPause},
 		{"role:admin", ObjectSubscription, ActionSubscriptionResume},
 		{"role:admin", ObjectInvoice, ActionInvoiceFinalize},
+		{"role:admin", ObjectBillingDashboard, ActionBillingDashboardView},
 		{"role:admin", ObjectAPIKey, ActionAPIKeyCreate},
 		{"role:admin", ObjectAPIKey, ActionAPIKeyRotate},
 		{"role:admin", ObjectAPIKey, ActionAPIKeyView},
 		{"role:admin", ObjectAuditLog, ActionAuditLogView},
+		{"role:admin", ObjectPaymentProvider, ActionPaymentProviderManage},
 
 		{"role:owner", ObjectSubscription, ActionSubscriptionActivate},
 		{"role:owner", ObjectSubscription, ActionSubscriptionPause},
@@ -299,11 +307,13 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:owner", ObjectSubscription, ActionSubscriptionCancel},
 		{"role:owner", ObjectInvoice, ActionInvoiceFinalize},
 		{"role:owner", ObjectInvoice, ActionInvoiceVoid},
+		{"role:owner", ObjectBillingDashboard, ActionBillingDashboardView},
 		{"role:owner", ObjectAPIKey, ActionAPIKeyView},
 		{"role:owner", ObjectAPIKey, ActionAPIKeyCreate},
 		{"role:owner", ObjectAPIKey, ActionAPIKeyRotate},
 		{"role:owner", ObjectAPIKey, ActionAPIKeyRevoke},
 		{"role:owner", ObjectAuditLog, ActionAuditLogView},
+		{"role:owner", ObjectPaymentProvider, ActionPaymentProviderManage},
 
 		{"role:system", ObjectSubscription, ActionSubscriptionEnd},
 		{"role:system", ObjectBillingCycle, ActionBillingCycleOpen},

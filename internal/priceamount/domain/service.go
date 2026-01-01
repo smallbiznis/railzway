@@ -29,6 +29,8 @@ type CreateRequest struct {
 	UnitAmountCents    int64          `json:"unit_amount_cents"`
 	MinimumAmountCents *int64         `json:"minimum_amount_cents"`
 	MaximumAmountCents *int64         `json:"maximum_amount_cents"`
+	EffectiveFrom      *time.Time     `json:"effective_from,omitempty"`
+	EffectiveTo        *time.Time     `json:"effective_to,omitempty"`
 	Metadata           map[string]any `json:"metadata"`
 }
 
@@ -48,13 +50,17 @@ type Response struct {
 }
 
 var (
-	ErrInvalidOrganization = errors.New("invalid_organization")
-	ErrInvalidPrice        = errors.New("invalid_price")
-	ErrInvalidCurrency     = errors.New("invalid_currency")
-	ErrInvalidUnitAmount   = errors.New("invalid_unit_amount")
-	ErrInvalidMinAmount    = errors.New("invalid_minimum_amount")
-	ErrInvalidMaxAmount    = errors.New("invalid_maximum_amount")
-	ErrInvalidMeterID      = errors.New("invalid_meter_id")
-	ErrInvalidID           = errors.New("invalid_id")
-	ErrNotFound            = errors.New("not_found")
+	ErrInvalidOrganization  = errors.New("invalid_organization")
+	ErrInvalidPrice         = errors.New("invalid_price")
+	ErrInvalidCurrency      = errors.New("invalid_currency")
+	ErrInvalidUnitAmount    = errors.New("invalid_unit_amount")
+	ErrInvalidMinAmount     = errors.New("invalid_minimum_amount")
+	ErrInvalidMaxAmount     = errors.New("invalid_maximum_amount")
+	ErrInvalidMeterID       = errors.New("invalid_meter_id")
+	ErrInvalidID            = errors.New("invalid_id")
+	ErrInvalidEffectiveFrom = errors.New("invalid_effective_from")
+	ErrInvalidEffectiveTo   = errors.New("invalid_effective_to")
+	ErrEffectiveOverlap     = errors.New("effective_range_overlap")
+	ErrEffectiveGap         = errors.New("effective_range_gap")
+	ErrNotFound             = errors.New("not_found")
 )

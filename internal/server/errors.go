@@ -9,11 +9,16 @@ import (
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"github.com/smallbiznis/valora/internal/authorization"
+	billingdashboarddomain "github.com/smallbiznis/valora/internal/billingdashboard/domain"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
+	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
+	paymentproviderdomain "github.com/smallbiznis/valora/internal/paymentprovider/domain"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
 	pricetierdomain "github.com/smallbiznis/valora/internal/pricetier/domain"
@@ -176,6 +181,11 @@ func mapError(err error) (int, errorPayload) {
 			Type:    "service_unavailable",
 			Message: "service unavailable",
 		}
+	case errors.Is(err, paymentproviderdomain.ErrEncryptionKeyMissing):
+		return http.StatusServiceUnavailable, errorPayload{
+			Type:    "service_unavailable",
+			Message: "service unavailable",
+		}
 	case errors.Is(err, ErrOrgRequired):
 		return http.StatusPreconditionRequired, errorPayload{
 			Type:    "precondition_required",
@@ -209,8 +219,11 @@ func isValidationError(err error) bool {
 		return true
 	case isOrganizationValidationError(err),
 		isCustomerValidationError(err),
+		isBillingDashboardValidationError(err),
 		isInvoiceValidationError(err),
+		isInvoiceTemplateValidationError(err),
 		isRatingValidationError(err),
+		isPaymentValidationError(err),
 		isProductValidationError(err),
 		isPriceValidationError(err),
 		isPricingValidationError(err),
@@ -220,7 +233,18 @@ func isValidationError(err error) bool {
 		isSubscriptionValidationError(err),
 		isAPIKeyValidationError(err),
 		isAuditValidationError(err),
-		isAuthorizationValidationError(err):
+		isAuthorizationValidationError(err),
+		isPaymentProviderValidationError(err),
+		isScopeValidationError(err):
+		return true
+	default:
+		return false
+	}
+}
+
+func isBillingDashboardValidationError(err error) bool {
+	switch err {
+	case billingdashboarddomain.ErrInvalidOrganization:
 		return true
 	default:
 		return false
@@ -231,6 +255,8 @@ func isNotFoundError(err error) bool {
 	switch {
 	case errors.Is(err, ErrNotFound),
 		errors.Is(err, customerdomain.ErrNotFound),
+		errors.Is(err, invoicetemplatedomain.ErrNotFound),
+		errors.Is(err, invoicedomain.ErrInvoiceTemplateNotFound),
 		errors.Is(err, productdomain.ErrNotFound),
 		errors.Is(err, pricedomain.ErrNotFound),
 		errors.Is(err, apikeydomain.ErrNotFound),
@@ -242,6 +268,8 @@ func isNotFoundError(err error) bool {
 		errors.Is(err, ratingdomain.ErrBillingCycleNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionNotFound),
 		errors.Is(err, subscriptiondomain.ErrSubscriptionItemNotFound),
+		errors.Is(err, paymentdomain.ErrProviderNotFound),
+		errors.Is(err, paymentproviderdomain.ErrNotFound),
 		errors.Is(err, gorm.ErrRecordNotFound):
 		return true
 	default:
@@ -254,11 +282,25 @@ func isInvoiceValidationError(err error) bool {
 	case invoicedomain.ErrInvalidOrganization,
 		invoicedomain.ErrInvalidBillingCycle,
 		invoicedomain.ErrBillingCycleNotClosed,
+		invoicedomain.ErrMissingLedgerEntry,
 		invoicedomain.ErrMissingRatingResults,
 		invoicedomain.ErrCurrencyMismatch,
 		invoicedomain.ErrInvalidInvoiceID,
 		invoicedomain.ErrInvoiceNotDraft,
 		invoicedomain.ErrInvoiceNotFinalized:
+		return true
+	default:
+		return false
+	}
+}
+
+func isInvoiceTemplateValidationError(err error) bool {
+	switch err {
+	case invoicetemplatedomain.ErrInvalidOrganization,
+		invoicetemplatedomain.ErrInvalidID,
+		invoicetemplatedomain.ErrInvalidName,
+		invoicetemplatedomain.ErrInvalidCurrency,
+		invoicetemplatedomain.ErrInvalidLocale:
 		return true
 	default:
 		return false
@@ -300,6 +342,41 @@ func isAuthorizationValidationError(err error) bool {
 	}
 }
 
+func isPaymentProviderValidationError(err error) bool {
+	switch err {
+	case paymentproviderdomain.ErrInvalidOrganization,
+		paymentproviderdomain.ErrInvalidProvider,
+		paymentproviderdomain.ErrInvalidConfig:
+		return true
+	default:
+		return false
+	}
+}
+
+func isPaymentValidationError(err error) bool {
+	switch err {
+	case paymentdomain.ErrInvalidProvider,
+		paymentdomain.ErrInvalidSignature,
+		paymentdomain.ErrInvalidPayload,
+		paymentdomain.ErrInvalidEvent,
+		paymentdomain.ErrInvalidCustomer,
+		paymentdomain.ErrInvalidAmount,
+		paymentdomain.ErrInvalidCurrency:
+		return true
+	default:
+		return false
+	}
+}
+
+func isScopeValidationError(err error) bool {
+	switch err {
+	case authscope.ErrInvalidScope:
+		return true
+	default:
+		return false
+	}
+}
+
 func isRatingValidationError(err error) bool {
 	switch err {
 	case ratingdomain.ErrInvalidBillingCycle,
@@ -325,6 +402,9 @@ func validationErrorCode(err error) string {
 }
 
 func validationErrorField(code string) string {
+	if code == "invalid_scope" {
+		return "scopes"
+	}
 	if strings.HasPrefix(code, "invalid_") {
 		return strings.TrimPrefix(code, "invalid_")
 	}

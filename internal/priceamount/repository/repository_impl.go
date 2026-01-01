@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
@@ -86,18 +88,150 @@ func (r *repo) Update(ctx context.Context, db *gorm.DB, amount *priceamountdomai
 	err := db.WithContext(ctx).Model(&priceamountdomain.PriceAmount{}).
 		Where("org_id = ? AND id = ?", amount.OrgID, amount.ID).
 		Updates(map[string]interface{}{
-			"meter_id":             amount.MeterID,
-			"currency":             amount.Currency,
-			"unit_amount_cents":    amount.UnitAmountCents,
-			"minimum_amount_cents": amount.MinimumAmountCents,
-			"maximum_amount_cents": amount.MaximumAmountCents,
-			"effective_from":       amount.EffectiveFrom,
-			"effective_to":         amount.EffectiveTo,
-			"metadata":             amount.Metadata,
-			"updated_at":           amount.UpdatedAt,
+			// Only allow closing windows; pricing is append-only.
+			"effective_to": amount.EffectiveTo,
+			"updated_at":   amount.UpdatedAt,
 		}).Error
 	if err != nil {
 		return nil, err
 	}
 	return amount, nil
+}
+
+func (r *repo) FindEffectiveAt(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	currency string,
+	at time.Time,
+) (*priceamountdomain.PriceAmount, error) {
+	var amount priceamountdomain.PriceAmount
+	query := `
+		SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
+		       effective_from, effective_to, metadata, created_at, updated_at
+		FROM price_amounts
+		WHERE org_id = ? AND price_id = ?
+		  AND effective_from <= ?
+		  AND (effective_to IS NULL OR effective_to > ?)`
+	args := []any{orgID, priceID, at, at}
+	query, args = applyMeterCondition(query, args, meterID)
+	query, args = applyCurrencyCondition(query, args, currency)
+	query += `
+		ORDER BY effective_from DESC
+		LIMIT 1`
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&amount).Error; err != nil {
+		return nil, err
+	}
+	if amount.ID == 0 {
+		return nil, nil
+	}
+	return &amount, nil
+}
+
+func (r *repo) FindPrevious(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	currency string,
+	before time.Time,
+) (*priceamountdomain.PriceAmount, error) {
+	var amount priceamountdomain.PriceAmount
+	query := `
+		SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
+		       effective_from, effective_to, metadata, created_at, updated_at
+		FROM price_amounts
+		WHERE org_id = ? AND price_id = ?
+		  AND effective_from < ?`
+	args := []any{orgID, priceID, before}
+	query, args = applyMeterCondition(query, args, meterID)
+	query, args = applyCurrencyCondition(query, args, currency)
+	query += `
+		ORDER BY effective_from DESC
+		LIMIT 1`
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&amount).Error; err != nil {
+		return nil, err
+	}
+	if amount.ID == 0 {
+		return nil, nil
+	}
+	return &amount, nil
+}
+
+func (r *repo) FindNext(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	currency string,
+	after time.Time,
+) (*priceamountdomain.PriceAmount, error) {
+	var amount priceamountdomain.PriceAmount
+	query := `
+		SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
+		       effective_from, effective_to, metadata, created_at, updated_at
+		FROM price_amounts
+		WHERE org_id = ? AND price_id = ?
+		  AND effective_from > ?`
+	args := []any{orgID, priceID, after}
+	query, args = applyMeterCondition(query, args, meterID)
+	query, args = applyCurrencyCondition(query, args, currency)
+	query += `
+		ORDER BY effective_from ASC
+		LIMIT 1`
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&amount).Error; err != nil {
+		return nil, err
+	}
+	if amount.ID == 0 {
+		return nil, nil
+	}
+	return &amount, nil
+}
+
+func (r *repo) ListOverlapping(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	currency string,
+	start, end time.Time,
+) ([]priceamountdomain.PriceAmount, error) {
+	var items []priceamountdomain.PriceAmount
+	query := `
+		SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
+		       effective_from, effective_to, metadata, created_at, updated_at
+		FROM price_amounts
+		WHERE org_id = ? AND price_id = ?
+		  AND effective_from < ?
+		  AND (effective_to IS NULL OR effective_to > ?)`
+	args := []any{orgID, priceID, end, start}
+	query, args = applyMeterCondition(query, args, meterID)
+	query, args = applyCurrencyCondition(query, args, currency)
+	query += `
+		ORDER BY effective_from ASC`
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func applyMeterCondition(query string, args []any, meterID *snowflake.ID) (string, []any) {
+	if meterID != nil {
+		query += " AND meter_id = ?"
+		args = append(args, *meterID)
+		return query, args
+	}
+	query += " AND meter_id IS NULL"
+	return query, args
+}
+
+func applyCurrencyCondition(query string, args []any, currency string) (string, []any) {
+	trimmed := strings.TrimSpace(currency)
+	if trimmed == "" {
+		return query, args
+	}
+	query += " AND currency = ?"
+	args = append(args, trimmed)
+	return query, args
 }

@@ -26,15 +26,21 @@ import (
 	"github.com/smallbiznis/valora/internal/auth/session"
 	"github.com/smallbiznis/valora/internal/authorization"
 	"github.com/smallbiznis/valora/internal/billingcycle"
+	"github.com/smallbiznis/valora/internal/billingdashboard"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
+	"github.com/smallbiznis/valora/internal/events"
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	"github.com/smallbiznis/valora/internal/invoicetemplate"
+	"github.com/smallbiznis/valora/internal/ledger"
+	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/meter"
 	"github.com/smallbiznis/valora/internal/migration"
 	"github.com/smallbiznis/valora/internal/organization"
+	"github.com/smallbiznis/valora/internal/paymentprovider"
 	"github.com/smallbiznis/valora/internal/price"
 	"github.com/smallbiznis/valora/internal/priceamount"
 	"github.com/smallbiznis/valora/internal/pricetier"
@@ -355,6 +361,7 @@ func startEnv() (*testEnv, error) {
 		genID       *snowflake.Node
 		ratingSvc   ratingdomain.Service
 		invoiceSvc  invoicedomain.Service
+		ledgerSvc   ledgerdomain.Service
 		subSvc      subscriptiondomain.Service
 		auditSvc    auditdomain.Service
 		authzSvc    authorization.Service
@@ -369,19 +376,24 @@ func startEnv() (*testEnv, error) {
 		cloudmetrics.Module,
 		authorization.Module,
 		audit.Module,
+		events.Module,
 		auth.Module,
 		authlocal.Module,
 		authoauth2provider.Module,
 		session.Module,
 		apikey.Module,
 		customer.Module,
+		billingdashboard.Module,
 		invoice.Module,
+		invoicetemplate.Module,
+		ledger.Module,
 		meter.Module,
 		organization.Module,
 		price.Module,
 		priceamount.Module,
 		pricetier.Module,
 		product.Module,
+		paymentprovider.Module,
 		reference.Module,
 		subscription.Module,
 		usage.Module,
@@ -396,7 +408,7 @@ func startEnv() (*testEnv, error) {
 		}),
 		fx.Provide(server.NewEngine),
 		fx.Provide(server.NewServer),
-		fx.Populate(&srv, &dbConn, &cfg, &log, &genID, &ratingSvc, &invoiceSvc, &subSvc, &auditSvc, &authzSvc),
+		fx.Populate(&srv, &dbConn, &cfg, &log, &genID, &ratingSvc, &invoiceSvc, &ledgerSvc, &subSvc, &auditSvc, &authzSvc),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -429,6 +441,7 @@ func startEnv() (*testEnv, error) {
 		Log:             log,
 		RatingSvc:       ratingSvc,
 		InvoiceSvc:      invoiceSvc,
+		LedgerSvc:       ledgerSvc,
 		SubscriptionSvc: subSvc,
 		AuditSvc:        auditSvc,
 		AuthzSvc:        authzSvc,

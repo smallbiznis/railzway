@@ -156,7 +156,7 @@ func (s *Scheduler) findLastCycle(ctx context.Context, tx *gorm.DB, orgID, subsc
 
 func (s *Scheduler) insertCycle(ctx context.Context, tx *gorm.DB, cycleID, orgID, subscriptionID snowflake.ID, periodStart, periodEnd, now time.Time) error {
 	openedAt := now
-	return tx.WithContext(ctx).Exec(
+	if err := tx.WithContext(ctx).Exec(
 		`INSERT INTO billing_cycles (
 			id, org_id, subscription_id, period_start, period_end, status,
 			opened_at, created_at, updated_at
@@ -170,7 +170,10 @@ func (s *Scheduler) insertCycle(ctx context.Context, tx *gorm.DB, cycleID, orgID
 		openedAt,
 		now,
 		now,
-	).Error
+	).Error; err != nil {
+		return err
+	}
+	return s.upsertBillingCycleStats(ctx, tx, cycleID, orgID, periodStart, billingcycledomain.BillingCycleStatusOpen, now)
 }
 
 func (s *Scheduler) lockCycleForUpdate(ctx context.Context, tx *gorm.DB, cycleID snowflake.ID) (*WorkBillingCycle, error) {

@@ -73,9 +73,9 @@ func (s *Server) APIKeyRequired() gin.HandlerFunc {
 		}
 
 		ctx := c.Request.Context()
-		scopes := make([]string, len(record.Scopes))
-		copy(scopes, record.Scopes)
-		ctx = context.WithValue(ctx, contextAuthTypeKey, "api_key")
+		scopes := make([]string, 0, len(record.Scopes))
+		scopes = append(scopes, record.Scopes...)
+		ctx = context.WithValue(ctx, contextAuthTypeKey, string(ActorAPIKey))
 		ctx = context.WithValue(ctx, contextOrgIDKey, int64(record.OrgID))
 		ctx = context.WithValue(ctx, contextAPIKeyIDKey, int64(record.ID))
 		ctx = context.WithValue(ctx, contextAPIKeyScopesKey, scopes)
