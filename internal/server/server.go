@@ -26,6 +26,8 @@ import (
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	"github.com/smallbiznis/valora/internal/invoicetemplate"
+	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
 	"github.com/smallbiznis/valora/internal/meter"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	"github.com/smallbiznis/valora/internal/organization"
@@ -65,6 +67,7 @@ var Module = fx.Module("http.server",
 	apikey.Module,
 	customer.Module,
 	invoice.Module,
+	invoicetemplate.Module,
 	meter.Module,
 	organization.Module,
 	price.Module,
@@ -113,30 +116,31 @@ func run(lc fx.Lifecycle, r *gin.Engine) {
 }
 
 type Server struct {
-	engine          *gin.Engine
-	cfg             config.Config
-	db              *gorm.DB
-	authsvc         authdomain.Service
-	oauthsvc        authoauth.Service
-	sessions        *session.Manager
-	genID           *snowflake.Node
-	apiKeySvc       apikeydomain.Service
-	apiKeyLimiter   *rateLimiter
-	authzSvc        authorization.Service
-	auditSvc        auditdomain.Service
-	invoiceSvc      invoicedomain.Service
-	meterSvc        meterdomain.Service
-	organizationSvc organizationdomain.Service
-	customerSvc     customerdomain.Service
-	priceSvc        pricedomain.Service
-	priceAmountSvc  priceamountdomain.Service
-	priceTierSvc    pricetierdomain.Service
-	productSvc      productdomain.Service
-	refrepo         referencedomain.Repository
-	signupsvc       signupdomain.Service
-	ratingSvc       ratingdomain.Service
-	subscriptionSvc subscriptiondomain.Service
-	usagesvc        usagedomain.Service
+	engine             *gin.Engine
+	cfg                config.Config
+	db                 *gorm.DB
+	authsvc            authdomain.Service
+	oauthsvc           authoauth.Service
+	sessions           *session.Manager
+	genID              *snowflake.Node
+	apiKeySvc          apikeydomain.Service
+	apiKeyLimiter      *rateLimiter
+	authzSvc           authorization.Service
+	auditSvc           auditdomain.Service
+	invoiceSvc         invoicedomain.Service
+	meterSvc           meterdomain.Service
+	organizationSvc    organizationdomain.Service
+	customerSvc        customerdomain.Service
+	priceSvc           pricedomain.Service
+	priceAmountSvc     priceamountdomain.Service
+	priceTierSvc       pricetierdomain.Service
+	productSvc         productdomain.Service
+	invoiceTemplateSvc invoicetemplatedomain.Service
+	refrepo            referencedomain.Repository
+	signupsvc          signupdomain.Service
+	ratingSvc          ratingdomain.Service
+	subscriptionSvc    subscriptiondomain.Service
+	usagesvc           usagedomain.Service
 
 	scheduler *scheduler.Scheduler `optional:"true"`
 }
@@ -144,58 +148,60 @@ type Server struct {
 type ServerParams struct {
 	fx.In
 
-	Gin             *gin.Engine
-	Cfg             config.Config
-	DB              *gorm.DB
-	Authsvc         authdomain.Service
-	OAuthsvc        authoauth.Service
-	Sessions        *session.Manager
-	GenID           *snowflake.Node
-	APIKeySvc       apikeydomain.Service
-	AuthzSvc        authorization.Service
-	AuditSvc        auditdomain.Service
-	InvoiceSvc      invoicedomain.Service
-	MeterSvc        meterdomain.Service
-	OrganizationSvc organizationdomain.Service
-	CustomerSvc     customerdomain.Service
-	PriceSvc        pricedomain.Service
-	PriceAmountSvc  priceamountdomain.Service
-	PriceTierSvc    pricetierdomain.Service
-	ProductSvc      productdomain.Service
-	Refrepo         referencedomain.Repository
-	RatingSvc       ratingdomain.Service
-	SubscriptionSvc subscriptiondomain.Service
-	Usagesvc        usagedomain.Service
+	Gin                *gin.Engine
+	Cfg                config.Config
+	DB                 *gorm.DB
+	Authsvc            authdomain.Service
+	OAuthsvc           authoauth.Service
+	Sessions           *session.Manager
+	GenID              *snowflake.Node
+	APIKeySvc          apikeydomain.Service
+	AuthzSvc           authorization.Service
+	AuditSvc           auditdomain.Service
+	InvoiceSvc         invoicedomain.Service
+	MeterSvc           meterdomain.Service
+	OrganizationSvc    organizationdomain.Service
+	CustomerSvc        customerdomain.Service
+	PriceSvc           pricedomain.Service
+	PriceAmountSvc     priceamountdomain.Service
+	PriceTierSvc       pricetierdomain.Service
+	ProductSvc         productdomain.Service
+	InvoiceTemplateSvc invoicetemplatedomain.Service
+	Refrepo            referencedomain.Repository
+	RatingSvc          ratingdomain.Service
+	SubscriptionSvc    subscriptiondomain.Service
+	Usagesvc           usagedomain.Service
 
 	Scheduler *scheduler.Scheduler
 }
 
 func NewServer(p ServerParams) *Server {
 	svc := &Server{
-		engine:          p.Gin,
-		cfg:             p.Cfg,
-		db:              p.DB,
-		authsvc:         p.Authsvc,
-		oauthsvc:        p.OAuthsvc,
-		sessions:        p.Sessions,
-		genID:           p.GenID,
-		apiKeySvc:       p.APIKeySvc,
-		apiKeyLimiter:   newRateLimiter(5, 10*time.Minute),
-		authzSvc:        p.AuthzSvc,
-		auditSvc:        p.AuditSvc,
-		invoiceSvc:      p.InvoiceSvc,
-		meterSvc:        p.MeterSvc,
-		organizationSvc: p.OrganizationSvc,
-		customerSvc:     p.CustomerSvc,
-		priceSvc:        p.PriceSvc,
-		priceAmountSvc:  p.PriceAmountSvc,
-		priceTierSvc:    p.PriceTierSvc,
-		productSvc:      p.ProductSvc,
-		refrepo:         p.Refrepo,
-		ratingSvc:       p.RatingSvc,
-		subscriptionSvc: p.SubscriptionSvc,
-		usagesvc:        p.Usagesvc,
-		scheduler:       p.Scheduler,
+		engine:             p.Gin,
+		cfg:                p.Cfg,
+		db:                 p.DB,
+		authsvc:            p.Authsvc,
+		oauthsvc:           p.OAuthsvc,
+		sessions:           p.Sessions,
+		genID:              p.GenID,
+		apiKeySvc:          p.APIKeySvc,
+		apiKeyLimiter:      newRateLimiter(5, 10*time.Minute),
+		authzSvc:           p.AuthzSvc,
+		auditSvc:           p.AuditSvc,
+		invoiceSvc:         p.InvoiceSvc,
+		meterSvc:           p.MeterSvc,
+		organizationSvc:    p.OrganizationSvc,
+		customerSvc:        p.CustomerSvc,
+		priceSvc:           p.PriceSvc,
+		priceAmountSvc:     p.PriceAmountSvc,
+		priceTierSvc:       p.PriceTierSvc,
+		productSvc:         p.ProductSvc,
+		invoiceTemplateSvc: p.InvoiceTemplateSvc,
+		refrepo:            p.Refrepo,
+		ratingSvc:          p.RatingSvc,
+		subscriptionSvc:    p.SubscriptionSvc,
+		usagesvc:           p.Usagesvc,
+		scheduler:          p.Scheduler,
 	}
 
 	svc.registerAuthRoutes()
@@ -342,6 +348,14 @@ func (s *Server) registerAdminRoutes() {
 	// -------- Invoices --------
 	admin.GET("/invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListInvoices)
 	admin.GET("/invoices/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetInvoiceByID)
+	admin.GET("/invoices/:id/render", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.RenderInvoice)
+
+	// -------- Invoice Templates --------
+	admin.GET("/invoice-templates", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListInvoiceTemplates)
+	admin.POST("/invoice-templates", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateInvoiceTemplate)
+	admin.GET("/invoice-templates/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetInvoiceTemplateByID)
+	admin.PATCH("/invoice-templates/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.UpdateInvoiceTemplate)
+	admin.POST("/invoice-templates/:id/set-default", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.SetDefaultInvoiceTemplate)
 
 	// -------- Customers --------
 	admin.GET("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListCustomers)
@@ -349,6 +363,7 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/customers/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetCustomerByID)
 
 	admin.GET("/audit-logs", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAuditLog, authorization.ActionAuditLogView), s.ListAuditLogs)
+	admin.GET("/api-keys/scopes", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAPIKey, authorization.ActionAPIKeyView), s.ListAPIKeyScopes)
 	admin.GET("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAPIKey, authorization.ActionAPIKeyView), s.ListAPIKeys)
 	admin.POST("/api-keys", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAPIKey, authorization.ActionAPIKeyCreate), s.CreateAPIKey)
 	admin.POST("/api-keys/:key_id/reveal", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAPIKey, authorization.ActionAPIKeyRotate), s.RevealAPIKey)

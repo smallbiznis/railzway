@@ -9,9 +9,11 @@ import (
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"github.com/smallbiznis/valora/internal/authorization"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
@@ -210,6 +212,7 @@ func isValidationError(err error) bool {
 	case isOrganizationValidationError(err),
 		isCustomerValidationError(err),
 		isInvoiceValidationError(err),
+		isInvoiceTemplateValidationError(err),
 		isRatingValidationError(err),
 		isProductValidationError(err),
 		isPriceValidationError(err),
@@ -220,7 +223,8 @@ func isValidationError(err error) bool {
 		isSubscriptionValidationError(err),
 		isAPIKeyValidationError(err),
 		isAuditValidationError(err),
-		isAuthorizationValidationError(err):
+		isAuthorizationValidationError(err),
+		isScopeValidationError(err):
 		return true
 	default:
 		return false
@@ -231,6 +235,8 @@ func isNotFoundError(err error) bool {
 	switch {
 	case errors.Is(err, ErrNotFound),
 		errors.Is(err, customerdomain.ErrNotFound),
+		errors.Is(err, invoicetemplatedomain.ErrNotFound),
+		errors.Is(err, invoicedomain.ErrInvoiceTemplateNotFound),
 		errors.Is(err, productdomain.ErrNotFound),
 		errors.Is(err, pricedomain.ErrNotFound),
 		errors.Is(err, apikeydomain.ErrNotFound),
@@ -259,6 +265,19 @@ func isInvoiceValidationError(err error) bool {
 		invoicedomain.ErrInvalidInvoiceID,
 		invoicedomain.ErrInvoiceNotDraft,
 		invoicedomain.ErrInvoiceNotFinalized:
+		return true
+	default:
+		return false
+	}
+}
+
+func isInvoiceTemplateValidationError(err error) bool {
+	switch err {
+	case invoicetemplatedomain.ErrInvalidOrganization,
+		invoicetemplatedomain.ErrInvalidID,
+		invoicetemplatedomain.ErrInvalidName,
+		invoicetemplatedomain.ErrInvalidCurrency,
+		invoicetemplatedomain.ErrInvalidLocale:
 		return true
 	default:
 		return false
@@ -300,6 +319,15 @@ func isAuthorizationValidationError(err error) bool {
 	}
 }
 
+func isScopeValidationError(err error) bool {
+	switch err {
+	case authscope.ErrInvalidScope:
+		return true
+	default:
+		return false
+	}
+}
+
 func isRatingValidationError(err error) bool {
 	switch err {
 	case ratingdomain.ErrInvalidBillingCycle,
@@ -325,6 +353,9 @@ func validationErrorCode(err error) string {
 }
 
 func validationErrorField(code string) string {
+	if code == "invalid_scope" {
+		return "scopes"
+	}
 	if strings.HasPrefix(code, "invalid_") {
 		return strings.TrimPrefix(code, "invalid_")
 	}

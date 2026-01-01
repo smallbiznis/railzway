@@ -132,6 +132,22 @@ func (s *Server) GetInvoiceByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": item})
 }
 
+func (s *Server) RenderInvoice(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if _, err := snowflake.ParseString(id); err != nil {
+		AbortWithError(c, newValidationError("id", "invalid_id", "invalid id"))
+		return
+	}
+
+	resp, err := s.invoiceSvc.RenderInvoice(c.Request.Context(), id)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
 func parseInvoiceStatus(value string) (*invoicedomain.InvoiceStatus, error) {
 	status := strings.TrimSpace(value)
 	if status == "" {

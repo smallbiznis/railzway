@@ -31,6 +31,7 @@ import (
 	"github.com/smallbiznis/valora/internal/customer"
 	"github.com/smallbiznis/valora/internal/invoice"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
+	"github.com/smallbiznis/valora/internal/invoicetemplate"
 	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/meter"
 	"github.com/smallbiznis/valora/internal/migration"
@@ -376,6 +377,7 @@ func startEnv() (*testEnv, error) {
 		apikey.Module,
 		customer.Module,
 		invoice.Module,
+		invoicetemplate.Module,
 		meter.Module,
 		organization.Module,
 		price.Module,
