@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	authconfig "github.com/smallbiznis/valora/internal/auth/config"
+	obstracing "github.com/smallbiznis/valora/internal/observability/tracing"
 )
 
 const (
@@ -60,7 +61,7 @@ type service struct {
 func NewService(registry authconfig.AuthProviderRegistry) Service {
 	return &service{
 		registry:   registry,
-		httpClient: http.DefaultClient,
+		httpClient: obstracing.WrapHTTPClient(http.DefaultClient),
 	}
 }
 

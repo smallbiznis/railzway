@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
+	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
 	paymentdomain "github.com/smallbiznis/valora/internal/payment/domain"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -21,31 +22,34 @@ import (
 type Params struct {
 	fx.In
 
-	DB        *gorm.DB
-	Log       *zap.Logger
-	GenID     *snowflake.Node
-	LedgerSvc ledgerdomain.Service
-	AuditSvc  auditdomain.Service
-	Repo      paymentdomain.Repository
+	DB         *gorm.DB
+	Log        *zap.Logger
+	GenID      *snowflake.Node
+	LedgerSvc  ledgerdomain.Service
+	AuditSvc   auditdomain.Service
+	Repo       paymentdomain.Repository
+	ObsMetrics *obsmetrics.Metrics `optional:"true"`
 }
 
 type Service struct {
-	db        *gorm.DB
-	log       *zap.Logger
-	genID     *snowflake.Node
-	ledgerSvc ledgerdomain.Service
-	auditSvc  auditdomain.Service
-	repo      paymentdomain.Repository
+	db         *gorm.DB
+	log        *zap.Logger
+	genID      *snowflake.Node
+	ledgerSvc  ledgerdomain.Service
+	auditSvc   auditdomain.Service
+	repo       paymentdomain.Repository
+	obsMetrics *obsmetrics.Metrics
 }
 
 func NewService(p Params) *Service {
 	return &Service{
-		db:        p.DB,
-		log:       p.Log.Named("payment.service"),
-		genID:     p.GenID,
-		ledgerSvc: p.LedgerSvc,
-		auditSvc:  p.AuditSvc,
-		repo:      p.Repo,
+		db:         p.DB,
+		log:        p.Log.Named("payment.service"),
+		genID:      p.GenID,
+		ledgerSvc:  p.LedgerSvc,
+		auditSvc:   p.AuditSvc,
+		repo:       p.Repo,
+		obsMetrics: p.ObsMetrics,
 	}
 }
 
@@ -100,6 +104,10 @@ func (s *Service) ProcessEvent(ctx context.Context, event *paymentdomain.Payment
 
 	if err := s.markProcessed(ctx, stored.ID, now); err != nil {
 		return err
+	}
+
+	if inserted && s.obsMetrics != nil {
+		s.obsMetrics.RecordPaymentEvent(ctx, event.Provider, event.Type)
 	}
 
 	return nil
@@ -439,7 +447,8 @@ func (s *Service) customerBalance(ctx context.Context, orgID snowflake.ID, custo
 
 func (s *Service) writeAuditLog(ctx context.Context, action string, stored *paymentdomain.EventRecord, event *paymentdomain.PaymentEvent, extra map[string]any) error {
 	if s.auditSvc == nil {
-		return errors.New("audit_service_unavailable")
+		s.log.Warn("audit service unavailable for payment event", zap.String("action", action))
+		return nil
 	}
 	if stored == nil || event == nil {
 		return paymentdomain.ErrInvalidEvent
@@ -470,7 +479,11 @@ func (s *Service) writeAuditLog(ctx context.Context, action string, stored *paym
 
 	targetID := stored.ID.String()
 	orgID := stored.OrgID
-	return s.auditSvc.AuditLog(ctx, &orgID, "", nil, action, "payment_event", &targetID, metadata)
+	if err := s.auditSvc.AuditLog(ctx, &orgID, "", nil, action, "payment_event", &targetID, metadata); err != nil {
+		s.log.Warn("failed to write payment audit log", zap.String("action", action), zap.Error(err))
+		return nil
+	}
+	return nil
 }
 
 func (s *Service) loadCustomerName(ctx context.Context, orgID snowflake.ID, customerID snowflake.ID) string {

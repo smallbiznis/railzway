@@ -35,6 +35,10 @@ import (
 	"github.com/smallbiznis/valora/internal/ledger"
 	"github.com/smallbiznis/valora/internal/meter"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
+	"github.com/smallbiznis/valora/internal/observability"
+	obsmiddleware "github.com/smallbiznis/valora/internal/observability/logger"
+	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
+	obstracing "github.com/smallbiznis/valora/internal/observability/tracing"
 	"github.com/smallbiznis/valora/internal/organization"
 	organizationdomain "github.com/smallbiznis/valora/internal/organization/domain"
 	"github.com/smallbiznis/valora/internal/payment"
@@ -96,11 +100,15 @@ var Module = fx.Module("http.server",
 	fx.Invoke(run),
 )
 
-func NewEngine() *gin.Engine {
+func NewEngine(obsCfg observability.Config, httpMetrics *obsmetrics.HTTPMetrics) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(gin.Logger())
-	r.Use(RequestID())
+	r.Use(obsmiddleware.GinMiddleware(obsmiddleware.MiddlewareConfig{
+		Debug:           obsCfg.Debug(),
+		ErrorClassifier: classifyErrorForLog,
+	}))
+	r.Use(obstracing.GinMiddleware())
+	r.Use(obsmetrics.GinMiddleware(httpMetrics))
 	r.Use(ErrorHandlingMiddleware())
 
 	r.GET("/health", func(c *gin.Context) {
@@ -110,8 +118,8 @@ func NewEngine() *gin.Engine {
 	return r
 }
 
-func registerGin() *gin.Engine {
-	return NewEngine()
+func registerGin(obsCfg observability.Config, httpMetrics *obsmetrics.HTTPMetrics) *gin.Engine {
+	return NewEngine(obsCfg, httpMetrics)
 }
 
 func run(lc fx.Lifecycle, r *gin.Engine) {

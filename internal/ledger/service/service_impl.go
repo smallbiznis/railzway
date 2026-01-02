@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	"github.com/smallbiznis/valora/internal/events"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
+	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -18,28 +18,31 @@ import (
 type Params struct {
 	fx.In
 
-	DB       *gorm.DB
-	Log      *zap.Logger
-	GenID    *snowflake.Node
-	AuditSvc auditdomain.Service
-	Outbox   *events.Outbox `optional:"true"`
+	DB         *gorm.DB
+	Log        *zap.Logger
+	GenID      *snowflake.Node
+	AuditSvc   auditdomain.Service
+	Outbox     *events.Outbox      `optional:"true"`
+	ObsMetrics *obsmetrics.Metrics `optional:"true"`
 }
 
 type Service struct {
-	db       *gorm.DB
-	log      *zap.Logger
-	genID    *snowflake.Node
-	auditSvc auditdomain.Service
-	outbox   *events.Outbox
+	db         *gorm.DB
+	log        *zap.Logger
+	genID      *snowflake.Node
+	auditSvc   auditdomain.Service
+	outbox     *events.Outbox
+	obsMetrics *obsmetrics.Metrics
 }
 
 func NewService(p Params) ledgerdomain.Service {
 	return &Service{
-		db:       p.DB,
-		log:      p.Log.Named("ledger.service"),
-		genID:    p.GenID,
-		auditSvc: p.AuditSvc,
-		outbox:   p.Outbox,
+		db:         p.DB,
+		log:        p.Log.Named("ledger.service"),
+		genID:      p.GenID,
+		auditSvc:   p.AuditSvc,
+		outbox:     p.Outbox,
+		obsMetrics: p.ObsMetrics,
 	}
 }
 
@@ -99,11 +102,13 @@ func (s *Service) CreateEntry(
 		return err
 	}
 
-	if s.auditSvc == nil {
-		return errors.New("audit_service_unavailable")
+	auditSvc := s.auditSvc
+	if auditSvc == nil {
+		s.log.Warn("audit service unavailable for ledger entry", zap.String("source_type", string(sourceType)), zap.String("source_id", sourceID.String()))
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	inserted := false
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		entryID := s.genID.Generate()
 		now := time.Now().UTC()
 		result := tx.WithContext(ctx).Exec(
@@ -125,6 +130,7 @@ func (s *Service) CreateEntry(
 		if result.RowsAffected == 0 {
 			return nil
 		}
+		inserted = true
 
 		for _, line := range normalized {
 			if err := tx.WithContext(ctx).Exec(
@@ -164,13 +170,21 @@ func (s *Service) CreateEntry(
 			"source_id":       sourceID.String(),
 			"ledger_entry_id": entryIDStr,
 		}
-		if err := s.auditSvc.AuditLog(ctx, &orgID, "", nil, "ledger.entry_created", "ledger_entry", &entryIDStr, metadata); err != nil {
-			s.log.Warn("failed to write ledger audit log", zap.Error(err))
-			return err
+		if auditSvc != nil {
+			if err := auditSvc.AuditLog(ctx, &orgID, "", nil, "ledger.entry_created", "ledger_entry", &entryIDStr, metadata); err != nil {
+				s.log.Warn("failed to write ledger audit log", zap.Error(err))
+			}
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if inserted && s.obsMetrics != nil {
+		s.obsMetrics.RecordLedgerEntry(ctx, sourceType)
+	}
+	return nil
 }
 
 func normalizeDirection(direction ledgerdomain.LedgerEntryDirection) (ledgerdomain.LedgerEntryDirection, error) {

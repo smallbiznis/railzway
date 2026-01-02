@@ -5,8 +5,8 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/smallbiznis/valora/internal/config"
-	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/migration"
+	"github.com/smallbiznis/valora/internal/observability"
 	"github.com/smallbiznis/valora/internal/scheduler"
 	"github.com/smallbiznis/valora/internal/seed"
 	"github.com/smallbiznis/valora/internal/server"
@@ -19,7 +19,7 @@ var version = "dev"
 
 func main() {
 	app := fx.New(
-		logger.Module,
+		observability.Module,
 		fx.Provide(func() *snowflake.Node {
 			node, err := snowflake.NewNode(1)
 			if err != nil {

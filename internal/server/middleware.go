@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/snowflake"
@@ -10,6 +11,7 @@ import (
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	auditcontext "github.com/smallbiznis/valora/internal/auditcontext"
 	authdomain "github.com/smallbiznis/valora/internal/auth/domain"
+	obscontext "github.com/smallbiznis/valora/internal/observability/context"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 )
 
@@ -42,6 +44,7 @@ func RequestID() gin.HandlerFunc {
 		ctx := auditcontext.WithRequestID(c.Request.Context(), requestID)
 		ctx = auditcontext.WithIPAddress(ctx, c.ClientIP())
 		ctx = auditcontext.WithUserAgent(ctx, c.Request.UserAgent())
+		ctx = obscontext.WithRequestID(ctx, requestID)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
@@ -84,6 +87,7 @@ func (s *Server) WebAuthRequired() gin.HandlerFunc {
 		c.Set(contextUserIDKey, session.UserID.String())
 		c.Set(contextSessionKey, session)
 		ctx := auditcontext.WithActor(c.Request.Context(), string(auditdomain.ActorTypeUser), session.UserID.String())
+		ctx = obscontext.WithActor(ctx, string(auditdomain.ActorTypeUser), session.UserID.String())
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
@@ -106,6 +110,7 @@ func (s *Server) AuthRequired() gin.HandlerFunc {
 		c.Set(contextUserIDKey, session.UserID.String())
 		c.Set(contextSessionKey, session)
 		ctx := auditcontext.WithActor(c.Request.Context(), string(auditdomain.ActorTypeUser), session.UserID.String())
+		ctx = obscontext.WithActor(ctx, string(auditdomain.ActorTypeUser), session.UserID.String())
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
@@ -167,6 +172,7 @@ func (s *Server) OrgContext() gin.HandlerFunc {
 		}
 
 		ctx := orgcontext.WithOrgID(c.Request.Context(), resolvedOrgID)
+		ctx = obscontext.WithOrgID(ctx, strconv.FormatInt(resolvedOrgID, 10))
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

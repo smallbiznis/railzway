@@ -17,6 +17,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/smallbiznis/valora/internal/config"
+	obstracing "github.com/smallbiznis/valora/internal/observability/tracing"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/protoadapt"
@@ -85,9 +86,9 @@ func NewRemoteWritePusher(endpoint, authToken string) *RemoteWritePusher {
 	return &RemoteWritePusher{
 		endpoint:  endpoint,
 		authToken: strings.TrimSpace(authToken),
-		httpClient: &http.Client{
+		httpClient: obstracing.WrapHTTPClient(&http.Client{
 			Timeout: defaultPushTimeout,
-		},
+		}),
 	}
 }
 
