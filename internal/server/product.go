@@ -35,6 +35,16 @@ func (s *Server) CreateProduct(c *gin.Context) {
 		return
 	}
 
+	if s.auditSvc != nil {
+		targetID := resp.ID
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "product.create", "product", &targetID, map[string]any{
+			"product_id": resp.ID,
+			"code":       resp.Code,
+			"name":       resp.Name,
+			"active":     resp.Active,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 

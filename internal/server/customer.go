@@ -30,6 +30,15 @@ func (s *Server) CreateCustomer(c *gin.Context) {
 		return
 	}
 
+	if s.auditSvc != nil {
+		targetID := resp.ID.String()
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "customer.create", "customer", &targetID, map[string]any{
+			"customer_id": resp.ID.String(),
+			"name":        resp.Name,
+			"email":       resp.Email,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 

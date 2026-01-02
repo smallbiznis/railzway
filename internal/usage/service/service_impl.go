@@ -12,6 +12,7 @@ import (
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/events"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
+	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
 	usagedomain "github.com/smallbiznis/valora/internal/usage/domain"
@@ -34,6 +35,7 @@ type ServiceParam struct {
 	MeterSvc      meterdomain.Service
 	SubSvc        subscriptiondomain.Service
 	Metrics       *cloudmetrics.CloudMetrics
+	ObsMetrics    *obsmetrics.Metrics `optional:"true"`
 	ResolverCache cache.UsageResolverCache
 	Outbox        *events.Outbox `optional:"true"`
 }
@@ -47,6 +49,7 @@ type Service struct {
 	subSvc        subscriptiondomain.Service
 	usagerepo     repository.Repository[usagedomain.UsageEvent]
 	metrics       *cloudmetrics.CloudMetrics
+	obsMetrics    *obsmetrics.Metrics
 	resolverCache cache.UsageResolverCache
 	outbox        *events.Outbox
 }
@@ -61,6 +64,7 @@ func NewService(p ServiceParam) usagedomain.Service {
 		subSvc:        p.SubSvc,
 		usagerepo:     repository.ProvideStore[usagedomain.UsageEvent](p.DB),
 		metrics:       p.Metrics,
+		obsMetrics:    p.ObsMetrics,
 		resolverCache: p.ResolverCache,
 		outbox:        p.Outbox,
 	}
@@ -156,6 +160,9 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 	if s.metrics != nil {
 		// Cloud accounting metric: emitted usage events are not billing inputs.
 		go s.metrics.IncUsageEvent(orgID.String(), meterCode)
+	}
+	if s.obsMetrics != nil {
+		s.obsMetrics.RecordUsageIngest(ctx, meterCode)
 	}
 	s.emitUsageIngested(record)
 	return record, nil

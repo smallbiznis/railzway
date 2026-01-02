@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 
 import { admin } from "@/api/client"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -39,7 +40,12 @@ const fetchPrice = async (priceId: string) => {
 }
 
 const fetchPriceAmounts = async (priceId: string) => {
-  const response = await admin.get(`/prices/${priceId}/amounts`)
+  const response = await admin.get("/price_amounts", {
+    params: {
+      price_id: priceId,
+      effective_from: "1970-01-01T00:00:00Z",
+    },
+  })
   const payload = response.data?.data
   if (Array.isArray(payload)) {
     return payload as PriceAmount[]
@@ -59,20 +65,45 @@ const fetchCurrencies = async () => {
   return Array.isArray(payload) ? (payload as Currency[]) : []
 }
 
-const getAmountStatus = (amount: PriceAmount) => {
+type AmountStatus = "Active" | "Expired" | "Upcoming"
+
+const getAmountStatus = (amount: PriceAmount): AmountStatus => {
   const now = new Date()
   const effectiveFrom = parseDate(amount.effective_from)
   const effectiveTo = parseDate(amount.effective_to)
+  if (effectiveFrom && effectiveFrom.getTime() > now.getTime()) {
+    return "Upcoming"
+  }
   if (effectiveTo && effectiveTo.getTime() <= now.getTime()) {
     return "Expired"
   }
-  if (effectiveFrom && effectiveFrom.getTime() > now.getTime()) {
-    return "Scheduled"
-  }
-  if (!amount.effective_to && effectiveFrom) {
+  if (effectiveFrom && effectiveFrom.getTime() <= now.getTime()) {
     return "Active"
   }
-  return "Unknown"
+  return "Upcoming"
+}
+
+const statusBadgeStyles = (
+  status: ReturnType<typeof getAmountStatus>
+) => {
+  switch (status) {
+    case "Active":
+      return {
+        className: "border-status-success/30 bg-status-success/10 text-status-success",
+        dotClassName: "bg-status-success",
+      }
+    case "Upcoming":
+      return {
+        className: "border-sky-200 bg-sky-50 text-sky-700",
+        dotClassName: "bg-sky-500",
+      }
+    case "Expired":
+    default:
+      return {
+        className: "border-border-subtle bg-bg-subtle text-text-muted",
+        dotClassName: "bg-border-strong",
+      }
+  }
 }
 
 export default function AdminPricingDetailPage() {
@@ -114,19 +145,37 @@ export default function AdminPricingDetailPage() {
   }, [amountsData])
 
   const currencies = useMemo(() => currenciesData ?? [], [currenciesData])
-  const activeByCurrency = useMemo(() => {
-    return amounts.reduce<Record<string, number>>((acc, amount) => {
-      const status = getAmountStatus(amount)
-      if (status !== "Active") return acc
-      const code = amount.currency?.toUpperCase() ?? "UNKNOWN"
-      acc[code] = (acc[code] ?? 0) + 1
-      return acc
-    }, {})
-  }, [amounts])
+  const displayCurrency = useMemo(() => {
+    const fromAmounts = amounts[0]?.currency
+    if (fromAmounts) return fromAmounts.toUpperCase()
+    const metadataCurrency = price?.metadata?.currency
+    if (typeof metadataCurrency === "string" && metadataCurrency.trim()) {
+      return metadataCurrency.trim().toUpperCase()
+    }
+    return "-"
+  }, [amounts, price])
 
-  const hasMultipleActive = Object.values(activeByCurrency).some(
-    (count) => count > 1
+  const amountsWithStatus = useMemo(
+    () =>
+      amounts.map((amount) => ({
+        amount,
+        status: getAmountStatus(amount),
+      })),
+    [amounts]
   )
+
+  const activeCount = useMemo(
+    () =>
+      amountsWithStatus.filter(({ status }) => status === "Active").length,
+    [amountsWithStatus]
+  )
+  const hasUpcoming = useMemo(
+    () =>
+      amountsWithStatus.some(({ status }) => status === "Upcoming"),
+    [amountsWithStatus]
+  )
+  const hasMultipleActive = activeCount > 1
+  const hasActive = activeCount > 0
 
   if (!priceId) {
     return (
@@ -144,7 +193,7 @@ export default function AdminPricingDetailPage() {
             <button
               type="button"
               className="text-text-muted hover:text-text-primary transition-colors"
-              onClick={() => navigate("/admin/pricing")}
+              onClick={() => navigate("/admin/prices")}
             >
               Pricing
             </button>
@@ -160,14 +209,6 @@ export default function AdminPricingDetailPage() {
             </span>
           </h1>
         </div>
-        {price && (
-          <AddPriceAmountDialog
-            priceId={priceId}
-            priceName={price.name}
-            currencies={currencies}
-            priceAmounts={amounts}
-          />
-        )}
       </div>
 
       <Card>
@@ -208,6 +249,10 @@ export default function AdminPricingDetailPage() {
                 </div>
               </div>
               <div>
+                <div className="text-text-muted text-xs">Currency</div>
+                <div className="font-medium">{displayCurrency}</div>
+              </div>
+              <div>
                 <div className="text-text-muted text-xs">Created</div>
                 <div className="font-medium">{formatDateTime(price.created_at)}</div>
               </div>
@@ -226,7 +271,8 @@ export default function AdminPricingDetailPage() {
             <div>
               <CardTitle>Pricing history</CardTitle>
               <CardDescription>
-                Historical price amounts are immutable and displayed in full.
+                Active price is billed today. Scheduled price activates later.
+                Expired price is retained for audit.
               </CardDescription>
             </div>
             {currenciesLoading && (
@@ -252,13 +298,22 @@ export default function AdminPricingDetailPage() {
           )}
           {hasMultipleActive && (
             <div className="text-status-error text-sm mb-3">
-              Multiple active amounts detected for a currency. Only one active
-              version should exist per currency.
+              Multiple active price versions detected. Only one active price
+              amount should exist per price.
             </div>
+          )}
+          {!amountsLoading && !amountsError && !hasActive && hasUpcoming && (
+            <Alert className="mb-3">
+              <AlertTitle>Price not active yet</AlertTitle>
+              <AlertDescription>
+                Scheduled price versions exist, but no active price is in effect
+                yet.
+              </AlertDescription>
+            </Alert>
           )}
           {!amountsLoading && !amountsError && amounts.length === 0 && (
             <div className="text-text-muted text-sm">
-              No price amounts yet. Add a new price version to begin tracking.
+              No pricing defined.
             </div>
           )}
           {!amountsLoading && !amountsError && amounts.length > 0 && (
@@ -267,39 +322,46 @@ export default function AdminPricingDetailPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Currency</TableHead>
                     <TableHead>Amount</TableHead>
+                    <TableHead>Currency</TableHead>
                     <TableHead>Effective from</TableHead>
                     <TableHead>Effective to</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Created at</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {amounts.map((amount) => {
-                    const status = getAmountStatus(amount)
+                  {amountsWithStatus.map(({ amount, status }) => {
                     const currency = resolveCurrency(currencies, amount.currency)
-                    const statusVariant =
-                      status === "Active"
-                        ? "default"
-                        : status === "Scheduled"
-                          ? "secondary"
-                          : "outline"
+                    const statusStyle = statusBadgeStyles(status)
                     return (
                       <TableRow key={amount.id}>
-                        <TableCell className="font-medium">
-                          {amount.currency?.toUpperCase() ?? "-"}
-                        </TableCell>
                         <TableCell>
                           {formatCurrencyAmount(amount, currency)}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {amount.currency?.toUpperCase() ?? "-"}
                         </TableCell>
                         <TableCell>
                           {formatDateTime(amount.effective_from)}
                         </TableCell>
                         <TableCell>
-                          {formatDateTime(amount.effective_to)}
+                          {amount.effective_to ? formatDateTime(amount.effective_to) : "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={statusVariant}>{status}</Badge>
+                          <Badge
+                            variant="outline"
+                            className={statusStyle.className}
+                          >
+                            <span
+                              aria-hidden
+                              className={`size-1.5 rounded-full ${statusStyle.dotClassName}`}
+                            />
+                            {status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {formatDateTime(amount.created_at)}
                         </TableCell>
                       </TableRow>
                     )
@@ -307,6 +369,28 @@ export default function AdminPricingDetailPage() {
                 </TableBody>
               </Table>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Add new price version</CardTitle>
+          <CardDescription>
+            Create a future effective price amount without editing history.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="text-text-muted text-sm">
+            Use this to schedule a new active price amount for this price.
+          </div>
+          {price && (
+            <AddPriceAmountDialog
+              priceId={priceId}
+              priceName={price.name}
+              currencies={currencies}
+              priceAmounts={amounts}
+            />
           )}
         </CardContent>
       </Card>

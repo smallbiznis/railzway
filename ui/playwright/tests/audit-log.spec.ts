@@ -34,7 +34,7 @@ test("records admin actions in the audit log", async ({ page }) => {
   ).toBeVisible()
 
   await page
-    .getByPlaceholder("Action (e.g. invoice.finalized)")
+    .getByPlaceholder("Action (e.g. invoice.finalize)")
     .fill("api_key.created")
 
   const auditResponsePromise = page.waitForResponse((response) => {

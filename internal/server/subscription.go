@@ -32,7 +32,7 @@ func (s *Server) CreateSubscription(c *gin.Context) {
 
 	if s.auditSvc != nil {
 		targetID := resp.ID
-		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "subscription.created", "subscription", &targetID, map[string]any{
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "subscription.create", "subscription", &targetID, map[string]any{
 			"subscription_id": resp.ID,
 			"customer_id":     resp.CustomerID,
 			"status":          string(resp.Status),
@@ -103,7 +103,7 @@ func (s *Server) CancelSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
 		subscriptiondomain.SubscriptionStatusCanceled,
-		"subscription.canceled",
+		"subscription.cancel",
 	)
 }
 
@@ -111,7 +111,7 @@ func (s *Server) ActivateSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
 		subscriptiondomain.SubscriptionStatusActive,
-		"subscription.activated",
+		"subscription.activate",
 	)
 }
 
@@ -119,7 +119,7 @@ func (s *Server) PauseSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
 		subscriptiondomain.SubscriptionStatusPaused,
-		"subscription.paused",
+		"subscription.pause",
 	)
 }
 
@@ -127,7 +127,7 @@ func (s *Server) ResumeSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
 		subscriptiondomain.SubscriptionStatusActive,
-		"subscription.resumed",
+		"subscription.resume",
 	)
 }
 

@@ -136,6 +136,14 @@ export const router = createBrowserRouter([
       { path: "/orgs", element: <OrgResolverPage /> },
       { path: "/onboarding", element: <OnboardingPage /> },
       {
+        path: "/admin/prices",
+        element: withFeatureBoundary(<AdminPricingListPage />),
+      },
+      {
+        path: "/admin/prices/:priceId",
+        element: withFeatureBoundary(<AdminPricingDetailPage />),
+      },
+      {
         path: "/admin/pricing",
         element: withFeatureBoundary(<AdminPricingListPage />),
       },
@@ -164,6 +172,10 @@ export const router = createBrowserRouter([
           {
             path: "products/:productId",
             element: withFeatureBoundary(<OrgProductDetailPage />),
+          },
+          {
+            path: "prices/:priceId",
+            element: withFeatureBoundary(<AdminPricingDetailPage />),
           },
           {
             path: "prices",

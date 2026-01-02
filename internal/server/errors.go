@@ -204,6 +204,18 @@ func mapError(err error) (int, errorPayload) {
 	}
 }
 
+func classifyErrorForLog(err error) (string, string) {
+	if err == nil {
+		return "", ""
+	}
+	_, payload := mapError(err)
+	code := ""
+	if len(payload.Errors) > 0 {
+		code = payload.Errors[0].Code
+	}
+	return payload.Type, code
+}
+
 func asValidationErrors(err error) *ValidationErrors {
 	var vErr *ValidationErrors
 	if errors.As(err, &vErr) && vErr != nil {

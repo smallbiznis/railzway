@@ -349,7 +349,8 @@ func (s *Service) ensureLedgerAccount(ctx context.Context, orgID snowflake.ID, c
 
 func (s *Service) writeAuditLog(ctx context.Context, action string, stored *disputedomain.DisputeRecord, event *disputedomain.DisputeEvent) error {
 	if s.auditSvc == nil {
-		return errors.New("audit_service_unavailable")
+		s.log.Warn("audit service unavailable for dispute event", zap.String("action", action))
+		return nil
 	}
 	if stored == nil || event == nil {
 		return paymentdomain.ErrInvalidEvent
@@ -372,7 +373,11 @@ func (s *Service) writeAuditLog(ctx context.Context, action string, stored *disp
 
 	targetID := stored.ID.String()
 	orgID := stored.OrgID
-	return s.auditSvc.AuditLog(ctx, &orgID, "", nil, action, "payment_dispute", &targetID, metadata)
+	if err := s.auditSvc.AuditLog(ctx, &orgID, "", nil, action, "payment_dispute", &targetID, metadata); err != nil {
+		s.log.Warn("failed to write dispute audit log", zap.String("action", action), zap.Error(err))
+		return nil
+	}
+	return nil
 }
 
 func auditAction(eventType string) string {

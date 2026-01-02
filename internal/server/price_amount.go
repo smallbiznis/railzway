@@ -21,6 +21,23 @@ func (s *Server) CreatePriceAmount(c *gin.Context) {
 		return
 	}
 
+	if s.auditSvc != nil {
+		targetID := resp.ID
+		metadata := map[string]any{
+			"price_amount_id": resp.ID,
+			"price_id":        resp.PriceID,
+			"currency":        resp.Currency,
+			"unit_amount_cents": resp.UnitAmountCents,
+		}
+		if resp.MinimumAmountCents != nil {
+			metadata["minimum_amount_cents"] = *resp.MinimumAmountCents
+		}
+		if resp.MaximumAmountCents != nil {
+			metadata["maximum_amount_cents"] = *resp.MaximumAmountCents
+		}
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "price_amount.create", "price_amount", &targetID, metadata)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 

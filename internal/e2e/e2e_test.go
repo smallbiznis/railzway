@@ -36,9 +36,9 @@ import (
 	"github.com/smallbiznis/valora/internal/invoicetemplate"
 	"github.com/smallbiznis/valora/internal/ledger"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
-	"github.com/smallbiznis/valora/internal/logger"
 	"github.com/smallbiznis/valora/internal/meter"
 	"github.com/smallbiznis/valora/internal/migration"
+	"github.com/smallbiznis/valora/internal/observability"
 	"github.com/smallbiznis/valora/internal/organization"
 	"github.com/smallbiznis/valora/internal/paymentprovider"
 	"github.com/smallbiznis/valora/internal/price"
@@ -316,7 +316,7 @@ func TestE2E_AuditLog(t *testing.T) {
 	logEntry := auditdomain.AuditLog{}
 	if err := env.db.Raw(
 		`SELECT id, actor_type, actor_id, action FROM audit_logs WHERE action = ? ORDER BY created_at DESC LIMIT 1`,
-		"subscription.activated",
+		"subscription.activate",
 	).Scan(&logEntry).Error; err != nil {
 		t.Fatalf("query audit log: %v", err)
 	}
@@ -370,7 +370,7 @@ func startEnv() (*testEnv, error) {
 	)
 
 	app := fx.New(
-		logger.Module,
+		observability.Module,
 		config.Module,
 		db.Module,
 		cloudmetrics.Module,

@@ -455,7 +455,7 @@ func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
 
 			s.emitAuditEvent(ctxWithAudit, auditEvent{
 				OrgID:          subscription.OrgID,
-				Action:         "subscription.ended",
+				Action:         "subscription.end",
 				TargetType:     "subscription",
 				TargetID:       subscription.ID.String(),
 				SubscriptionID: subscription.ID.String(),

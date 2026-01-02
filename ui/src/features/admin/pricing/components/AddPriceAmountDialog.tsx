@@ -17,20 +17,12 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 
 import type { Currency, PriceAmount } from "@/features/admin/pricing/types"
 import {
   formatDateTime,
   getLatestEffectiveFrom,
-  getMinorUnit,
   parseDate,
   resolveCurrency,
   toLocalDateTimeInputValue,
@@ -58,7 +50,6 @@ export function AddPriceAmountDialog({
 }: AddPriceAmountDialogProps) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [currencyCode, setCurrencyCode] = useState("")
   const [amount, setAmount] = useState("")
   const [effectiveFrom, setEffectiveFrom] = useState("")
   const [confirmed, setConfirmed] = useState(false)
@@ -66,35 +57,45 @@ export function AddPriceAmountDialog({
 
   const now = useMemo(() => new Date(), [open])
   const minDateValue = useMemo(() => toLocalDateTimeInputValue(now), [now])
+  const inferredCurrencyCode = useMemo(() => {
+    const fromAmounts = priceAmounts[0]?.currency
+    if (fromAmounts) return fromAmounts.toUpperCase()
+    const usd = currencies.find(
+      (currency) => currency.code.toUpperCase() === "USD"
+    )
+    if (usd) return usd.code.toUpperCase()
+    if (currencies.length > 0) {
+      return currencies[0].code.toUpperCase()
+    }
+    return ""
+  }, [currencies, priceAmounts])
   const selectedCurrency = useMemo(
-    () => resolveCurrency(currencies, currencyCode),
-    [currencies, currencyCode]
+    () => resolveCurrency(currencies, inferredCurrencyCode),
+    [currencies, inferredCurrencyCode]
   )
-  const minorUnit = useMemo(
-    () => getMinorUnit(selectedCurrency),
-    [selectedCurrency]
-  )
-  const amountStep = useMemo(() => Math.pow(10, -minorUnit), [minorUnit])
   const parsedAmount = useMemo(() => {
-    if (!amount.trim()) return null
-    const value = Number(amount)
+    const trimmed = amount.trim()
+    if (!/^\d+$/.test(trimmed)) return null
+    const value = Number(trimmed)
     if (Number.isNaN(value)) return null
     return value
   }, [amount])
   const effectiveDate = useMemo(() => parseDate(effectiveFrom), [effectiveFrom])
   const latestEffective = useMemo(() => {
-    if (!currencyCode) return null
-    return getLatestEffectiveFrom(priceAmounts, currencyCode)
-  }, [currencyCode, priceAmounts])
+    if (!inferredCurrencyCode) return null
+    return getLatestEffectiveFrom(priceAmounts, inferredCurrencyCode)
+  }, [inferredCurrencyCode, priceAmounts])
 
   const validation = useMemo<ValidationErrors>(() => {
     const errors: ValidationErrors = {}
-    if (!currencyCode) {
-      errors.currency = "Currency is required."
+    if (!inferredCurrencyCode) {
+      errors.currency = "Currency is required to create a price version."
     }
-    if (parsedAmount == null) {
+    if (!amount.trim()) {
       errors.amount = "Amount is required."
-    } else if (parsedAmount <= 0) {
+    } else if (!/^\d+$/.test(amount.trim())) {
+      errors.amount = "Amount must be a whole number in minor units."
+    } else if (parsedAmount == null || parsedAmount <= 0) {
       errors.amount = "Amount must be greater than zero."
     }
     if (!effectiveDate) {
@@ -113,11 +114,19 @@ export function AddPriceAmountDialog({
       errors.confirmation = "Please confirm to continue."
     }
     return errors
-  }, [currencyCode, confirmed, effectiveDate, latestEffective, now, parsedAmount])
+  }, [
+    amount,
+    confirmed,
+    effectiveDate,
+    inferredCurrencyCode,
+    latestEffective,
+    now,
+    parsedAmount,
+  ])
 
   const scheduleWarning =
     effectiveDate && effectiveDate.getTime() > now.getTime()
-      ? `This price will activate on ${formatDateTime(
+      ? `This scheduled price will activate on ${formatDateTime(
           effectiveDate.toISOString()
         )}.`
       : null
@@ -130,17 +139,18 @@ export function AddPriceAmountDialog({
       if (!effectiveDate) {
         throw new Error("Missing effective date.")
       }
-      if (!currencyCode) {
-        throw new Error("Currency is required.")
-      }
       if (parsedAmount == null) {
         throw new Error("Amount is required.")
       }
+      if (!inferredCurrencyCode) {
+        throw new Error("Currency is required.")
+      }
 
       // New amounts are append-only: we only add a future/current version.
-      return admin.post(`/prices/${priceId}/amounts`, {
-        currency: currencyCode.toUpperCase(),
-        amount: parsedAmount,
+      return admin.post("/price_amounts", {
+        price_id: priceId,
+        currency: inferredCurrencyCode.toUpperCase(),
+        unit_amount_cents: parsedAmount,
         effective_from: effectiveDate.toISOString(),
       })
     },
@@ -150,7 +160,6 @@ export function AddPriceAmountDialog({
         queryKey: ["price_amounts", priceId],
       })
       await queryClient.invalidateQueries({ queryKey: ["price", priceId] })
-      setCurrencyCode("")
       setAmount("")
       setEffectiveFrom("")
       setConfirmed(false)
@@ -188,7 +197,7 @@ export function AddPriceAmountDialog({
       <DialogTrigger asChild>
         <Button size="sm">
           <IconPlus />
-          Add new price
+          Add new price version
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
@@ -209,8 +218,8 @@ export function AddPriceAmountDialog({
           <Alert>
             <AlertTitle>Pricing versioning</AlertTitle>
             <AlertDescription>
-              This will create a new price version. Existing invoices and past
-              usage will NOT be affected.
+              This will create a new price version. Existing subscriptions will
+              only be affected for usage after the effective date.
             </AlertDescription>
           </Alert>
           {scheduleWarning && (
@@ -219,49 +228,36 @@ export function AddPriceAmountDialog({
               <AlertDescription>{scheduleWarning}</AlertDescription>
             </Alert>
           )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="currency">Currency</Label>
-              <Select
-                value={currencyCode}
-                onValueChange={setCurrencyCode}
-              >
-                <SelectTrigger id="currency">
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  {currencies.map((currency) => (
-                    <SelectItem key={currency.code} value={currency.code}>
-                      {currency.code} - {currency.name}
-                      {currency.symbol ? ` (${currency.symbol})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {validation.currency && (
-                <div className="text-status-error text-xs">
-                  {validation.currency}
-                </div>
-              )}
+          <div className="space-y-2">
+            <div className="text-text-muted text-xs">Currency</div>
+            <div className="text-sm font-medium">
+              {selectedCurrency
+                ? `${selectedCurrency.code} - ${selectedCurrency.name}`
+                : inferredCurrencyCode || "-"}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="amount">Amount</Label>
-              <Input
-                id="amount"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step={amountStep}
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                placeholder="0.00"
-              />
-              {validation.amount && (
-                <div className="text-status-error text-xs">
-                  {validation.amount}
-                </div>
-              )}
-            </div>
+            {validation.currency && (
+              <div className="text-status-error text-xs">
+                {validation.currency}
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="amount">Amount (minor unit)</Label>
+            <Input
+              id="amount"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="5000"
+            />
+            {validation.amount && (
+              <div className="text-status-error text-xs">
+                {validation.amount}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="effective-from">Effective from</Label>
@@ -310,7 +306,7 @@ export function AddPriceAmountDialog({
                   Saving
                 </>
               ) : (
-                "Confirm new price"
+                "Confirm new price version"
               )}
             </Button>
           </DialogFooter>

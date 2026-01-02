@@ -308,7 +308,7 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 		return err
 	}
 	if createdInvoice != nil {
-		s.emitAudit(ctx, "invoice.generated", createdInvoice, nil)
+		s.emitAudit(ctx, "invoice.generate", createdInvoice, nil)
 	}
 	return nil
 }
@@ -391,7 +391,7 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		if finalizedInvoice.InvoiceTemplateID != nil {
 			metadata["invoice_template_id"] = finalizedInvoice.InvoiceTemplateID.String()
 		}
-		s.emitAudit(ctx, "invoice.finalized", finalizedInvoice, metadata)
+		s.emitAudit(ctx, "invoice.finalize", finalizedInvoice, metadata)
 	}
 	return nil
 }
@@ -455,7 +455,7 @@ func (s *Service) VoidInvoice(ctx context.Context, invoiceID string, reason stri
 		if reason != "" {
 			metadata["reason"] = reason
 		}
-		s.emitAudit(ctx, "invoice.voided", voidedInvoice, metadata)
+		s.emitAudit(ctx, "invoice.void", voidedInvoice, metadata)
 	}
 	return nil
 }

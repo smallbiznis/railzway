@@ -106,7 +106,7 @@ export default function AdminPricingListPage() {
                   <TableRow
                     key={price.id}
                     className="cursor-pointer"
-                    onClick={() => navigate(`/admin/pricing/${price.id}`)}
+                    onClick={() => navigate(`/admin/prices/${price.id}`)}
                   >
                     <TableCell className="font-medium">
                       {price.name ?? "Untitled"}

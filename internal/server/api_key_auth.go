@@ -12,6 +12,7 @@ import (
 	apikeydomain "github.com/smallbiznis/valora/internal/apikey/domain"
 	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
 	auditcontext "github.com/smallbiznis/valora/internal/auditcontext"
+	obscontext "github.com/smallbiznis/valora/internal/observability/context"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 )
 
@@ -81,6 +82,8 @@ func (s *Server) APIKeyRequired() gin.HandlerFunc {
 		ctx = context.WithValue(ctx, contextAPIKeyScopesKey, scopes)
 		ctx = orgcontext.WithOrgID(ctx, int64(record.OrgID))
 		ctx = auditcontext.WithActor(ctx, string(auditdomain.ActorTypeAPIKey), record.ID.String())
+		ctx = obscontext.WithActor(ctx, string(auditdomain.ActorTypeAPIKey), record.ID.String())
+		ctx = obscontext.WithOrgID(ctx, record.OrgID.String())
 
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()

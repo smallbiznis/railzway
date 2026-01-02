@@ -113,12 +113,16 @@ const actorLabel = (log: AuditLog) => {
   return actorType
 }
 
-const targetLabel = (log: AuditLog) => {
+const resourceTypeLabel = (log: AuditLog) => {
   const targetType = String(readField(log, ["target_type", "TargetType"]) ?? "")
+  if (!targetType) return "-"
+  return targetType
+}
+
+const targetIDLabel = (log: AuditLog) => {
   const targetID = String(readField(log, ["target_id", "TargetID"]) ?? "")
-  if (!targetType && !targetID) return "-"
-  if (!targetID) return targetType
-  return `${targetType} · ${targetID}`
+  if (!targetID) return "-"
+  return targetID
 }
 
 const buildTargetLink = (orgId: string | undefined, log: AuditLog) => {
@@ -146,10 +150,15 @@ const actorTypeOptions = [
 
 const ALL_FILTER_VALUE = "__all__"
 
-const targetTypeOptions = [
+const resourceTypeOptions = [
+  { value: "product", label: "Product" },
+  { value: "price", label: "Price" },
+  { value: "price_amount", label: "Price amount" },
+  { value: "customer", label: "Customer" },
   { value: "subscription", label: "Subscription" },
   { value: "billing_cycle", label: "Billing cycle" },
   { value: "invoice", label: "Invoice" },
+  { value: "payment_provider_config", label: "Payment provider config" },
   { value: "api_key", label: "API key" },
   { value: "user", label: "User" },
 ]
@@ -164,8 +173,8 @@ export default function OrgAuditLogsPage() {
 
   const [filters, setFilters] = useState({
     action: "",
-    targetType: "",
-    targetID: "",
+    resourceType: "",
+    resourceID: "",
     actorType: "",
     startAt: "",
     endAt: "",
@@ -190,11 +199,11 @@ export default function OrgAuditLogsPage() {
       if (appliedFilters.action.trim()) {
         params.action = appliedFilters.action.trim()
       }
-      if (appliedFilters.targetType) {
-        params.target_type = appliedFilters.targetType
+      if (appliedFilters.resourceType) {
+        params.resource_type = appliedFilters.resourceType
       }
-      if (appliedFilters.targetID.trim()) {
-        params.target_id = appliedFilters.targetID.trim()
+      if (appliedFilters.resourceID.trim()) {
+        params.resource_id = appliedFilters.resourceID.trim()
       }
       if (appliedFilters.actorType) {
         params.actor_type = appliedFilters.actorType
@@ -202,13 +211,13 @@ export default function OrgAuditLogsPage() {
       if (appliedFilters.startAt) {
         const startAt = formatDateInput(appliedFilters.startAt)
         if (startAt) {
-          params.start_at = startAt
+          params.from = startAt
         }
       }
       if (appliedFilters.endAt) {
         const endAt = formatDateInput(appliedFilters.endAt)
         if (endAt) {
-          params.end_at = endAt
+          params.to = endAt
         }
       }
       if (nextToken) {
@@ -252,8 +261,8 @@ export default function OrgAuditLogsPage() {
   const handleClear = () => {
     const cleared = {
       action: "",
-      targetType: "",
-      targetID: "",
+      resourceType: "",
+      resourceID: "",
       actorType: "",
       startAt: "",
       endAt: "",
@@ -293,7 +302,7 @@ export default function OrgAuditLogsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <Input
               className="w-full min-w-50 max-w-xs"
-              placeholder="Action (e.g. invoice.finalized)"
+              placeholder="Action (e.g. invoice.finalize)"
               value={filters.action}
               onChange={(event) =>
                 setFilters((prev) => ({ ...prev, action: event.target.value }))
@@ -301,27 +310,27 @@ export default function OrgAuditLogsPage() {
             />
             <Input
               className="w-full min-w-50 max-w-xs"
-              placeholder="Target ID"
-              value={filters.targetID}
+              placeholder="Resource ID"
+              value={filters.resourceID}
               onChange={(event) =>
-                setFilters((prev) => ({ ...prev, targetID: event.target.value }))
+                setFilters((prev) => ({ ...prev, resourceID: event.target.value }))
               }
             />
             <Select
-              value={filters.targetType || ALL_FILTER_VALUE}
+              value={filters.resourceType || ALL_FILTER_VALUE}
               onValueChange={(value) =>
                 setFilters((prev) => ({
                   ...prev,
-                  targetType: value === ALL_FILTER_VALUE ? "" : value,
+                  resourceType: value === ALL_FILTER_VALUE ? "" : value,
                 }))
               }
             >
               <SelectTrigger className="w-45">
-                <SelectValue placeholder="Target type" />
+                <SelectValue placeholder="Resource type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_FILTER_VALUE}>All targets</SelectItem>
-                {targetTypeOptions.map((option) => (
+                <SelectItem value={ALL_FILTER_VALUE}>All resources</SelectItem>
+                {resourceTypeOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -394,12 +403,12 @@ export default function OrgAuditLogsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Timestamp</TableHead>
-                <TableHead>Action</TableHead>
+                <TableHead>Time</TableHead>
                 <TableHead>Actor</TableHead>
-                <TableHead>Target</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Resource</TableHead>
+                <TableHead>Target ID</TableHead>
                 <TableHead>Summary</TableHead>
-                <TableHead className="text-right">Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -408,33 +417,37 @@ export default function OrgAuditLogsPage() {
                 const action = String(readField(log, ["action", "Action"]) ?? "")
                 const targetHref = buildTargetLink(orgId, log)
                 return (
-                  <TableRow key={String(readField(log, ["id", "ID"]) ?? createdAt)}>
+                  <TableRow
+                    key={String(readField(log, ["id", "ID"]) ?? createdAt)}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedLog(log)}
+                  >
                     <TableCell className="text-text-muted text-xs">
                       {formatTimestamp(createdAt)}
                     </TableCell>
+                    <TableCell className="text-text-muted text-xs">{actorLabel(log)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{humanizeAction(action)}</Badge>
                         <span className="text-text-muted text-xs">{action || "-"}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-text-muted text-xs">{actorLabel(log)}</TableCell>
+                    <TableCell className="text-text-muted text-xs">{resourceTypeLabel(log)}</TableCell>
                     <TableCell className="text-text-muted text-xs">
                       {targetHref ? (
-                        <Link to={targetHref} className="inline-flex items-center gap-1 text-accent-primary hover:underline">
-                          {targetLabel(log)}
+                        <Link
+                          to={targetHref}
+                          className="inline-flex items-center gap-1 text-accent-primary hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {targetIDLabel(log)}
                           <IconExternalLink className="h-3 w-3" />
                         </Link>
                       ) : (
-                        targetLabel(log)
+                        targetIDLabel(log)
                       )}
                     </TableCell>
                     <TableCell className="text-text-muted text-xs">{buildSummary(log)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => setSelectedLog(log)}>
-                        View
-                      </Button>
-                    </TableCell>
                   </TableRow>
                 )
               })}
@@ -481,8 +494,12 @@ export default function OrgAuditLogsPage() {
                   <div>{actorLabel(selectedLog)}</div>
                 </div>
                 <div>
-                  <div className="text-text-muted">Target</div>
-                  <div>{targetLabel(selectedLog)}</div>
+                  <div className="text-text-muted">Resource</div>
+                  <div>{resourceTypeLabel(selectedLog)}</div>
+                </div>
+                <div>
+                  <div className="text-text-muted">Target ID</div>
+                  <div>{targetIDLabel(selectedLog)}</div>
                 </div>
                 <div>
                   <div className="text-text-muted">Request ID</div>

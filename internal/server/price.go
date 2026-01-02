@@ -64,6 +64,18 @@ func (s *Server) CreatePrice(c *gin.Context) {
 		return
 	}
 
+	if s.auditSvc != nil {
+		targetID := resp.ID
+		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "price.create", "price", &targetID, map[string]any{
+			"price_id":      resp.ID,
+			"product_id":    resp.ProductID,
+			"code":          resp.Code,
+			"pricing_model": resp.PricingModel,
+			"billing_mode":  resp.BillingMode,
+			"active":        resp.Active,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 

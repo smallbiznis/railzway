@@ -173,6 +173,9 @@ func (s *Service) ListBillingActivity(ctx context.Context, limit int) (billingda
 	actions := []string{
 		"billing_cycle.closed",
 		"billing_cycle.closing_started",
+		"invoice.generate",
+		"invoice.finalize",
+		"invoice.void",
 		"invoice.generated",
 		"invoice.finalized",
 		"invoice.voided",
@@ -220,11 +223,11 @@ func buildActivityMessage(action string, metadata datatypes.JSONMap) string {
 			return fmt.Sprintf("Billing cycle %s closing", period)
 		}
 		return "Billing cycle closing"
-	case "invoice.generated":
+	case "invoice.generate", "invoice.generated":
 		return formatInvoiceMessage("created", metadata)
-	case "invoice.finalized":
+	case "invoice.finalize", "invoice.finalized":
 		return formatInvoiceMessage("finalized", metadata)
-	case "invoice.voided":
+	case "invoice.void", "invoice.voided":
 		return formatInvoiceMessage("voided", metadata)
 	case "payment.received":
 		if customer := formatCustomerLabel(metadata); customer != "" {

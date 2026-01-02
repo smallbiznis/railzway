@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
+	auditdomain "github.com/smallbiznis/valora/internal/audit/domain"
+	auditmasking "github.com/smallbiznis/valora/internal/audit/masking"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	"github.com/smallbiznis/valora/internal/paymentprovider/domain"
@@ -29,14 +31,16 @@ type Params struct {
 	GenID *snowflake.Node
 	Repo  domain.Repository
 	Cfg   config.Config
+	AuditSvc auditdomain.Service `optional:"true"`
 }
 
 type Service struct {
-	db     *gorm.DB
-	log    *zap.Logger
-	repo   domain.Repository
-	genID  *snowflake.Node
-	encKey []byte
+	db       *gorm.DB
+	log      *zap.Logger
+	repo     domain.Repository
+	genID    *snowflake.Node
+	encKey   []byte
+	auditSvc auditdomain.Service
 }
 
 type encryptedPayload struct {
@@ -54,11 +58,12 @@ func New(p Params) domain.Service {
 	}
 
 	return &Service{
-		db:     p.DB,
-		log:    p.Log.Named("paymentprovider.service"),
-		repo:   p.Repo,
-		genID:  p.GenID,
-		encKey: key,
+		db:       p.DB,
+		log:      p.Log.Named("paymentprovider.service"),
+		repo:     p.Repo,
+		genID:    p.GenID,
+		encKey:   key,
+		auditSvc: p.AuditSvc,
 	}
 }
 
@@ -165,6 +170,21 @@ func (s *Service) UpsertConfig(ctx context.Context, req domain.UpsertRequest) (*
 		Configured: true,
 	}
 
+	if s.auditSvc != nil {
+		action := "provider.rotate_secret"
+		if existing == nil {
+			action = "provider.enable"
+		}
+		targetID := provider
+		metadata := map[string]any{
+			"provider": provider,
+		}
+		if masked := auditmasking.MaskJSON(config); masked != nil {
+			metadata["masked_fields"] = masked
+		}
+		_ = s.auditSvc.AuditLog(ctx, nil, "", nil, action, "payment_provider_config", &targetID, metadata)
+	}
+
 	return &resp, nil
 }
 
@@ -199,6 +219,19 @@ func (s *Service) SetActive(ctx context.Context, provider string, isActive bool)
 		Provider:   provider,
 		IsActive:   isActive,
 		Configured: true,
+	}
+
+	if s.auditSvc != nil {
+		action := "provider.disable"
+		if isActive {
+			action = "provider.enable"
+		}
+		targetID := provider
+		metadata := map[string]any{
+			"provider":  provider,
+			"is_active": isActive,
+		}
+		_ = s.auditSvc.AuditLog(ctx, nil, "", nil, action, "payment_provider_config", &targetID, metadata)
 	}
 
 	return &resp, nil

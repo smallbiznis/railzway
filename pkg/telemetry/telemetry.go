@@ -18,7 +18,6 @@ import (
 // Module wires telemetry components via Fx.
 var Module = fx.Options(
 	fx.Provide(NewTracerProvider),
-	fx.Provide(NewMetrics),
 )
 
 // NewTracerProvider configures OTLP exporter and tracer provider.
