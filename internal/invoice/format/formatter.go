@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 var (
@@ -62,8 +60,7 @@ func FormatInvoiceNumber(
 
 		return fmt.Sprintf("%0*d", width, seq)
 	})
-	fmt.Printf("WOW: %v\n", strings.Contains(out, "{") || strings.Contains(out, "}"))
-	zap.L().Info("InvoiceNumber", zap.Bool("bool", strings.Contains(out, "{") || strings.Contains(out, "}")), zap.String("number", out))
+
 	// Final safety check: unresolved tokens
 	if strings.Contains(out, "{") || strings.Contains(out, "}") {
 		return "", fmt.Errorf("unresolved token in invoice format: %s", out)
