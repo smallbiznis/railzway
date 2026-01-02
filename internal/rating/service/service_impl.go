@@ -14,6 +14,7 @@ import (
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
+	usagedomain "github.com/smallbiznis/valora/internal/usage/domain"
 	"github.com/smallbiznis/valora/pkg/repository"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -167,12 +168,13 @@ func (s *Service) aggregateUsage(tx *gorm.DB, orgID, subscriptionID, meterID sno
 		`SELECT COALESCE(SUM(value), 0)
 		 FROM usage_events
 		 WHERE org_id = ? AND subscription_id = ? AND meter_id = ?
-		 AND recorded_at >= ? AND recorded_at < ?`,
+		 AND recorded_at >= ? AND recorded_at < ? AND status = ?`,
 		orgID,
 		subscriptionID,
 		meterID,
 		periodStart,
 		periodEnd,
+		usagedomain.UsageStatusEnriched,
 	).Scan(&quantity).Error
 	if err != nil {
 		return 0, err

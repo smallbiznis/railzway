@@ -27,14 +27,14 @@ type InvoicePayload struct {
 
 // UsageIngestedPayload captures the minimal data needed to kick off async usage processing.
 type UsageIngestedPayload struct {
-	UsageEventID       string  `json:"usage_event_id"`
-	OrgID              string  `json:"org_id"`
-	CustomerID         string  `json:"customer_id"`
-	SubscriptionID     string  `json:"subscription_id,omitempty"`
-	SubscriptionItemID string  `json:"subscription_item_id,omitempty"`
-	MeterID            string  `json:"meter_id,omitempty"`
-	MeterCode          string  `json:"meter_code,omitempty"`
-	IdempotencyKey     *string `json:"idempotency_key,omitempty"`
+	UsageEventID       string `json:"usage_event_id"`
+	OrgID              string `json:"org_id"`
+	CustomerID         string `json:"customer_id"`
+	SubscriptionID     string `json:"subscription_id,omitempty"`
+	SubscriptionItemID string `json:"subscription_item_id,omitempty"`
+	MeterID            string `json:"meter_id,omitempty"`
+	MeterCode          string `json:"meter_code,omitempty"`
+	IdempotencyKey     string `json:"idempotency_key,omitempty"`
 }
 
 // ToMap converts a payload into an outbox-friendly map.
@@ -54,8 +54,8 @@ func (p UsageIngestedPayload) ToMap() map[string]any {
 	if p.MeterID != "" {
 		payload["meter_id"] = p.MeterID
 	}
-	if p.IdempotencyKey != nil {
-		payload["idempotency_key"] = *p.IdempotencyKey
+	if p.IdempotencyKey != "" {
+		payload["idempotency_key"] = p.IdempotencyKey
 	}
 	return payload
 }

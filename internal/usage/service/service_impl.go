@@ -70,7 +70,11 @@ func NewService(p ServiceParam) usagedomain.Service {
 	}
 }
 
-func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestRequest) (*usagedomain.UsageEvent, error) {
+func (s *Service) Ingest(
+	ctx context.Context,
+	req usagedomain.CreateIngestRequest,
+) (*usagedomain.UsageEvent, error) {
+
 	orgID, err := s.orgIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -94,51 +98,27 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 		return nil, err
 	}
 
-	idempotencyKey := normalizeIdempotencyKey(req.IdempotencyKey)
 	now := time.Now().UTC()
 	recordedAt := req.RecordedAt
 	if recordedAt.IsZero() {
 		recordedAt = now
 	}
 
-	meter, err := s.resolveMeter(ctx, orgID, meterCode)
-	if err != nil {
-		return nil, err
-	}
-
-	var meterID snowflake.ID
-	if meter != nil {
-		meterID = parseOptionalID(meter.ID)
-	}
-
-	subscription, err := s.resolveActiveSubscription(ctx, orgID, req.CustomerID)
-	if err != nil {
-		return nil, err
-	}
-
-	subscriptionItem := subscriptiondomain.SubscriptionItem{}
-	if subscription.ID != 0 && meterID != 0 {
-		item, err := s.resolveSubscriptionItem(ctx, subscription.ID.String(), meterID.String())
-		if err == nil {
-			subscriptionItem = item
-		}
-	}
+	idempotencyKey := normalizeIdempotencyKey(req.IdempotencyKey)
 
 	record := &usagedomain.UsageEvent{
-		ID:                 s.genID.Generate(),
-		OrgID:              orgID,
-		CustomerID:         customerID,
-		SubscriptionID:     subscription.ID,
-		SubscriptionItemID: subscriptionItem.ID,
-		MeterID:            meterID,
-		MeterCode:          meterCode,
-		Value:              req.Value,
-		RecordedAt:         recordedAt,
-		Status:             usagedomain.UsageStatusAccepted,
-		IdempotencyKey:     idempotencyKey,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:             s.genID.Generate(),
+		OrgID:          orgID,
+		CustomerID:     customerID,
+		MeterCode:      meterCode,
+		Value:          req.Value,
+		RecordedAt:     recordedAt,
+		Status:         usagedomain.UsageStatusAccepted,
+		IdempotencyKey: idempotencyKey,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
+
 	if req.Metadata != nil {
 		record.Metadata = datatypes.JSONMap(req.Metadata)
 	}
@@ -147,24 +127,32 @@ func (s *Service) Ingest(ctx context.Context, req usagedomain.CreateIngestReques
 	if err != nil {
 		return nil, err
 	}
-	if !inserted && idempotencyKey != nil {
-		existing, err := s.findUsageEventByIdempotencyKey(ctx, orgID, *idempotencyKey)
+
+	// 🔁 Idempotency hit → fetch existing
+	if !inserted && idempotencyKey != "" {
+		existing, err := s.findUsageEventByIdempotencyKey(
+			ctx,
+			orgID,
+			idempotencyKey,
+		)
 		if err != nil {
 			return nil, err
 		}
 		if existing != nil {
-			record = existing
+			return existing, nil
 		}
 	}
 
+	// async metrics (best effort)
 	if s.metrics != nil {
-		// Cloud accounting metric: emitted usage events are not billing inputs.
 		go s.metrics.IncUsageEvent(orgID.String(), meterCode)
 	}
 	if s.obsMetrics != nil {
 		s.obsMetrics.RecordUsageIngest(ctx, meterCode)
 	}
+
 	s.emitUsageIngested(record)
+
 	return record, nil
 }
 
@@ -326,7 +314,7 @@ func (s *Service) ensureCustomerExists(ctx context.Context, orgID, customerID sn
 	return nil
 }
 
-func (s *Service) insertUsageEvent(ctx context.Context, record *usagedomain.UsageEvent, idempotencyKey *string) (bool, error) {
+func (s *Service) insertUsageEvent(ctx context.Context, record *usagedomain.UsageEvent, idempotencyKey string) (bool, error) {
 	if record == nil {
 		return false, errors.New("missing_usage_event")
 	}
@@ -337,7 +325,7 @@ func (s *Service) insertUsageEvent(ctx context.Context, record *usagedomain.Usag
 		return s.insertUsageEventSQLite(ctx, record, idempotencyKey)
 	}
 	db := s.db.WithContext(ctx)
-	if idempotencyKey != nil {
+	if idempotencyKey != "" {
 		db = db.Clauses(buildIdempotencyConflictClause(s.db))
 	}
 	result := db.Create(record)
@@ -347,17 +335,17 @@ func (s *Service) insertUsageEvent(ctx context.Context, record *usagedomain.Usag
 	return result.RowsAffected > 0, nil
 }
 
-func (s *Service) insertUsageEventSQLite(ctx context.Context, record *usagedomain.UsageEvent, idempotencyKey *string) (bool, error) {
-	var idempotencyValue any
-	if idempotencyKey != nil {
-		idempotencyValue = *idempotencyKey
+func (s *Service) insertUsageEventSQLite(ctx context.Context, record *usagedomain.UsageEvent, idempotencyKey string) (bool, error) {
+	var subscriptionItemValue any
+	if record.SubscriptionItemID != 0 {
+		subscriptionItemValue = record.SubscriptionItemID
 	}
 	query := `INSERT INTO usage_events (
 		id, org_id, customer_id, subscription_id, subscription_item_id,
 		meter_id, meter_code, value, recorded_at, status, error,
 		idempotency_key, metadata, created_at, updated_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if idempotencyKey != nil {
+	if idempotencyKey != "" {
 		query += " ON CONFLICT (org_id, idempotency_key) DO NOTHING"
 	}
 	result := s.db.WithContext(ctx).Exec(
@@ -366,14 +354,14 @@ func (s *Service) insertUsageEventSQLite(ctx context.Context, record *usagedomai
 		record.OrgID,
 		record.CustomerID,
 		record.SubscriptionID,
-		record.SubscriptionItemID,
+		subscriptionItemValue,
 		record.MeterID,
 		record.MeterCode,
 		record.Value,
 		record.RecordedAt,
 		record.Status,
 		record.Error,
-		idempotencyValue,
+		idempotencyKey,
 		record.Metadata,
 		record.CreatedAt,
 		record.UpdatedAt,
@@ -424,7 +412,7 @@ func (s *Service) emitUsageIngested(record *usagedomain.UsageEvent) {
 	if record.MeterID != 0 {
 		payload.MeterID = record.MeterID.String()
 	}
-	if record.IdempotencyKey != nil {
+	if record.IdempotencyKey != "" {
 		payload.IdempotencyKey = record.IdempotencyKey
 	}
 	event := events.Event{
@@ -455,18 +443,28 @@ func validateUsageEvent(req usagedomain.CreateIngestRequest) error {
 	if math.IsNaN(req.Value) || math.IsInf(req.Value, 0) {
 		return usagedomain.ErrInvalidValue
 	}
+	if req.RecordedAt.IsZero() {
+		return usagedomain.ErrInvalidRecordedAt
+	}
+	if req.IdempotencyKey == "" {
+		return usagedomain.ErrInvalidIdempotencyKey
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" {
+		return usagedomain.ErrInvalidIdempotencyKey
+	}
 	return nil
 }
 
-func normalizeIdempotencyKey(key *string) *string {
-	if key == nil {
-		return nil
-	}
-	value := strings.TrimSpace(*key)
+func normalizeIdempotencyKey(key string) string {
+	value := strings.TrimSpace(key)
 	if value == "" {
-		return nil
+		return ""
 	}
-	return &value
+
+	if value == key {
+		return key
+	}
+	return value
 }
 
 func (s *Service) buildUsageFilter(ctx context.Context, req usagedomain.ListUsageRequest) (*usagedomain.UsageEvent, int32, error) {

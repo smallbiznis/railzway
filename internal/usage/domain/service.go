@@ -9,12 +9,18 @@ import (
 )
 
 type CreateIngestRequest struct {
-	CustomerID     string         `json:"customer_id"`
-	MeterCode      string         `json:"meter_code"`
-	Value          float64        `json:"value"`
-	RecordedAt     time.Time      `json:"recorded_at"`
-	IdempotencyKey *string        `json:"idempotency_key"`
-	Metadata       map[string]any `json:"metadata"`
+	CustomerID string `json:"customer_id" validate:"required,min=1"`
+	MeterCode  string `json:"meter_code" validate:"required,min=1"`
+
+	// Usage can be zero or fractional; semantics resolved in rating.
+	Value float64 `json:"value" validate:"required"`
+
+	RecordedAt time.Time `json:"recorded_at" validate:"required"`
+
+	// Required; must be non-empty. Uniqueness enforced at DB level.
+	IdempotencyKey string `json:"idempotency_key" validate:"required,min=1"`
+
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type ListUsageRequest struct {
@@ -44,4 +50,5 @@ var (
 	ErrInvalidMeterCode        = errors.New("invalid_meter_code")
 	ErrInvalidValue            = errors.New("invalid_value")
 	ErrInvalidRecordedAt       = errors.New("invalid_recorded_at")
+	ErrInvalidIdempotencyKey   = errors.New("invalid_idempotency_key")
 )

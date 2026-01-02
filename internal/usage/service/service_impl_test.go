@@ -81,7 +81,7 @@ func TestIngestIdempotentInsert(t *testing.T) {
 		MeterCode:      "api_calls",
 		Value:          42,
 		RecordedAt:     time.Now().UTC(),
-		IdempotencyKey: &key,
+		IdempotencyKey: key,
 	}
 
 	first, err := service.Ingest(ctx, req)
@@ -124,7 +124,7 @@ func TestIngestConcurrentIdempotent(t *testing.T) {
 		MeterCode:      "storage_gb",
 		Value:          3.14,
 		RecordedAt:     time.Now().UTC(),
-		IdempotencyKey: &key,
+		IdempotencyKey: key,
 	}
 
 	var wg sync.WaitGroup
@@ -151,7 +151,7 @@ func TestIngestConcurrentIdempotent(t *testing.T) {
 	}
 }
 
-func TestIngestCacheFallback(t *testing.T) {
+func TestIngestDoesNotResolveMeter(t *testing.T) {
 	node := mustNode(t)
 	orgID := node.Generate()
 	customerID := node.Generate()
@@ -167,25 +167,27 @@ func TestIngestCacheFallback(t *testing.T) {
 	service, _ := setupUsageService(t, node, meter, resolverCache, orgID, customerID)
 	ctx := orgcontext.WithOrgID(context.Background(), int64(orgID))
 
+	key := "idem-cache"
 	req := usagedomain.CreateIngestRequest{
-		CustomerID: customerID.String(),
-		MeterCode:  "requests",
-		Value:      1,
-		RecordedAt: time.Now().UTC(),
+		CustomerID:     customerID.String(),
+		MeterCode:      "requests",
+		Value:          1,
+		RecordedAt:     time.Now().UTC(),
+		IdempotencyKey: key,
 	}
 
 	if _, err := service.Ingest(ctx, req); err != nil {
 		t.Fatalf("ingest cache miss: %v", err)
 	}
-	if meter.Calls() != 1 {
-		t.Fatalf("expected meter lookup on cache miss, got %d", meter.Calls())
+	if meter.Calls() != 0 {
+		t.Fatalf("expected no meter lookup during ingest, got %d", meter.Calls())
 	}
 
 	if _, err := service.Ingest(ctx, req); err != nil {
 		t.Fatalf("ingest cache hit: %v", err)
 	}
-	if meter.Calls() != 1 {
-		t.Fatalf("expected cached meter lookup, got %d", meter.Calls())
+	if meter.Calls() != 0 {
+		t.Fatalf("expected no meter lookup during ingest, got %d", meter.Calls())
 	}
 }
 
@@ -238,7 +240,7 @@ func prepareUsageSchema(t *testing.T, db *gorm.DB) {
 		org_id BIGINT NOT NULL,
 		customer_id BIGINT NOT NULL,
 		subscription_id BIGINT NOT NULL,
-		subscription_item_id BIGINT NOT NULL,
+		subscription_item_id BIGINT,
 		meter_id BIGINT NOT NULL,
 		meter_code TEXT NOT NULL,
 		value DOUBLE PRECISION NOT NULL,
@@ -247,6 +249,7 @@ func prepareUsageSchema(t *testing.T, db *gorm.DB) {
 		error TEXT,
 		idempotency_key TEXT,
 		metadata JSON,
+		snapshot_at DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
 	)`).Error; err != nil {
