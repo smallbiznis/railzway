@@ -34,3 +34,6 @@ docs/build
 # Docker
 Dockerfile
 docker-compose.yml
+
+/k6
+/.github
