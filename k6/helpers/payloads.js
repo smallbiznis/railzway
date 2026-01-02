@@ -27,11 +27,8 @@ export function usagePayload({ idempotencyKey, recordedAt, value } = {}) {
     meter_code: METER_CODE,
     value: typeof value === 'number' ? value : 1,
     recorded_at: recordedAt || new Date().toISOString(),
+    idempotency_key: idempotencyKey || buildIdempotencyKey(),
   };
-
-  if (idempotencyKey) {
-    payload.idempotency_key = idempotencyKey;
-  }
 
   return JSON.stringify(payload);
 }
