@@ -1,0 +1,197 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - heading "Subscriptions" [level=1] [ref=e132]
+          - paragraph [ref=e133]: Monitor recurring revenue, lifecycle states, and customer plans.
+        - link "Create subscription" [ref=e135] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/subscriptions/create
+      - tablist [ref=e137]:
+        - tab "Active" [ref=e138]
+        - tab "Paused" [ref=e139]
+        - tab "Draft" [ref=e140]
+        - tab "Canceled" [ref=e141]
+        - tab "Ended" [ref=e142]
+        - tab "All" [selected] [ref=e143]
+      - generic [ref=e145]:
+        - generic [ref=e146]:
+          - generic [ref=e147]:
+            - generic [ref=e148]: Filters
+            - generic [ref=e149]: Filter by customer and created date.
+          - generic [ref=e150]:
+            - button "Clear filters" [disabled]
+        - generic [ref=e152]:
+          - generic [ref=e153]:
+            - generic [ref=e154]: Customer ID
+            - textbox "Customer ID" [ref=e155]:
+              - /placeholder: e.g. 1234567890
+          - generic [ref=e156]:
+            - generic [ref=e157]: Created from
+            - textbox "Created from" [ref=e158]
+          - generic [ref=e159]:
+            - generic [ref=e160]: Created to
+            - textbox "Created to" [ref=e161]
+      - table [ref=e164]:
+        - rowgroup [ref=e165]:
+          - row "Subscription Customer Status Collection Start date Updated Actions" [ref=e166]:
+            - columnheader "Subscription" [ref=e167]
+            - columnheader "Customer" [ref=e168]
+            - columnheader "Status" [ref=e169]
+            - columnheader "Collection" [ref=e170]
+            - columnheader "Start date" [ref=e171]
+            - columnheader "Updated" [ref=e172]
+            - columnheader "Actions" [ref=e173]
+        - rowgroup [ref=e174]:
+          - row "Subscription 2007146434737999872 2007146434607976448 Customer Active Send Invoice Jan 03, 2026 Jan 03, 2026 Open subscription actions" [ref=e175]:
+            - cell "Subscription 2007146434737999872" [ref=e176]:
+              - generic [ref=e177]:
+                - generic [ref=e178]: Subscription
+                - link "2007146434737999872" [ref=e179] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/subscriptions/2007146434737999872
+            - cell "2007146434607976448 Customer" [ref=e180]:
+              - generic [ref=e181]:
+                - generic [ref=e182]: "2007146434607976448"
+                - generic [ref=e183]: Customer
+            - cell "Active" [ref=e184]:
+              - generic [ref=e185]: Active
+            - cell "Send Invoice" [ref=e186]
+            - cell "Jan 03, 2026" [ref=e187]
+            - cell "Jan 03, 2026" [ref=e188]
+            - cell "Open subscription actions" [ref=e189]:
+              - link "Open subscription actions" [ref=e190] [cursor=pointer]:
+                - /url: /orgs/2007115164859502592/subscriptions/2007146434737999872
+                - text: View
+          - row "Subscription 2007146431881678848 2007146431747461120 Customer Active Send Invoice Jan 03, 2026 Jan 03, 2026 Open subscription actions" [ref=e191]:
+            - cell "Subscription 2007146431881678848" [ref=e192]:
+              - generic [ref=e193]:
+                - generic [ref=e194]: Subscription
+                - link "2007146431881678848" [ref=e195] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/subscriptions/2007146431881678848
+            - cell "2007146431747461120 Customer" [ref=e196]:
+              - generic [ref=e197]:
+                - generic [ref=e198]: "2007146431747461120"
+                - generic [ref=e199]: Customer
+            - cell "Active" [ref=e200]:
+              - generic [ref=e201]: Active
+            - cell "Send Invoice" [ref=e202]
+            - cell "Jan 03, 2026" [ref=e203]
+            - cell "Jan 03, 2026" [ref=e204]
+            - cell "Open subscription actions" [ref=e205]:
+              - link "Open subscription actions" [ref=e206] [cursor=pointer]:
+                - /url: /orgs/2007115164859502592/subscriptions/2007146431881678848
+                - text: View
+          - row "Subscription 2007146405247848448 2007146405138796544 Customer Active Send Invoice Jan 03, 2026 Jan 03, 2026 Open subscription actions" [ref=e207]:
+            - cell "Subscription 2007146405247848448" [ref=e208]:
+              - generic [ref=e209]:
+                - generic [ref=e210]: Subscription
+                - link "2007146405247848448" [ref=e211] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/subscriptions/2007146405247848448
+            - cell "2007146405138796544 Customer" [ref=e212]:
+              - generic [ref=e213]:
+                - generic [ref=e214]: "2007146405138796544"
+                - generic [ref=e215]: Customer
+            - cell "Active" [ref=e216]:
+              - generic [ref=e217]: Active
+            - cell "Send Invoice" [ref=e218]
+            - cell "Jan 03, 2026" [ref=e219]
+            - cell "Jan 03, 2026" [ref=e220]
+            - cell "Open subscription actions" [ref=e221]:
+              - link "Open subscription actions" [ref=e222] [cursor=pointer]:
+                - /url: /orgs/2007115164859502592/subscriptions/2007146405247848448
+                - text: View
+      - generic [ref=e223]:
+        - generic [ref=e224]: Showing 3 subscriptions
+        - generic [ref=e225]:
+          - button "Previous" [disabled]
+          - button "Next" [disabled]
+```

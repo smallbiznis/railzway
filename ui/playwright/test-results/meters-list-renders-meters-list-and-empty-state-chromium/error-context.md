@@ -1,0 +1,154 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - heading "Meters" [level=1] [ref=e132]
+          - paragraph [ref=e133]: Define usage meters for this organization.
+        - link "Create meter" [ref=e135] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/meter/create
+          - img
+          - text: Create meter
+      - navigation [ref=e137]:
+        - generic [ref=e138]: Meters
+        - generic [ref=e139]: Alerts
+        - generic [ref=e140]: Credits
+      - table [ref=e143]:
+        - rowgroup [ref=e144]:
+          - row "Display name Event name Aggregation method Event ingestion Created" [ref=e145]:
+            - columnheader "Display name" [ref=e146]
+            - columnheader "Event name" [ref=e147]
+            - columnheader "Aggregation method" [ref=e148]
+            - columnheader "Event ingestion" [ref=e149]
+            - columnheader "Created" [ref=e150]
+        - rowgroup [ref=e151]:
+          - row "Flat entitlement Active meter-flat-1767375968377-zyh9ff Sum Raw 1/3/26, 12:46 AM" [ref=e152]:
+            - cell "Flat entitlement Active" [ref=e153]:
+              - generic [ref=e154]:
+                - link "Flat entitlement" [ref=e155] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/meter/2007146404392210432
+                - generic [ref=e156]: Active
+            - cell "meter-flat-1767375968377-zyh9ff" [ref=e157]
+            - cell "Sum" [ref=e158]
+            - cell "Raw" [ref=e159]
+            - cell "1/3/26, 12:46 AM" [ref=e160]
+          - row "Base entitlement Active meter-base-1767375974541-vcudis Sum Raw 1/3/26, 12:46 AM" [ref=e161]:
+            - cell "Base entitlement Active" [ref=e162]:
+              - generic [ref=e163]:
+                - link "Base entitlement" [ref=e164] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/meter/2007146430321397760
+                - generic [ref=e165]: Active
+            - cell "meter-base-1767375974541-vcudis" [ref=e166]
+            - cell "Sum" [ref=e167]
+            - cell "Raw" [ref=e168]
+            - cell "1/3/26, 12:46 AM" [ref=e169]
+          - row "Addon usage Active meter-addon-1767375974585-tq6vs2 Sum Raw 1/3/26, 12:46 AM" [ref=e170]:
+            - cell "Addon usage Active" [ref=e171]:
+              - generic [ref=e172]:
+                - link "Addon usage" [ref=e173] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/meter/2007146430497558528
+                - generic [ref=e174]: Active
+            - cell "meter-addon-1767375974585-tq6vs2" [ref=e175]
+            - cell "Sum" [ref=e176]
+            - cell "Raw" [ref=e177]
+            - cell "1/3/26, 12:46 AM" [ref=e178]
+          - row "API calls Active meter-usage-1767375975478-adylf7 Sum Raw 1/3/26, 12:46 AM" [ref=e179]:
+            - cell "API calls Active" [ref=e180]:
+              - generic [ref=e181]:
+                - link "API calls" [ref=e182] [cursor=pointer]:
+                  - /url: /orgs/2007115164859502592/meter/2007146434188546048
+                - generic [ref=e183]: Active
+            - cell "meter-usage-1767375975478-adylf7" [ref=e184]
+            - cell "Sum" [ref=e185]
+            - cell "Raw" [ref=e186]
+            - cell "1/3/26, 12:46 AM" [ref=e187]
+```

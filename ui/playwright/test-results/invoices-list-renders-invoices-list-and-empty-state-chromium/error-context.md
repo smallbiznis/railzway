@@ -1,0 +1,139 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - heading "Invoices" [level=1] [ref=e132]
+          - paragraph [ref=e133]: Review invoices, due dates, and payment status for this organization.
+        - link "Manage templates" [ref=e135] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/invoice-templates
+      - tablist [ref=e137]:
+        - tab "All invoices" [selected] [ref=e138]
+        - tab "Draft" [ref=e139]
+        - tab "Finalized" [ref=e140]
+        - tab "Void" [ref=e141]
+      - generic [ref=e142]:
+        - generic [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]: Filters
+            - generic [ref=e146]: Filter invoices by customer, totals, and dates.
+          - generic [ref=e147]:
+            - button "Clear filters" [disabled]
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - generic [ref=e150]:
+              - generic [ref=e151]: Customer ID
+              - textbox "Customer ID" [ref=e152]:
+                - /placeholder: e.g. 1234567890
+            - generic [ref=e153]:
+              - generic [ref=e154]: Invoice number
+              - textbox "Invoice number" [ref=e155]:
+                - /placeholder: e.g. INV-1001
+            - generic [ref=e156]:
+              - generic [ref=e157]: Total min
+              - spinbutton "Total min" [ref=e158]
+            - generic [ref=e159]:
+              - generic [ref=e160]: Total max
+              - spinbutton "Total max" [ref=e161]
+          - generic [ref=e162]:
+            - generic [ref=e163]:
+              - generic [ref=e164]: Created from
+              - textbox "Created from" [ref=e165]
+            - generic [ref=e166]:
+              - generic [ref=e167]: Created to
+              - textbox "Created to" [ref=e168]
+          - button "Due and finalized dates" [ref=e170]
+      - generic [ref=e172]: 0 items
+      - generic [ref=e174]:
+        - generic [ref=e175]: No invoices yet
+        - generic [ref=e176]: Generate invoices from subscriptions or create an invoice to preview billing.
+```

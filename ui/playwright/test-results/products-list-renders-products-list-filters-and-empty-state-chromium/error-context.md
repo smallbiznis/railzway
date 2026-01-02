@@ -1,0 +1,169 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - heading "Products" [level=1] [ref=e132]
+          - paragraph [ref=e133]: Create digital plans and usage-based services. Configure pricing and meters inside each product.
+        - link "Create product" [ref=e135] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/products/create
+      - textbox "Filter products by name" [ref=e137]:
+        - /placeholder: Filter by product name
+      - generic [ref=e138]:
+        - generic [ref=e140]:
+          - generic [ref=e141]: All
+          - generic [ref=e142]: "3"
+        - generic [ref=e144]:
+          - generic [ref=e145]: Active
+          - generic [ref=e146]: "3"
+        - generic [ref=e148]:
+          - generic [ref=e149]: Archived
+          - generic [ref=e150]: "0"
+      - generic [ref=e152]:
+        - 'button "Sort: Created (Oldest)" [ref=e153]'
+        - combobox [ref=e154]:
+          - generic: "Status: All"
+          - img
+        - button "Clear filters" [ref=e155]
+      - table [ref=e158]:
+        - rowgroup [ref=e159]:
+          - row "Product Pricing model Usage meter Created Updated Actions" [ref=e160]:
+            - columnheader "Product" [ref=e161]
+            - columnheader "Pricing model" [ref=e162]
+            - columnheader "Usage meter" [ref=e163]
+            - columnheader "Created" [ref=e164]
+            - columnheader "Updated" [ref=e165]
+            - columnheader "Actions" [ref=e166]
+        - rowgroup [ref=e167]:
+          - row "Flat plan Active prod-flat-1767375968330-i726j8 - - Jan 03, 2026 Jan 03, 2026 Open product actions" [ref=e168]:
+            - cell "Flat plan Active prod-flat-1767375968330-i726j8" [ref=e169]:
+              - generic [ref=e170]:
+                - generic [ref=e171]:
+                  - link "Flat plan" [ref=e172] [cursor=pointer]:
+                    - /url: /orgs/2007115164859502592/products/2007146404220243968
+                  - generic [ref=e173]: Active
+                - generic [ref=e174]: prod-flat-1767375968330-i726j8
+            - cell "-" [ref=e175]
+            - cell "-" [ref=e176]
+            - cell "Jan 03, 2026" [ref=e177]
+            - cell "Jan 03, 2026" [ref=e178]
+            - cell "Open product actions" [ref=e179]:
+              - button "Open product actions" [ref=e180]: ...
+          - row "Hybrid plan Active prod-hybrid-1767375974464-86o2fn - - Jan 03, 2026 Jan 03, 2026 Open product actions" [ref=e181]:
+            - cell "Hybrid plan Active prod-hybrid-1767375974464-86o2fn" [ref=e182]:
+              - generic [ref=e183]:
+                - generic [ref=e184]:
+                  - link "Hybrid plan" [ref=e185] [cursor=pointer]:
+                    - /url: /orgs/2007115164859502592/products/2007146430048768000
+                  - generic [ref=e186]: Active
+                - generic [ref=e187]: prod-hybrid-1767375974464-86o2fn
+            - cell "-" [ref=e188]
+            - cell "-" [ref=e189]
+            - cell "Jan 03, 2026" [ref=e190]
+            - cell "Jan 03, 2026" [ref=e191]
+            - cell "Open product actions" [ref=e192]:
+              - button "Open product actions" [ref=e193]: ...
+          - row "Usage plan Active prod-usage-1767375975434-gfiums - - Jan 03, 2026 Jan 03, 2026 Open product actions" [ref=e194]:
+            - cell "Usage plan Active prod-usage-1767375975434-gfiums" [ref=e195]:
+              - generic [ref=e196]:
+                - generic [ref=e197]:
+                  - link "Usage plan" [ref=e198] [cursor=pointer]:
+                    - /url: /orgs/2007115164859502592/products/2007146434045939712
+                  - generic [ref=e199]: Active
+                - generic [ref=e200]: prod-usage-1767375975434-gfiums
+            - cell "-" [ref=e201]
+            - cell "-" [ref=e202]
+            - cell "Jan 03, 2026" [ref=e203]
+            - cell "Jan 03, 2026" [ref=e204]
+            - cell "Open product actions" [ref=e205]:
+              - button "Open product actions" [ref=e206]: ...
+```

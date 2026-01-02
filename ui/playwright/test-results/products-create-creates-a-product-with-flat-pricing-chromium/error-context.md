@@ -1,0 +1,185 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - heading "Create product" [level=1] [ref=e131]
+        - paragraph [ref=e132]: Set up a product and price in one flow. Each API remains independent.
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - generic [ref=e135]:
+            - generic [ref=e136]:
+              - generic [ref=e137]: Step 1 - Product information
+              - generic [ref=e138]: Describe the product that customers will purchase.
+            - generic [ref=e139]: Pending
+          - generic [ref=e140]:
+            - generic [ref=e141]:
+              - generic [ref=e142]: Name
+              - textbox "Name" [ref=e143]:
+                - /placeholder: Starter plan
+            - generic [ref=e144]:
+              - generic [ref=e145]: Code
+              - textbox "Code" [ref=e146]:
+                - /placeholder: starter-plan
+              - paragraph [ref=e147]: Used to generate a stable price code.
+            - generic [ref=e149]:
+              - generic [ref=e150]: Description
+              - textbox "Description" [ref=e151]:
+                - /placeholder: Optional description for internal teams.
+            - generic [ref=e152]:
+              - generic [ref=e153]:
+                - generic [ref=e154]: Active
+                - paragraph [ref=e155]: Disable to hide from checkout.
+              - switch "Active" [checked] [ref=e156]
+              - checkbox [checked]
+            - generic [ref=e157]:
+              - generic [ref=e158]:
+                - generic [ref=e159]:
+                  - paragraph [ref=e160]: Metadata
+                  - paragraph [ref=e161]: Attach structured notes to the product.
+                - button "Add metadata" [ref=e162]
+              - generic [ref=e164]:
+                - generic [ref=e165]:
+                  - generic [ref=e166]: Key
+                  - textbox "Key" [ref=e167]:
+                    - /placeholder: key
+                - generic [ref=e168]:
+                  - generic [ref=e169]: Value
+                  - textbox "Value" [ref=e170]:
+                    - /placeholder: value
+                - button "Remove" [disabled]
+        - generic [ref=e171]:
+          - generic [ref=e172]:
+            - generic [ref=e173]:
+              - generic [ref=e174]: Step 2 - Add price
+              - generic [ref=e175]: Define the commercial contract for this product.
+            - generic [ref=e176]: Pending
+          - generic [ref=e177]:
+            - generic [ref=e178]:
+              - generic [ref=e179]:
+                - generic [ref=e180]: Pricing model
+                - combobox "Pricing model" [ref=e181]:
+                  - generic: Flat
+                  - img
+                - combobox [ref=e182]
+              - generic [ref=e183]:
+                - generic [ref=e184]: Price name
+                - textbox "Price name" [ref=e185]:
+                  - /placeholder: Starter monthly
+              - generic [ref=e186]:
+                - generic [ref=e187]: Currency
+                - textbox "Currency" [ref=e188]:
+                  - /placeholder: USD
+                  - text: USD
+              - generic [ref=e189]:
+                - generic [ref=e190]: Billing interval
+                - combobox "Billing interval" [ref=e191]:
+                  - generic: Month
+                  - img
+                - combobox [ref=e192]
+              - generic [ref=e193]:
+                - generic [ref=e194]: Interval count
+                - spinbutton "Interval count" [ref=e195]: "1"
+            - generic [ref=e196]: "Price code preview: auto-generated after product code"
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - generic [ref=e199]:
+                  - paragraph [ref=e200]: Unit price
+                  - paragraph [ref=e201]: Set the amount charged per billing interval.
+                - generic [ref=e202]: Pending
+              - generic [ref=e204]:
+                - generic [ref=e205]: Unit price (minor unit)
+                - spinbutton "Unit price (minor unit)" [ref=e206]
+                - paragraph [ref=e207]: "Example: 5000 = $50.00"
+        - generic [ref=e208]:
+          - button "Create product" [ref=e209]
+          - paragraph [ref=e210]: Each step is committed separately. Partial failures can be retried.
+```

@@ -31,6 +31,7 @@ test("authenticate admin and persist storage state", async ({ request, baseURL }
   }
 
   const origin = new URL(baseURL).origin
+  const apiBaseURL = process.env.E2E_API_BASE_URL || baseURL
   const defaultUser = {
     id: process.env.E2E_ADMIN_USER_ID || "admin",
     username,
@@ -41,7 +42,7 @@ test("authenticate admin and persist storage state", async ({ request, baseURL }
   let user = defaultUser
 
   if (sessionToken) {
-    const useOrgResponse = await request.post(`/auth/user/using/${orgId}`, {
+    const useOrgResponse = await request.post(`${apiBaseURL}/auth/user/using/${orgId}`, {
       headers: { Cookie: `_sid=${sessionToken}` },
     })
     if (useOrgResponse.status() !== 200) {
@@ -64,7 +65,7 @@ test("authenticate admin and persist storage state", async ({ request, baseURL }
       },
     ]
   } else {
-    const loginResponse = await request.post("/auth/login", {
+    const loginResponse = await request.post(`${apiBaseURL}/auth/login`, {
       data: { email, password },
       failOnStatusCode: false,
     })
@@ -84,7 +85,7 @@ test("authenticate admin and persist storage state", async ({ request, baseURL }
       email: metadata.email || defaultUser.email,
     }
 
-    const useOrgResponse = await request.post(`/auth/user/using/${orgId}`)
+    const useOrgResponse = await request.post(`${apiBaseURL}/auth/user/using/${orgId}`)
     if (useOrgResponse.status() !== 200) {
       throw new Error(
         `Unable to set org context (status ${useOrgResponse.status()}). Check org membership for ${orgId}.`

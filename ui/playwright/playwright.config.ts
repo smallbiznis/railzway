@@ -6,7 +6,7 @@ import { defineConfig } from "@playwright/test"
 const currentFilePath = fileURLToPath(import.meta.url)
 const currentDir = path.dirname(currentFilePath)
 const storageStatePath = path.join(currentDir, "storage", "admin.json")
-const baseURL = process.env.E2E_BASE_URL || "http://localhost:5173"
+const baseURL = process.env.E2E_BASE_URL || "http://localhost:8080"
 
 export default defineConfig({
   testDir: path.join(currentDir, "tests"),

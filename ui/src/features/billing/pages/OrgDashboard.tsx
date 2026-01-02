@@ -110,14 +110,6 @@ const formatDateTime = (value?: string | null) => {
   }).format(date)
 }
 
-const formatPeriod = (period: string) => {
-  if (!period) return "-"
-  const [year, month] = period.split("-").map((part) => Number(part))
-  if (!year || !month) return period
-  const date = new Date(Date.UTC(year, month - 1, 1))
-  return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(date)
-}
-
 const statusLabel = (status?: string) => {
   switch (status?.toLowerCase()) {
     case "open":
@@ -272,6 +264,10 @@ export default function OrgDashboard() {
       customerBalances.find((item) => item.currency)?.currency || "USD"
     )
   }, [customerBalances])
+  const hasBalanceCurrency = useMemo(
+    () => customerBalances.some((item) => Boolean(item.currency)),
+    [customerBalances]
+  )
 
   const customerLookup = useMemo(() => {
     const map = new Map<string, CustomerBalance>()
@@ -395,15 +391,19 @@ export default function OrgDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Billing cycle summary</CardTitle>
+              <CardTitle>Billing cycle dashboard</CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 text-xs text-text-muted">
+                <span>Each row is a single billing cycle snapshot.</span>
+                <span>Period format: YYYY-MM.</span>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Billing Period</TableHead>
-                    <TableHead>Total Revenue</TableHead>
-                    <TableHead>Invoices</TableHead>
+                    <TableHead>Period</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">Invoice Count</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -421,11 +421,15 @@ export default function OrgDashboard() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    billingCycles.slice(0, 6).map((cycle) => (
+                    billingCycles.map((cycle) => (
                       <TableRow key={cycle.cycle_id}>
-                        <TableCell>{formatPeriod(cycle.period)}</TableCell>
-                        <TableCell>{formatCurrency(cycle.total_revenue, currencyFallback)}</TableCell>
-                        <TableCell>{cycle.invoice_count}</TableCell>
+                        <TableCell className="font-mono text-xs">{cycle.period || "-"}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(cycle.total_revenue, currencyFallback)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {cycle.invoice_count}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(cycle.status)}>
                             {statusLabel(cycle.status)}
@@ -436,6 +440,12 @@ export default function OrgDashboard() {
                   )}
                 </TableBody>
               </Table>
+              <div className="pt-3 text-xs text-text-muted">
+                Revenue shown in {currencyFallback}.{" "}
+                {hasBalanceCurrency
+                  ? "Currency inferred from customer balances."
+                  : "Currency defaults to USD when none are present."}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -529,7 +539,7 @@ export default function OrgDashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-base font-semibold">
-                      {currentCycle ? formatPeriod(currentCycle.period) : "No active cycle"}
+                      {currentCycle ? currentCycle.period : "No active cycle"}
                     </p>
                     <p className="text-sm text-text-muted">
                       {currentCycle

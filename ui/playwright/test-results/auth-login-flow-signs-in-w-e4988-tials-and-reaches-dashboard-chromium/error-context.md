@@ -1,0 +1,158 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - list [ref=e8]:
+      - listitem [ref=e9]:
+        - link "Valora" [ref=e10] [cursor=pointer]:
+          - /url: /orgs/2007115164859502592/dashboard
+          - img [ref=e11]
+          - generic [ref=e14]: Valora
+    - generic [ref=e15]:
+      - list [ref=e18]:
+        - listitem [ref=e19]:
+          - link "Dashboard" [ref=e20] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/dashboard
+            - img [ref=e21]
+            - generic [ref=e25]: Dashboard
+        - listitem [ref=e26]:
+          - link "Products" [ref=e27] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/products
+            - img [ref=e28]
+            - generic [ref=e32]: Products
+        - listitem [ref=e33]:
+          - link "Pricing" [ref=e34] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/prices
+            - img [ref=e35]
+            - generic [ref=e38]: Pricing
+        - listitem [ref=e39]:
+          - link "Meters" [ref=e40] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/meter
+            - img [ref=e41]
+            - generic [ref=e45]: Meters
+        - listitem [ref=e46]:
+          - link "Customers" [ref=e47] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/customers
+            - img [ref=e48]
+            - generic [ref=e53]: Customers
+        - listitem [ref=e54]:
+          - link "Subscriptions" [ref=e55] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/subscriptions
+            - img [ref=e56]
+            - generic [ref=e59]: Subscriptions
+        - listitem [ref=e60]:
+          - link "Invoices" [ref=e61] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoices
+            - img [ref=e62]
+            - generic [ref=e65]: Invoices
+        - listitem [ref=e66]:
+          - link "Invoice templates" [ref=e67] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/invoice-templates
+            - img [ref=e68]
+            - generic [ref=e71]: Invoice templates
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - link "API Keys" [ref=e76] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/api-keys
+            - img [ref=e77]
+            - generic [ref=e79]: API Keys
+        - listitem [ref=e80]:
+          - link "Payment providers" [ref=e81] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/payment-providers
+            - img [ref=e82]
+            - generic [ref=e89]: Payment providers
+        - listitem [ref=e90]:
+          - link "Audit Logs" [ref=e91] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/audit-logs
+            - img [ref=e92]
+            - generic [ref=e95]: Audit Logs
+        - listitem [ref=e96]:
+          - link "Settings" [ref=e97] [cursor=pointer]:
+            - /url: /orgs/2007115164859502592/settings
+            - img [ref=e98]
+            - generic [ref=e101]: Settings
+    - list [ref=e103]:
+      - listitem [ref=e104]:
+        - button "CN shadcn m@example.com" [ref=e105]:
+          - generic [ref=e107]: CN
+          - generic [ref=e108]:
+            - generic [ref=e109]: shadcn
+            - generic [ref=e110]: m@example.com
+          - img [ref=e111]
+  - main [ref=e115]:
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - button "Toggle Sidebar" [ref=e119]:
+          - img
+          - generic [ref=e120]: Toggle Sidebar
+        - button "Main" [ref=e121]:
+          - generic [ref=e122]: Main
+      - generic [ref=e124] [cursor=pointer]: M
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - heading "Billing dashboard" [level=1] [ref=e131]
+        - paragraph [ref=e132]: Track customer balances, revenue by cycle, and recent billing activity.
+      - generic [ref=e133]:
+        - generic [ref=e134]:
+          - generic [ref=e135]:
+            - generic [ref=e137]: Customer balances
+            - table [ref=e140]:
+              - rowgroup [ref=e141]:
+                - row "Customer Balance Last Invoice Payment Status" [ref=e142]:
+                  - columnheader "Customer" [ref=e143]
+                  - columnheader "Balance" [ref=e144]
+                  - columnheader "Last Invoice" [ref=e145]
+                  - columnheader "Payment Status" [ref=e146]
+              - rowgroup [ref=e147]:
+                - row "Demo Customer $0.00 - Settled" [ref=e148]:
+                  - cell "Demo Customer" [ref=e149]
+                  - cell "$0.00" [ref=e150]
+                  - cell "-" [ref=e151]
+                  - cell "Settled" [ref=e152]:
+                    - generic [ref=e153]: Settled
+          - generic [ref=e154]:
+            - generic [ref=e156]: Billing cycle summary
+            - table [ref=e159]:
+              - rowgroup [ref=e160]:
+                - row "Billing Period Total Revenue Invoices Status" [ref=e161]:
+                  - columnheader "Billing Period" [ref=e162]
+                  - columnheader "Total Revenue" [ref=e163]
+                  - columnheader "Invoices" [ref=e164]
+                  - columnheader "Status" [ref=e165]
+              - rowgroup [ref=e166]:
+                - row "No billing cycles yet." [ref=e167]:
+                  - cell "No billing cycles yet." [ref=e168]
+        - generic [ref=e169]:
+          - generic [ref=e170]:
+            - generic [ref=e171]:
+              - generic [ref=e172]: Invoice overview
+              - link "View all" [ref=e173] [cursor=pointer]:
+                - /url: /orgs/2007115164859502592/invoices
+            - table [ref=e176]:
+              - rowgroup [ref=e177]:
+                - row "Invoice Customer Subtotal Total Status Due Date" [ref=e178]:
+                  - columnheader "Invoice" [ref=e179]
+                  - columnheader "Customer" [ref=e180]
+                  - columnheader "Subtotal" [ref=e181]
+                  - columnheader "Total" [ref=e182]
+                  - columnheader "Status" [ref=e183]
+                  - columnheader "Due Date" [ref=e184]
+              - rowgroup [ref=e185]:
+                - row "No invoices yet." [ref=e186]:
+                  - cell "No invoices yet." [ref=e187]
+          - generic [ref=e188]:
+            - generic [ref=e190]: Billing status & activity
+            - generic [ref=e191]:
+              - generic [ref=e192]:
+                - paragraph [ref=e193]: Current cycle
+                - generic [ref=e195]:
+                  - paragraph [ref=e196]: No active cycle
+                  - paragraph [ref=e197]: Waiting for the next billing period.
+              - generic [ref=e198]:
+                - generic [ref=e199]:
+                  - paragraph [ref=e200]: Recent activity
+                  - link "View audit log" [ref=e201] [cursor=pointer]:
+                    - /url: /orgs/2007115164859502592/audit-logs
+                - paragraph [ref=e202]: No recent billing activity.
+```
