@@ -386,9 +386,17 @@ export default function OrgProductDetailPage() {
                               {formatDateShort(price.created_at)}
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="icon-sm" aria-label="Price actions">
-                                <MoreHorizontal className="size-4" />
-                              </Button>
+                              {orgId ? (
+                                <Button asChild variant="ghost" size="sm">
+                                  <Link to={`/orgs/${orgId}/prices/${price.id}`}>
+                                    Detail
+                                  </Link>
+                                </Button>
+                              ) : (
+                                <Button variant="ghost" size="sm" disabled>
+                                  Detail
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
                         )

@@ -174,6 +174,10 @@ export const router = createBrowserRouter([
             element: withFeatureBoundary(<OrgProductDetailPage />),
           },
           {
+            path: "prices/:priceId",
+            element: withFeatureBoundary(<AdminPricingDetailPage />),
+          },
+          {
             path: "prices",
             element: <Navigate to="../products" replace />,
           },

@@ -65,7 +65,9 @@ const fetchCurrencies = async () => {
   return Array.isArray(payload) ? (payload as Currency[]) : []
 }
 
-const getAmountStatus = (amount: PriceAmount) => {
+type AmountStatus = "Active" | "Expired" | "Upcoming"
+
+const getAmountStatus = (amount: PriceAmount): AmountStatus => {
   const now = new Date()
   const effectiveFrom = parseDate(amount.effective_from)
   const effectiveTo = parseDate(amount.effective_to)
