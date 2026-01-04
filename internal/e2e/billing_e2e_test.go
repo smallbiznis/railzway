@@ -97,6 +97,7 @@ func TestE2E_RatingUsageOnly(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "usage-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "usage-price-" + suffix,
 		"code":                   "usage-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -178,6 +179,7 @@ func TestE2E_RatingHybrid(t *testing.T) {
 
 	flatPriceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "usage-price-" + suffix,
 		"code":                   "hybrid-flat-price-" + suffix,
 		"pricing_model":          "FLAT",
 		"billing_mode":           "LICENSED",
@@ -195,6 +197,7 @@ func TestE2E_RatingHybrid(t *testing.T) {
 
 	usagePriceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "usage-price-" + suffix,
 		"code":                   "hybrid-usage-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -286,6 +289,7 @@ func TestE2E_CustomerLifecycleValidation(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "cust-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "cust-price-" + suffix,
 		"code":                   "cust-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -367,6 +371,7 @@ func TestE2E_SubscriptionLifecycleValidation(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "sub-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "sub-price-" + suffix,
 		"code":                   "sub-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",

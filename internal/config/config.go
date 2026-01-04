@@ -111,7 +111,7 @@ func Load() Config {
 			},
 		},
 		Bootstrap: BootstrapConfig{
-			EnsureDefaultOrgAndUser: getenvBool("ENSURE_DEFAULT_ORG_AND_USER", false),
+			EnsureDefaultOrgAndUser: getenvBool("ENSURE_DEFAULT_ORG_AND_USER", true),
 			AllowSignUp:             getenvBool("ALLOW_SIGNUP", false),
 			AllowAssignOrg:          getenvBool("ALLOW_ASSIGN_ORG", false),
 			AllowAssignUserRole:     strings.TrimSpace(getenv("ALLOW_ASSIGN_USER_ROLE", "")),

@@ -39,11 +39,13 @@ type CustomerView struct {
 	Email string
 }
 
+// render.LineItemView
 type LineItemView struct {
-	Description string
-	Quantity    float64
-	UnitPrice   int64
-	Amount      int64
+	Title     string
+	SubTitle  string
+	Quantity  float64
+	UnitPrice int64
+	Amount    int64
 }
 
 type Renderer interface {

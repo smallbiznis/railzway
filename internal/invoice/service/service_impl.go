@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -16,13 +18,74 @@ import (
 	"github.com/smallbiznis/valora/internal/invoice/render"
 	templatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
+	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
+	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
+	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
+	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/pkg/db/option"
 	"github.com/smallbiznis/valora/pkg/repository"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+type invoiceItemPart struct {
+	// Type could be: "usage" | "subscription" | "credit"
+	Type invoicedomain.InvoiceItemLineType
+
+	// Interval
+	Interval *pricedomain.BillingInterval
+
+	DisplayName string // e.g. "Actions", "Active Storage", "Essentials Plan", "Sign Up Credit"
+	Quantity    int64  // for UI table qty column (Temporal uses 1 line item but mentions total qty in desc)
+	UnitLabel   string // "unit", "GB-hour", etc (optional)
+
+	// For showing "Rate: $X / unit"
+	RateAmount int64
+
+	// Actual item pricing fields
+	UnitPriceAmount int64 // for table "Unit price" column
+	Amount          int64 // for table "Amount" column (can be negative for credit)
+
+	Currency string
+
+	// optional: for UI/PDF drilldown
+	// MeterCode string
+	// PriceID   int64
+	// Metadata  map[string]any
+}
+
+type billingCycleRow struct {
+	ID             snowflake.ID
+	OrgID          snowflake.ID
+	SubscriptionID snowflake.ID
+	PeriodStart    time.Time
+	PeriodEnd      time.Time
+	Status         billingcycledomain.BillingCycleStatus
+}
+
+type subscriptionRow struct {
+	ID         snowflake.ID
+	OrgID      snowflake.ID
+	CustomerID snowflake.ID
+}
+
+type ledgerEntryRow struct {
+	ID         snowflake.ID
+	OrgID      snowflake.ID
+	Currency   string
+	OccurredAt time.Time
+}
+
+type ledgerEntryLineRow struct {
+	ID          snowflake.ID
+	AccountID   snowflake.ID
+	Direction   ledgerdomain.LedgerEntryDirection
+	Amount      int64
+	AccountCode string `gorm:"column:account_code"`
+	AccountName string `gorm:"column:account_name"`
+}
 
 type ServiceParam struct {
 	fx.In
@@ -76,7 +139,7 @@ func (s *Service) List(ctx context.Context, req invoicedomain.ListInvoiceRequest
 		filter.CustomerID = *req.CustomerID
 	}
 	if req.InvoiceNumber != nil {
-		filter.InvoiceNumber = req.InvoiceNumber
+		filter.InvoiceNumber = *req.InvoiceNumber
 	}
 
 	options := []option.QueryOption{
@@ -177,10 +240,10 @@ func (s *Service) GetByID(ctx context.Context, id string) (invoicedomain.Invoice
 	return *item, nil
 }
 
-func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) error {
+func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) (*invoicedomain.Invoice, error) {
 	cycleID, err := parseID(strings.TrimSpace(billingCycleID))
 	if err != nil {
-		return invoicedomain.ErrInvalidBillingCycle
+		return nil, invoicedomain.ErrInvalidBillingCycle
 	}
 
 	var createdInvoice *invoicedomain.Invoice
@@ -209,6 +272,14 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 
 		if err := s.lockOrganization(ctx, tx, cycle.OrgID); err != nil {
 			return err
+		}
+
+		rating, err := s.loadRating(ctx, tx, cycle.ID)
+		if err != nil {
+			return err
+		}
+		if rating == nil {
+			return invoicedomain.ErrMissingRatingResults
 		}
 
 		subscription, err := s.loadSubscription(ctx, tx, cycle.OrgID, cycle.SubscriptionID)
@@ -262,8 +333,8 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 		invoice := invoicedomain.Invoice{
 			ID:             invoiceID,
 			OrgID:          cycle.OrgID,
-			InvoiceNumber:  &invoiceNumber,
-			DisplayNumber:  displayNumber,
+			InvoiceSeq:     &invoiceNumber,
+			InvoiceNumber:  displayNumber,
 			BillingCycleID: cycle.ID,
 			SubscriptionID: cycle.SubscriptionID,
 			CustomerID:     subscription.CustomerID,
@@ -285,38 +356,181 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) er
 		}
 		createdInvoice = &invoice
 
-		for _, line := range creditLines {
-			description := strings.TrimSpace(line.AccountName)
-			if description == "" {
-				description = strings.TrimSpace(line.AccountCode)
-			}
-			if description == "" {
-				description = "Ledger entry"
-			}
-			if err := s.insertInvoiceItem(ctx, tx, invoicedomain.InvoiceItem{
-				ID:                s.genID.Generate(),
-				OrgID:             cycle.OrgID,
-				InvoiceID:         invoiceID,
-				LedgerEntryLineID: &line.ID,
-				Description:       description,
-				Quantity:          1,
-				UnitPrice:         line.Amount,
-				Amount:            line.Amount,
-				CreatedAt:         now,
-			}); err != nil {
-				return err
-			}
+		if err := s.listInvoiceItemPartsFromRating(ctx, tx, *cycle, invoiceID); err != nil {
+			return err
 		}
 
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
+
 	if createdInvoice != nil {
 		s.emitAudit(ctx, "invoice.generate", createdInvoice, nil)
 	}
+
+	return createdInvoice, nil
+}
+
+func (s *Service) listInvoiceItemPartsFromRating(
+	ctx context.Context,
+	tx *gorm.DB,
+	cycle billingCycleRow,
+	invoiceID snowflake.ID,
+) error {
+
+	var rows []struct {
+		ID        snowflake.ID
+		OrgID     snowflake.ID
+		MeterID   snowflake.ID
+		PriceID   snowflake.ID
+		Quantity  float64
+		UnitPrice int64
+		Amount    int64
+		Currency  string
+		Source    string
+	}
+
+	if err := tx.WithContext(ctx).
+		Table("rating_results").
+		Select(`
+		id,
+		org_id,
+		meter_id,
+		price_id,
+		quantity,
+		unit_price,
+		amount,
+		currency,
+		source
+	`).
+		Where("billing_cycle_id = ?", cycle.ID).
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	for _, r := range rows {
+		price, err := s.loadPrice(ctx, tx, r.PriceID)
+		if err != nil {
+			return err
+		}
+
+		if price == nil {
+			return priceamountdomain.ErrNotFound
+		}
+
+		priceamounts, err := s.loadPriceAmount(ctx, tx, price.ID, r.Currency, cycle.PeriodStart, cycle.PeriodEnd)
+		if err != nil {
+			return err
+		}
+
+		if priceamounts == nil {
+			return priceamountdomain.ErrNotFound
+		}
+
+		invoiceItem := invoicedomain.InvoiceItem{
+			ID:             s.genID.Generate(),
+			OrgID:          r.OrgID,
+			InvoiceID:      invoiceID,
+			RatingResultID: &r.ID,
+			Quantity:       1,
+			UnitPrice:      priceamounts.UnitAmountCents,
+			Amount:         r.Amount,
+			CreatedAt:      now,
+		}
+
+		itemType := invoicedomain.InvoiceItemLineTypeSubscription
+		if price.PricingModel == pricedomain.PerUnit {
+			itemType = invoicedomain.InvoiceItemLineTypeUsage
+		}
+
+		invoiceItem.Description = s.formatInvoiceItemDescription(invoiceItemPart{
+			Type:            itemType,
+			Interval:        &price.BillingInterval,
+			DisplayName:     price.Name,
+			Quantity:        int64(r.Quantity),
+			UnitPriceAmount: priceamounts.UnitAmountCents,
+			RateAmount:      r.Amount,
+			Amount:          r.Amount,
+			Currency:        r.Currency,
+		}, cycle)
+		if err := s.insertInvoiceItem(ctx, tx, invoiceItem); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (s *Service) formatInvoiceItemDescription(
+	p invoiceItemPart,
+	cycle billingCycleRow,
+) string {
+	// Goal: Temporal-like, informative, PDF-safe snapshot
+	//
+	// Examples:
+	// Subscription:
+	//   "Base Subscription (Monthly)"
+	//   "Jan 1 – Jan 31, 2026"
+	//
+	// Usage:
+	//   "Actions (Total Qty: 123.00, Rate: USD 0.000010 / unit)"
+	//   "Jan 1 – Jan 31, 2026"
+
+	base := strings.TrimSpace(p.DisplayName)
+
+	// ---- Line-type specific enrichment ----
+	switch p.Type {
+
+	case invoicedomain.InvoiceItemLineTypeSubscription:
+		// Subscription lines are usually flat / periodic.
+		// We intentionally DO NOT show quantity unless explicitly meaningful.
+		// Rate is optional; usually already implied by plan.
+		if p.RateAmount > 0 {
+			rate := fmt.Sprintf(
+				"%s",
+				formatMoney(p.RateAmount, p.Currency),
+			)
+			base = fmt.Sprintf("%s (%s)", base, rate)
+		}
+
+	case invoicedomain.InvoiceItemLineTypeUsage:
+		// Usage lines must be explicit: quantity + rate.
+		parts := make([]string, 0, 2)
+
+		if p.Quantity > 0 {
+			parts = append(parts,
+				fmt.Sprintf("Total Qty: %d", p.Quantity),
+			)
+		}
+
+		if p.RateAmount > 0 {
+			rate := fmt.Sprintf(
+				"%s / %s",
+				formatMoney(p.RateAmount, p.Currency),
+				unitOrDefault(p.UnitLabel),
+			)
+			parts = append(parts, fmt.Sprintf("Rate: %s", rate))
+		}
+
+		if len(parts) > 0 {
+			base = fmt.Sprintf("%s (%s)", base, strings.Join(parts, ", "))
+		}
+	}
+
+	// ---- Period (always shown, PDF-friendly) ----
+	period := fmt.Sprintf(
+		"%s – %s",
+		cycle.PeriodStart.Format("Jan 2, 2006"),
+		cycle.PeriodEnd.Format("Jan 2, 2006"),
+	)
+
+	// Newline is intentional:
+	// - HTML renderer can split into title / subtitle
+	// - PDF renderer keeps line-break
+	return base + "\n" + period
 }
 
 func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
@@ -340,6 +554,7 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		}
 
 		// Snapshot rendered output at finalization so future template edits never change history.
+		invoice.Status = invoicedomain.InvoiceStatusFinalized
 		renderedHTML, tmpl, err := s.renderInvoiceHTML(ctx, tx, invoice)
 		if err != nil {
 			return err
@@ -356,7 +571,7 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 			`UPDATE invoices
 			 SET status = ?, finalized_at = ?, invoice_template_id = ?, rendered_html = ?, rendered_pdf_url = ?, updated_at = ?
 			 WHERE id = ?`,
-			invoicedomain.InvoiceStatusFinalized,
+			invoice.Status,
 			now,
 			invoice.InvoiceTemplateID,
 			invoice.RenderedHTML,
@@ -477,8 +692,8 @@ func (s *Service) emitAudit(ctx context.Context, action string, invoice *invoice
 		"currency":         invoice.Currency,
 		"subtotal_amount":  invoice.SubtotalAmount,
 	}
-	if invoice.InvoiceNumber != nil {
-		metadata["invoice_number"] = *invoice.InvoiceNumber
+	if invoice.InvoiceNumber != "" {
+		metadata["invoice_number"] = invoice.InvoiceNumber
 	}
 	if invoice.InvoiceTemplateID != nil {
 		metadata["invoice_template_id"] = invoice.InvoiceTemplateID.String()
@@ -501,44 +716,13 @@ func (s *Service) emitAudit(ctx context.Context, action string, invoice *invoice
 	_ = s.auditSvc.AuditLog(ctx, &orgID, "", nil, action, "invoice", &targetID, metadata)
 }
 
-type billingCycleRow struct {
-	ID             snowflake.ID
-	OrgID          snowflake.ID
-	SubscriptionID snowflake.ID
-	PeriodStart    time.Time
-	PeriodEnd      time.Time
-	Status         billingcycledomain.BillingCycleStatus
-}
-
-type subscriptionRow struct {
-	ID         snowflake.ID
-	OrgID      snowflake.ID
-	CustomerID snowflake.ID
-}
-
-type ledgerEntryRow struct {
-	ID         snowflake.ID
-	OrgID      snowflake.ID
-	Currency   string
-	OccurredAt time.Time
-}
-
-type ledgerEntryLineRow struct {
-	ID          snowflake.ID
-	AccountID   snowflake.ID
-	Direction   ledgerdomain.LedgerEntryDirection
-	Amount      int64
-	AccountCode string `gorm:"column:account_code"`
-	AccountName string `gorm:"column:account_name"`
-}
-
 func (s *Service) loadBillingCycleForUpdate(ctx context.Context, tx *gorm.DB, id snowflake.ID) (*billingCycleRow, error) {
 	var cycle billingCycleRow
 	err := tx.WithContext(ctx).Raw(
 		`SELECT id, org_id, subscription_id, period_start, period_end, status
 		 FROM billing_cycles
 		 WHERE id = ?
-		 FOR UPDATE`,
+		 FOR UPDATE SKIP LOCKED`,
 		id,
 	).Scan(&cycle).Error
 	if err != nil {
@@ -656,16 +840,116 @@ func (s *Service) nextInvoiceNumber(
 	return next, err
 }
 
+func (s *Service) loadRating(ctx context.Context, tx *gorm.DB, cycleID snowflake.ID) (*ratingdomain.RatingResult, error) {
+	var rating ratingdomain.RatingResult
+	err := tx.WithContext(ctx).Raw(
+		`SELECT id, org_id, subscription_id, meter_id, price_id,
+		quantity, unit_price, amount, currency, period_start, period_end
+		FROM rating_results
+		WHERE billing_cycle_id = ?
+		`, cycleID,
+	).Scan(&rating).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &rating, nil
+}
+
+func (s *Service) loadMeter(
+	ctx context.Context,
+	tx *gorm.DB,
+	meterID snowflake.ID,
+) (*meterdomain.Meter, error) {
+
+	var meter meterdomain.Meter
+	err := tx.WithContext(ctx).
+		Where("id = ?", meterID).
+		Limit(1).
+		Take(&meter).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, meterdomain.ErrMeterNotFound
+		}
+
+		return nil, err
+	}
+
+	return &meter, nil
+}
+
+func (s *Service) loadPrice(
+	ctx context.Context,
+	tx *gorm.DB,
+	priceID snowflake.ID,
+) (*pricedomain.Price, error) {
+
+	var price pricedomain.Price
+	err := tx.WithContext(ctx).
+		Where(`
+			id = ?
+		`, priceID).
+		Limit(1).
+		Take(&price).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, pricedomain.ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &price, nil
+}
+
+func (s *Service) loadPriceAmount(
+	ctx context.Context,
+	tx *gorm.DB,
+	priceID snowflake.ID,
+	currency string,
+	from, to time.Time,
+) (*priceamountdomain.PriceAmount, error) {
+
+	var pa priceamountdomain.PriceAmount
+
+	err := tx.WithContext(ctx).
+		Where(`
+			price_id = ?
+			AND currency = ?
+			AND effective_from <= ?
+			AND (effective_to IS NULL OR effective_to >= ?)
+		`,
+			priceID,
+			strings.ToUpper(currency),
+			to,
+			from,
+		).
+		Order("effective_from DESC").
+		Limit(1).
+		Take(&pa).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, priceamountdomain.ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &pa, nil
+}
+
 func (s *Service) insertInvoice(ctx context.Context, tx *gorm.DB, invoice invoicedomain.Invoice) (bool, error) {
 	result := tx.WithContext(ctx).Exec(
 		`INSERT INTO invoices (
-			id, org_id, invoice_number, billing_cycle_id, subscription_id, customer_id,
+			id, org_id, invoice_seq, invoice_number, billing_cycle_id, subscription_id, customer_id,
 			invoice_template_id, status, subtotal_amount, currency, period_start, period_end,
 			issued_at, due_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (billing_cycle_id) DO NOTHING`,
 		invoice.ID,
 		invoice.OrgID,
+		invoice.InvoiceSeq,
 		invoice.InvoiceNumber,
 		invoice.BillingCycleID,
 		invoice.SubscriptionID,
@@ -693,14 +977,13 @@ func (s *Service) insertInvoice(ctx context.Context, tx *gorm.DB, invoice invoic
 func (s *Service) insertInvoiceItem(ctx context.Context, tx *gorm.DB, item invoicedomain.InvoiceItem) error {
 	return tx.WithContext(ctx).Exec(
 		`INSERT INTO invoice_items (
-			id, org_id, invoice_id, rating_result_id, ledger_entry_line_id,
+			id, org_id, invoice_id, rating_result_id,
 			description, quantity, unit_price, amount, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID,
 		item.OrgID,
 		item.InvoiceID,
 		item.RatingResultID,
-		item.LedgerEntryLineID,
 		item.Description,
 		item.Quantity,
 		item.UnitPrice,
@@ -732,4 +1015,36 @@ func (s *Service) loadInvoiceForUpdate(ctx context.Context, tx *gorm.DB, id snow
 
 func parseID(raw string) (snowflake.ID, error) {
 	return snowflake.ParseString(raw)
+}
+
+func sumCreditLines(lines []ledgerEntryLineRow) (int64, []ledgerEntryLineRow) {
+	var subtotal int64
+	credits := make([]ledgerEntryLineRow, 0, len(lines))
+	for _, l := range lines {
+		if l.Direction != ledgerdomain.LedgerEntryDirectionCredit {
+			continue
+		}
+		subtotal += l.Amount
+		credits = append(credits, l)
+	}
+	return subtotal, credits
+}
+
+func unitOrDefault(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return "unit"
+	}
+	return u
+}
+
+func formatQty(v float64) string {
+	// keep stable format like "0.00"
+	return fmt.Sprintf("%.2f", v)
+}
+
+func formatMoney(amount int64, currency string) string {
+	// TODO: replace with your money formatter.
+	// amount assumed in minor units? if so, adjust.
+	return fmt.Sprintf("%s %d", strings.ToUpper(currency), amount)
 }

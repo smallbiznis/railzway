@@ -191,14 +191,14 @@ const invoiceStatusVariant = (status?: string) => {
 const invoiceLabel = (invoice: InvoiceRecord) => {
   const number = readField(invoice, ["invoice_number", "InvoiceNumber"])
   if (typeof number === "number" && number > 0) {
-    return `INV-${number}`
+    return `${number}`
   }
   if (typeof number === "string" && number.trim()) {
-    return `INV-${number.trim()}`
+    return `${number.trim()}`
   }
   const id = String(readField(invoice, ["id", "ID"]) ?? "")
   if (!id) return "-"
-  return `INV-${id.slice(0, 8)}`
+  return `${id.slice(0, 8)}`
 }
 
 export default function OrgDashboard() {

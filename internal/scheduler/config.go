@@ -1,6 +1,9 @@
 package scheduler
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Config controls scheduler intervals and batch sizes.
 type Config struct {
@@ -27,6 +30,7 @@ func DefaultConfig() Config {
 
 func (c Config) withDefaults() Config {
 	defaults := DefaultConfig()
+	fmt.Printf("FinalizeInvoices: %v\n", c.FinalizeInvoices)
 	if c.RunInterval <= 0 {
 		c.RunInterval = defaults.RunInterval
 	}

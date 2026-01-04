@@ -147,6 +147,7 @@ func (s *Service) Ingest(
 	if s.metrics != nil {
 		go s.metrics.IncUsageEvent(orgID.String(), meterCode)
 	}
+
 	if s.obsMetrics != nil {
 		s.obsMetrics.RecordUsageIngest(ctx, meterCode)
 	}
@@ -205,7 +206,7 @@ func (s *Service) resolveMeter(ctx context.Context, orgID snowflake.ID, meterCod
 		switch {
 		case errors.Is(err, meterdomain.ErrInvalidCode):
 			return nil, usagedomain.ErrInvalidMeterCode
-		case errors.Is(err, meterdomain.ErrNotFound):
+		case errors.Is(err, meterdomain.ErrMeterNotFound):
 			return nil, nil
 		default:
 			return nil, nil

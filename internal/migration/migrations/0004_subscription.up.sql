@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_org_id ON subscriptions(org_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_id ON subscriptions(customer_id);
-CREATE INDEX CONCURRENTLY idx_subscriptions_active_id ON subscriptions (status, id);
 
 CREATE TABLE IF NOT EXISTS subscription_items (
     id BIGINT PRIMARY KEY,

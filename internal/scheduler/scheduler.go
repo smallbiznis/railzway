@@ -15,7 +15,6 @@ import (
 	"github.com/smallbiznis/valora/internal/billingdashboard/rollup"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
-	obslogger "github.com/smallbiznis/valora/internal/observability/logger"
 	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
@@ -73,7 +72,7 @@ func New(p Params) (*Scheduler, error) {
 	cfg := p.Config.withDefaults()
 	return &Scheduler{
 		db:              p.DB,
-		log:             p.Log.Named("scheduler"),
+		log:             p.Log.Named("scheduler").With(zap.String("component", "scheduler")),
 		cfg:             cfg,
 		genID:           p.GenID,
 		ratingSvc:       p.RatingSvc,
@@ -89,6 +88,7 @@ func New(p Params) (*Scheduler, error) {
 func (s *Scheduler) runJob(
 	parent context.Context,
 	name string,
+	batchSize int,
 	timeout time.Duration,
 	fn func(ctx context.Context) error,
 ) error {
@@ -97,12 +97,25 @@ func (s *Scheduler) runJob(
 	defer cancel()
 
 	ctx = auditcontext.WithActor(ctx, string(auditdomain.ActorTypeSystem), "scheduler")
-	log := obslogger.WithContext(ctx, s.log).With(zap.String("job", name))
+	ctx, run, owner := s.ensureJobRun(ctx, name, batchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+	}
+	log := s.logger(ctx).With(
+		zap.String("job", name),
+		zap.String("run_id", run.runID),
+	)
 	schedMetrics := obsmetrics.Scheduler()
 	schedMetrics.IncJobRun(name)
 
 	err := fn(ctx)
 	schedMetrics.ObserveJobDuration(name, time.Since(start))
+	if owner {
+		if err != nil && run != nil && run.errorCount == 0 {
+			run.IncError()
+		}
+		s.logJobFinish(ctx, run)
+	}
 	if err == nil {
 		return nil
 	}
@@ -128,27 +141,27 @@ func (s *Scheduler) RunOnce(parent context.Context) error {
 	var err error
 
 	err = errors.Join(err,
-		s.runJob(parent, "ensure_cycles", 30*time.Second, s.EnsureBillingCyclesJob),
-		s.runJob(parent, "close_cycles", 30*time.Second, s.CloseCyclesJob),
-		s.runJob(parent, "rating", 30*time.Second, s.RatingJob),
-		s.runJob(parent, "close_after_rating", 30*time.Second, s.CloseAfterRatingJob),
-		s.runJob(parent, "invoice", 30*time.Second, s.InvoiceJob),
+		s.runJob(parent, "ensure_cycles", s.cfg.BatchSize, 30*time.Second, s.EnsureBillingCyclesJob),
+		s.runJob(parent, "close_cycles", s.cfg.MaxCloseBatchSize, 30*time.Second, s.CloseCyclesJob),
+		s.runJob(parent, "rating", s.cfg.MaxRatingBatchSize, 30*time.Second, s.RatingJob),
+		s.runJob(parent, "close_after_rating", s.cfg.MaxCloseBatchSize, 30*time.Second, s.CloseAfterRatingJob),
+		s.runJob(parent, "invoice", s.cfg.MaxInvoiceBatchSize, 30*time.Second, s.InvoiceJob),
 	)
 
 	if s.rollupSvc != nil {
 		err = errors.Join(err,
-			s.runJob(parent, "rollup_rebuild", 30*time.Minute, func(ctx context.Context) error {
+			s.runJob(parent, "rollup_rebuild", s.cfg.BatchSize, 30*time.Minute, func(ctx context.Context) error {
 				return s.rollupSvc.ProcessRebuildRequests(ctx, s.cfg.BatchSize)
 			}),
-			s.runJob(parent, "rollup_pending", 30*time.Second, func(ctx context.Context) error {
+			s.runJob(parent, "rollup_pending", s.cfg.BatchSize, 30*time.Second, func(ctx context.Context) error {
 				return s.rollupSvc.ProcessPending(ctx, s.cfg.BatchSize)
 			}),
 		)
 	}
 
 	err = errors.Join(err,
-		s.runJob(parent, "end_canceled_subs", 30*time.Second, s.EndCanceledSubscriptionsJob),
-		s.runJob(parent, "recovery_sweep", 30*time.Second, s.RecoverySweepJob),
+		s.runJob(parent, "end_canceled_subs", s.cfg.BatchSize, 30*time.Second, s.EndCanceledSubscriptionsJob),
+		s.runJob(parent, "recovery_sweep", maxInt(s.cfg.MaxRatingBatchSize, s.cfg.MaxCloseBatchSize, s.cfg.MaxInvoiceBatchSize), 30*time.Second, s.RecoverySweepJob),
 	)
 
 	return err
@@ -179,6 +192,11 @@ func (s *Scheduler) RunForever(ctx context.Context) {
 }
 
 func (s *Scheduler) EnsureBillingCyclesJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "ensure_cycles", s.cfg.BatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
 	now := time.Now().UTC()
 	var jobErr error
 
@@ -187,10 +205,11 @@ func (s *Scheduler) EnsureBillingCyclesJob(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		processed, batchErr := s.ensureBillingCyclesBatch(ctx, now)
+		processed, batchErr := s.ensureBillingCyclesBatch(ctx, now, run)
 		if batchErr != nil {
 			jobErr = errors.Join(jobErr, batchErr)
 		}
+		run.AddProcessed(processed)
 		if processed == 0 {
 			break
 		}
@@ -200,12 +219,18 @@ func (s *Scheduler) EnsureBillingCyclesJob(ctx context.Context) error {
 }
 
 func (s *Scheduler) CloseCyclesJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "close_cycles", s.cfg.MaxCloseBatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
 	now := time.Now().UTC()
 	var jobErr error
 
 	for {
 		cycles, err := s.fetchBillingCyclesForWork(ctx, `status = ? AND period_end <= ?`, []any{billingcycledomain.BillingCycleStatusOpen, now}, s.cfg.MaxCloseBatchSize)
 		if err != nil {
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_cycles", 0, err)
 			return err
 		}
 		if len(cycles) == 0 {
@@ -213,19 +238,33 @@ func (s *Scheduler) CloseCyclesJob(ctx context.Context) error {
 		}
 
 		for _, cycle := range cycles {
+			s.logCycleClaimed(ctx, "close_cycles", cycle)
 			if err := s.authorizeSystem(ctx, cycle.OrgID, authorization.ObjectBillingCycle, authorization.ActionBillingCycleStartClosing); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "close_cycles", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				continue
 			}
 			updated, err := s.markCycleClosing(ctx, cycle.ID, now)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_cycles", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageCloseCycles, err)
 				continue
 			}
 			if updated {
+				run.AddProcessed(1)
 				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosing, now); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_cycles", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 				}
 				s.emitAuditEvent(ctx, auditEvent{
 					OrgID:          cycle.OrgID,
@@ -246,12 +285,18 @@ func (s *Scheduler) CloseCyclesJob(ctx context.Context) error {
 }
 
 func (s *Scheduler) RatingJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "rating", s.cfg.MaxRatingBatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
 	now := time.Now().UTC()
 	var jobErr error
 
 	for {
 		cycles, err := s.fetchBillingCyclesForWork(ctx, `status = ? AND rating_completed_at IS NULL`, []any{billingcycledomain.BillingCycleStatusClosing}, s.cfg.MaxRatingBatchSize)
 		if err != nil {
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "rating", 0, err)
 			return err
 		}
 		if len(cycles) == 0 {
@@ -259,8 +304,13 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 		}
 
 		for _, cycle := range cycles {
+			s.logCycleClaimed(ctx, "rating", cycle)
 			if err := s.authorizeSystem(ctx, cycle.OrgID, authorization.ObjectBillingCycle, authorization.ActionBillingCycleRate); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				continue
 			}
 			cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
@@ -279,6 +329,10 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 
 			if err := s.ratingSvc.RunRating(cycleCtx, cycle.ID.String()); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageRating, err)
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
@@ -296,6 +350,10 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 
 			if err := s.markRatingCompleted(ctx, cycle.ID, now); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageRating, err)
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
@@ -311,6 +369,7 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 				continue
 			}
 
+			run.AddProcessed(1)
 			s.emitAuditEvent(cycleCtx, auditEvent{
 				OrgID:          cycle.OrgID,
 				Action:         "rating.completed",
@@ -330,12 +389,18 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 }
 
 func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "close_after_rating", s.cfg.MaxCloseBatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
 	now := time.Now().UTC()
 	var jobErr error
 
 	for {
 		cycles, err := s.fetchBillingCyclesForWork(ctx, `status = ? AND rating_completed_at IS NOT NULL`, []any{billingcycledomain.BillingCycleStatusClosing}, s.cfg.MaxCloseBatchSize)
 		if err != nil {
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", 0, err)
 			return err
 		}
 		if len(cycles) == 0 {
@@ -343,18 +408,31 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 		}
 
 		for _, cycle := range cycles {
+			s.logCycleClaimed(ctx, "close_after_rating", cycle)
 			if err := s.authorizeSystem(ctx, cycle.OrgID, authorization.ObjectBillingCycle, authorization.ActionBillingCycleClose); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "close_after_rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				continue
 			}
 			hasResults, err := s.hasRatingResults(ctx, cycle.ID)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageCloseAfterRating, err)
 				continue
 			}
 			if !hasResults {
 				jobErr = errors.Join(jobErr, invoicedomain.ErrMissingRatingResults)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", cycle.OrgID, invoicedomain.ErrMissingRatingResults,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageCloseAfterRating, invoicedomain.ErrMissingRatingResults)
 				continue
 			}
@@ -362,6 +440,10 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 			cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
 			if err := s.ensureLedgerEntryForCycle(cycleCtx, cycle); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageCloseAfterRating, err)
 				continue
 			}
@@ -369,12 +451,21 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 			updated, err := s.markCycleClosed(ctx, cycle.ID, now)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageCloseAfterRating, err)
 				continue
 			}
 			if updated {
+				run.AddProcessed(1)
 				if err := s.upsertBillingCycleStats(ctx, s.db, cycle.ID, cycle.OrgID, cycle.PeriodStart, billingcycledomain.BillingCycleStatusClosed, now); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "close_after_rating", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 				}
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
@@ -395,6 +486,12 @@ func (s *Scheduler) CloseAfterRatingJob(ctx context.Context) error {
 }
 
 func (s *Scheduler) InvoiceJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "invoice", s.cfg.MaxInvoiceBatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
+
 	now := time.Now().UTC()
 	var jobErr error
 	schedMetrics := obsmetrics.Scheduler()
@@ -402,6 +499,7 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 	for {
 		cycles, err := s.fetchBillingCyclesForWork(ctx, `status = ? AND invoiced_at IS NULL`, []any{billingcycledomain.BillingCycleStatusClosed}, s.cfg.MaxInvoiceBatchSize)
 		if err != nil {
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "invoice", 0, err)
 			return err
 		}
 		if len(cycles) == 0 {
@@ -409,31 +507,44 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 		}
 
 		for _, cycle := range cycles {
+			s.logCycleClaimed(ctx, "invoice", cycle)
 			if err := s.authorizeSystem(ctx, cycle.OrgID, authorization.ObjectInvoice, authorization.ActionInvoiceGenerate); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "invoice", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				continue
 			}
+
 			cycleCtx := s.withAuditContext(ctx, cycle.SubscriptionID.String(), cycle.ID.String())
-			if err := s.invoiceSvc.GenerateInvoice(cycleCtx, cycle.ID.String()); err != nil {
+			invoice, err := s.invoiceSvc.GenerateInvoice(cycleCtx, cycle.ID.String())
+			if err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "invoice.generate.failed", "invoice", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 				continue
 			}
 
-			invoice, err := s.loadInvoiceByCycle(ctx, cycle.ID)
-			if err != nil {
-				jobErr = errors.Join(jobErr, err)
-				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
-				continue
-			}
 			if invoice == nil {
 				continue
 			}
 
+			s.logInvoiceGenerated(ctx, cycle, invoice.ID)
+
 			if err := s.markCycleInvoiced(ctx, cycle.ID, now); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "invoice", cycle.OrgID, err,
+					zap.String("cycle_id", idString(cycle.ID)),
+					zap.String("invoice_id", idString(invoice.ID)),
+					zap.String("subscription_id", idString(cycle.SubscriptionID)),
+				)
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 			} else {
+				run.AddProcessed(1)
 				schedMetrics.IncBillingCycleTransition(
 					string(billingcycledomain.BillingCycleStatusClosed),
 					obsmetrics.BillingCycleTransitionInvoiced,
@@ -448,20 +559,41 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 			case invoicedomain.InvoiceStatusDraft:
 				if err := s.authorizeSystem(ctx, cycle.OrgID, authorization.ObjectInvoice, authorization.ActionInvoiceFinalize); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "invoice", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("invoice_id", idString(invoice.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 					continue
 				}
 				if err := s.invoiceSvc.FinalizeInvoice(cycleCtx, invoice.ID.String()); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "invoice.finalize.failed", "invoice", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("invoice_id", idString(invoice.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 					_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 					continue
 				}
+				s.logInvoiceFinalized(ctx, cycle, invoice.ID)
 				if err := s.markCycleInvoiceFinalized(ctx, cycle.ID, now); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "invoice", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("invoice_id", idString(invoice.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 					_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 				}
 			case invoicedomain.InvoiceStatusFinalized:
 				if err := s.markCycleInvoiceFinalized(ctx, cycle.ID, now); err != nil {
 					jobErr = errors.Join(jobErr, err)
+					s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "invoice", cycle.OrgID, err,
+						zap.String("cycle_id", idString(cycle.ID)),
+						zap.String("invoice_id", idString(invoice.ID)),
+						zap.String("subscription_id", idString(cycle.SubscriptionID)),
+					)
 					_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 				}
 			}
@@ -472,11 +604,17 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 }
 
 func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
+	ctx, run, owner := s.ensureJobRun(ctx, "end_canceled_subs", s.cfg.BatchSize)
+	if owner {
+		s.logJobStart(ctx, run)
+		defer s.logJobFinish(ctx, run)
+	}
 	var jobErr error
 
 	for {
 		subscriptions, err := s.FetchSubscriptionsForWork(ctx, subscriptiondomain.SubscriptionStatusCanceled, s.cfg.BatchSize)
 		if err != nil {
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "end_canceled_subs", 0, err)
 			return err
 		}
 		if len(subscriptions) == 0 {
@@ -492,6 +630,9 @@ func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
 			canEnd, err := s.canEndSubscription(ctx, subscription.OrgID, subscription.ID)
 			if err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "end_canceled_subs", subscription.OrgID, err,
+					zap.String("subscription_id", idString(subscription.ID)),
+				)
 				continue
 			}
 			if !canEnd {
@@ -500,6 +641,9 @@ func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
 
 			if err := s.authorizeSystem(ctx, subscription.OrgID, authorization.ObjectSubscription, authorization.ActionSubscriptionEnd); err != nil {
 				jobErr = errors.Join(jobErr, err)
+				s.logSchedulerError(ctx, run, "scheduler.authorize.failed", "end_canceled_subs", subscription.OrgID, err,
+					zap.String("subscription_id", idString(subscription.ID)),
+				)
 				continue
 			}
 
@@ -507,9 +651,12 @@ func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
 			ctxWithAudit := s.withAuditContext(ctxWithOrg, subscription.ID.String(), "")
 			if err := s.subscriptionSvc.TransitionSubscription(ctxWithAudit, subscription.ID.String(), subscriptiondomain.SubscriptionStatusEnded, subscriptiondomain.TransitionReason("scheduler")); err != nil {
 				jobErr = errors.Join(jobErr, err)
-				s.log.Warn("failed to end subscription", zap.String("subscription_id", subscription.ID.String()), zap.Error(err))
+				s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", "end_canceled_subs", subscription.OrgID, err,
+					zap.String("subscription_id", idString(subscription.ID)),
+				)
 				continue
 			}
+			run.AddProcessed(1)
 
 			s.emitAuditEvent(ctxWithAudit, auditEvent{
 				OrgID:          subscription.OrgID,
@@ -527,7 +674,7 @@ func (s *Scheduler) EndCanceledSubscriptionsJob(ctx context.Context) error {
 	return jobErr
 }
 
-func (s *Scheduler) ensureBillingCyclesBatch(ctx context.Context, now time.Time) (int, error) {
+func (s *Scheduler) ensureBillingCyclesBatch(ctx context.Context, now time.Time, run *jobRun) (int, error) {
 	var batchErr error
 	events := make([]auditEvent, 0)
 	schedMetrics := obsmetrics.Scheduler()
@@ -545,6 +692,7 @@ func (s *Scheduler) ensureBillingCyclesBatch(ctx context.Context, now time.Time)
 	})
 	if err != nil {
 		schedMetrics.IncBatchDeferred(jobName, classifyEnsureCyclesDeferredReason(err))
+		s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", jobName, 0, err)
 		return 0, err
 	}
 	if len(subs) == 0 {
@@ -565,6 +713,9 @@ func (s *Scheduler) ensureBillingCyclesBatch(ctx context.Context, now time.Time)
 
 		if err := s.authorizeSystem(ctx, sub.OrgID, authorization.ObjectBillingCycle, authorization.ActionBillingCycleOpen); err != nil {
 			batchErr = errors.Join(batchErr, err)
+			s.logSchedulerError(ctx, run, "scheduler.authorize.failed", jobName, sub.OrgID, err,
+				zap.String("subscription_id", idString(sub.ID)),
+			)
 			continue
 		}
 
@@ -576,8 +727,11 @@ func (s *Scheduler) ensureBillingCyclesBatch(ctx context.Context, now time.Time)
 		if txErr != nil {
 			batchErr = errors.Join(batchErr, txErr)
 			schedMetrics.IncBatchDeferred(jobName, classifyEnsureCyclesDeferredReason(txErr))
-			s.log.Info("ensure billing cycle deferred",
-				zap.String("subscription_id", sub.ID.String()),
+			s.logSchedulerError(ctx, run, "scheduler.cycle.process.failed", jobName, sub.OrgID, txErr,
+				zap.String("subscription_id", idString(sub.ID)),
+			)
+			s.logger(s.withLogContext(ctx, sub.OrgID)).Info("ensure billing cycle deferred",
+				zap.String("subscription_id", idString(sub.ID)),
 				zap.Error(txErr),
 			)
 			continue
@@ -613,6 +767,16 @@ func classifyEnsureCyclesDeferredReason(err error) string {
 		return obsmetrics.SchedulerJobReasonUnknown
 	}
 	return reason
+}
+
+func maxInt(values ...int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
 }
 
 func (s *Scheduler) ensureSubscriptionCycle(ctx context.Context, tx *gorm.DB, subscription WorkSubscription, now time.Time, events *[]auditEvent) error {

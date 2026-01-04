@@ -127,18 +127,26 @@ func registerGin(obsCfg observability.Config, httpMetrics *obsmetrics.HTTPMetric
 }
 
 func run(lc fx.Lifecycle, r *gin.Engine) {
-	lc.Append(
-		fx.Hook{
-			OnStart: func(ctx context.Context) error {
-				go func() {
-					if err := r.Run(":8080"); err != nil {
-						panic(err)
-					}
-				}()
-				return nil
-			},
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: r,
+	}
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					panic(err)
+				}
+			}()
+			return nil
 		},
-	)
+		OnStop: func(ctx context.Context) error {
+			shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			return srv.Shutdown(shutdownCtx)
+		},
+	})
 }
 
 type Server struct {

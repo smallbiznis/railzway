@@ -35,12 +35,6 @@ func (s *Server) ListInvoices(c *gin.Context) {
 		return
 	}
 
-	invoiceNumber, err := parseOptionalInt64(query.InvoiceNumber)
-	if err != nil {
-		AbortWithError(c, newValidationError("invoice_number", "invalid_invoice_number", "invalid invoice_number"))
-		return
-	}
-
 	customerID, err := parseOptionalSnowflakeID(query.CustomerID)
 	if err != nil {
 		AbortWithError(c, newValidationError("customer_id", "invalid_customer_id", "invalid customer_id"))
@@ -97,7 +91,7 @@ func (s *Server) ListInvoices(c *gin.Context) {
 
 	resp, err := s.invoiceSvc.List(c.Request.Context(), invoicedomain.ListInvoiceRequest{
 		Status:        status,
-		InvoiceNumber: invoiceNumber,
+		InvoiceNumber: &query.InvoiceNumber,
 		CustomerID:    customerID,
 		CreatedFrom:   createdFrom,
 		CreatedTo:     createdTo,
