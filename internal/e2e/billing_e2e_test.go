@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,6 +47,7 @@ func TestE2E_RatingFlatOnly(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "flat-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
+		"name":                   "Flat",
 		"code":                   "flat-price-" + suffix,
 		"pricing_model":          "FLAT",
 		"billing_mode":           "LICENSED",
@@ -97,7 +101,7 @@ func TestE2E_RatingUsageOnly(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "usage-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
-		"name":                   "usage-price-" + suffix,
+		"name":                   "Usage Price",
 		"code":                   "usage-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -179,7 +183,7 @@ func TestE2E_RatingHybrid(t *testing.T) {
 
 	flatPriceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
-		"name":                   "usage-price-" + suffix,
+		"name":                   "Hybrid Flat",
 		"code":                   "hybrid-flat-price-" + suffix,
 		"pricing_model":          "FLAT",
 		"billing_mode":           "LICENSED",
@@ -197,7 +201,7 @@ func TestE2E_RatingHybrid(t *testing.T) {
 
 	usagePriceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
-		"name":                   "usage-price-" + suffix,
+		"name":                   "Hybrid Usage",
 		"code":                   "hybrid-usage-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -289,7 +293,7 @@ func TestE2E_CustomerLifecycleValidation(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "cust-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
-		"name":                   "cust-price-" + suffix,
+		"name":                   "Cust Price",
 		"code":                   "cust-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -371,7 +375,7 @@ func TestE2E_SubscriptionLifecycleValidation(t *testing.T) {
 	productID := createAdminProduct(t, client, orgID, "sub-product-"+suffix)
 	priceID := createAdminPrice(t, client, orgID, map[string]any{
 		"product_id":             productID,
-		"name":                   "sub-price-" + suffix,
+		"name":                   "Sub Price",
 		"code":                   "sub-price-" + suffix,
 		"pricing_model":          "PER_UNIT",
 		"billing_mode":           "METERED",
@@ -447,6 +451,70 @@ func TestE2E_SubscriptionLifecycleValidation(t *testing.T) {
 	if results[0].Quantity != events[1].value {
 		t.Fatalf("expected rated quantity %.2f, got %.2f", events[1].value, results[0].Quantity)
 	}
+}
+
+func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
+	resetDatabase(t, env.db)
+
+	client, orgID := loginAdmin(t)
+	apiKey := createAPIKey(t, client, orgID)
+	suffix := testSuffix(t)
+	flatMeterID, _ := createAdminMeter(t, client, orgID, "hybrid-flat-meter-"+suffix)
+	usageMeterID, usageMeterCode := createAdminMeter(t, client, orgID, "hybrid-usage-meter-"+suffix)
+	productID := createAdminProduct(t, client, orgID, "hybrid-product-"+suffix)
+
+	flatPriceID := createAdminPrice(t, client, orgID, map[string]any{
+		"product_id":             productID,
+		"name":                   "Hybrid Flat",
+		"code":                   "hybrid-flat-price-" + suffix,
+		"pricing_model":          "FLAT",
+		"billing_mode":           "LICENSED",
+		"billing_interval":       "MONTH",
+		"billing_interval_count": 1,
+		"tax_behavior":           "EXCLUSIVE",
+	})
+
+	createAdminPriceAmount(t, client, orgID, map[string]any{
+		"price_id":             flatPriceID,
+		"meter_id":             flatMeterID,
+		"currency":             "USD",
+		"unit_amount_cents":    900,
+		"minimum_amount_cents": 900,
+	})
+
+	usagePriceID := createAdminPrice(t, client, orgID, map[string]any{
+		"product_id":             productID,
+		"name":                   "Hybrid Usage",
+		"code":                   "hybrid-usage-price-" + suffix,
+		"pricing_model":          "PER_UNIT",
+		"billing_mode":           "METERED",
+		"billing_interval":       "MONTH",
+		"billing_interval_count": 1,
+		"aggregate_usage":        "SUM",
+		"billing_unit":           "API_CALL",
+		"tax_behavior":           "EXCLUSIVE",
+	})
+
+	createAdminPriceAmount(t, client, orgID, map[string]any{
+		"price_id":          usagePriceID,
+		"meter_id":          usageMeterID,
+		"currency":          "USD",
+		"unit_amount_cents": 150,
+	})
+
+	subs := createManyCustomersAndSubscriptionsParallel(t, client, orgID, 10000, flatPriceID, flatMeterID, usagePriceID, usageMeterID, 30)
+
+	usages := make([]map[string]any, 0, len(subs))
+	for i := 0; i < len(subs); i++ {
+		usages = append(usages, map[string]any{
+			"customer_id": subs[i].CustomerID,
+			"meter_code":  usageMeterCode,
+			"value":       randomUsageValue(),
+			"recorded_at": time.Now().Add(-5 * time.Minute),
+		})
+	}
+
+	ingestUsageParallel(t, apiKey, usages, 30)
 }
 
 func createAdminMeter(t *testing.T, client *http.Client, orgID, code string) (string, string) {
@@ -614,6 +682,119 @@ func ensureBillingCycle(t *testing.T, subscriptionID string) billingCycleRow {
 		t.Fatalf("expected billing cycle created")
 	}
 	return cycle
+}
+
+type SubInfo struct {
+	CustomerID     string
+	SubscriptionID string
+}
+
+func createManyCustomersAndSubscriptionsParallel(
+	t *testing.T,
+	client *http.Client,
+	orgID string,
+	count int,
+	flatPriceID, flatMeterID string,
+	usagePriceID, usageMeterID string,
+	concurrency int,
+) []SubInfo {
+	t.Helper()
+
+	results := make([]SubInfo, 0, count)
+	resultsMu := sync.Mutex{}
+
+	sem := make(chan struct{}, concurrency)
+	wg := sync.WaitGroup{}
+
+	var done int64
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			suffix := fmt.Sprintf("%05d", i+1)
+
+			customerID := createAdminCustomer(
+				t, client, orgID,
+				"Hybrid Customer "+suffix,
+			)
+
+			subscriptionID := createAdminSubscription(t, client, orgID, map[string]any{
+				"customer_id":        customerID,
+				"collection_mode":    "SEND_INVOICE",
+				"billing_cycle_type": "MONTHLY",
+				"items": []map[string]any{
+					{"price_id": flatPriceID, "meter_id": flatMeterID, "quantity": 1},
+					{"price_id": usagePriceID, "meter_id": usageMeterID, "quantity": 1},
+				},
+			})
+
+			activateSubscription(t, client, orgID, subscriptionID)
+
+			resultsMu.Lock()
+			results = append(results, SubInfo{
+				CustomerID:     customerID,
+				SubscriptionID: subscriptionID,
+			})
+			resultsMu.Unlock()
+
+			n := atomic.AddInt64(&done, 1)
+			if n%1000 == 0 {
+				percent := float64(n) / float64(count) * 100
+				t.Logf("progress: %d/%d (%.1f%%)", n, count, percent)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	return results
+}
+
+func randomUsageValue() float64 {
+	return float64(rand.Intn(991) + 10) // 10..1000
+}
+
+func ingestUsageParallel(
+	t *testing.T,
+	apiKey string,
+	usages []map[string]any,
+	concurrency int,
+) {
+	t.Helper()
+
+	var ingested int64
+	total := len(usages)
+
+	sem := make(chan struct{}, concurrency)
+	wg := sync.WaitGroup{}
+
+	for i, payload := range usages {
+		wg.Add(1)
+		go func(i int, payload map[string]any) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			payload["idempotency_key"] =
+				fmt.Sprintf("usage-%d-%d", i, time.Now().UnixNano())
+
+			ingestUsage(t, apiKey, payload)
+
+			n := atomic.AddInt64(&ingested, 1)
+			if n%1000 == 0 || n == int64(total) {
+				t.Logf(
+					"usage progress: %d/%d (%.1f%%)",
+					n,
+					total,
+					float64(n)/float64(total)*100,
+				)
+			}
+		}(i, payload)
+	}
+
+	wg.Wait()
 }
 
 func updateBillingCycleWindow(t *testing.T, cycleID snowflake.ID, start, end time.Time) {

@@ -235,3 +235,30 @@ func applyCurrencyCondition(query string, args []any, currency string) (string, 
 	args = append(args, trimmed)
 	return query, args
 }
+
+func (r *repo) FindLatestByPriceAndCurrency(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	currency string,
+) (*priceamountdomain.PriceAmount, error) {
+
+	var item priceamountdomain.PriceAmount
+
+	err := db.WithContext(ctx).
+		Where("org_id = ?", orgID).
+		Where("price_id = ?", priceID).
+		Where("currency = ?", currency).
+		Order("effective_from DESC").
+		Limit(1).
+		Take(&item).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &item, nil
+}

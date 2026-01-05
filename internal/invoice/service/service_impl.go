@@ -436,7 +436,7 @@ func (s *Service) listInvoiceItemPartsFromRating(
 			InvoiceID:      invoiceID,
 			RatingResultID: &r.ID,
 			Quantity:       1,
-			UnitPrice:      priceamounts.UnitAmountCents,
+			UnitPrice:      r.UnitPrice,
 			Amount:         r.Amount,
 			CreatedAt:      now,
 		}

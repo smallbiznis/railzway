@@ -39,6 +39,7 @@ func EnsureMainOrg(db *gorm.DB) error {
 		org, err := ensureMainOrgTx(ctx, tx, node)
 		_, err = ensureInvoiceSequenceTx(ctx, tx, node, org.ID)
 		_, err = ensureInvoiceTemplateTx(ctx, tx, node, org.ID)
+		err = ensureLedgerAccounts(ctx, tx, node, org.ID)
 		return err
 	})
 }
@@ -218,4 +219,43 @@ func ensureInvoiceTemplateTx(ctx context.Context, tx *gorm.DB, node *snowflake.N
 	}
 
 	return seq, nil
+}
+
+func ensureLedgerAccounts(ctx context.Context, db *gorm.DB, node *snowflake.Node, orgID snowflake.ID) error {
+	type account struct {
+		Code string
+		Name string
+	}
+
+	accounts := []account{
+		{"accounts_receivable", "Accounts Receivable"},
+		{"revenue_usage", "Usage Revenue"},
+		{"revenue_flat", "Subscription Revenue"},
+		{"tax_payable", "Tax Payable"},
+		{"cash", "Cash / Bank"},
+		{"payment_fee_expense", "Payment Gateway Fees"},
+		{"credit_balance", "Customer Credit Balance"},
+		{"refund_liability", "Refund Liability"},
+		{"adjustment", "Billing Adjustment"},
+	}
+
+	for _, a := range accounts {
+		err := db.WithContext(ctx).
+			Exec(`
+				INSERT INTO ledger_accounts (id, org_id, code, name)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT (org_id, code) DO NOTHING
+			`,
+				node.Generate(),
+				orgID,
+				a.Code,
+				a.Name,
+			).Error
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
