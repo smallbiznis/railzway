@@ -55,7 +55,17 @@ export function AddPriceAmountDialog({
   const [confirmed, setConfirmed] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const now = useMemo(() => new Date(), [open])
+  const normalizeToMinute = (d: Date) => {
+    const copy = new Date(d)
+    copy.setSeconds(0, 0)
+    return copy
+  }
+
+  const now = useMemo(() => {
+    const d = new Date()
+    d.setSeconds(0, 0)
+    return d
+  }, [open])
   const minDateValue = useMemo(() => toLocalDateTimeInputValue(now), [now])
   const inferredCurrencyCode = useMemo(() => {
     const fromAmounts = priceAmounts[0]?.currency
@@ -86,43 +96,28 @@ export function AddPriceAmountDialog({
     return getLatestEffectiveFrom(priceAmounts, inferredCurrencyCode)
   }, [inferredCurrencyCode, priceAmounts])
 
-  const validation = useMemo<ValidationErrors>(() => {
+  const validation = useMemo(() => {
     const errors: ValidationErrors = {}
-    if (!inferredCurrencyCode) {
-      errors.currency = "Currency is required to create a price version."
-    }
-    if (!amount.trim()) {
-      errors.amount = "Amount is required."
-    } else if (!/^\d+$/.test(amount.trim())) {
-      errors.amount = "Amount must be a whole number in minor units."
-    } else if (parsedAmount == null || parsedAmount <= 0) {
-      errors.amount = "Amount must be greater than zero."
-    }
+
     if (!effectiveDate) {
       errors.effectiveFrom = "Effective from is required."
-    } else if (effectiveDate.getTime() < now.getTime()) {
-      errors.effectiveFrom = "Effective from must be now or later."
-    } else if (
-      latestEffective &&
-      effectiveDate.getTime() <= latestEffective.getTime()
-    ) {
-      errors.effectiveFrom = `Effective from must be after ${formatDateTime(
-        latestEffective.toISOString()
-      )} to avoid overlap.`
+    } else {
+      const eff = normalizeToMinute(effectiveDate)
+      const cur = normalizeToMinute(now)
+      if (eff.getTime() < cur.getTime()) {
+        errors.effectiveFrom = "Effective from must be now or later."
+      } else if (
+        latestEffective &&
+        eff.getTime() <= normalizeToMinute(latestEffective).getTime()
+      ) {
+        errors.effectiveFrom = `Effective from must be after ${formatDateTime(
+          latestEffective.toISOString()
+        )} to avoid overlap.`
+      }
     }
-    if (!confirmed) {
-      errors.confirmation = "Please confirm to continue."
-    }
+
     return errors
-  }, [
-    amount,
-    confirmed,
-    effectiveDate,
-    inferredCurrencyCode,
-    latestEffective,
-    now,
-    parsedAmount,
-  ])
+  }, [effectiveDate, latestEffective, now])
 
   const scheduleWarning =
     effectiveDate && effectiveDate.getTime() > now.getTime()

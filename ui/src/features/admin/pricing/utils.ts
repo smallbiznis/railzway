@@ -13,10 +13,21 @@ export const toLocalDateTimeInputValue = (value: Date) => {
     + [pad(value.getHours()), pad(value.getMinutes())].join(":")
 }
 
+export const toUTCISOStringFromLocalInput = (value: string) => {
+  // value: "2026-01-05T17:00"
+  const local = new Date(value)
+  if (Number.isNaN(local.getTime())) return null
+  return local.toISOString()
+}
+
+
 export const parseDate = (value?: string | null) => {
   if (!value) return null
+
+  // Force ISO or explicit timezone
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
+
   return parsed
 }
 
@@ -99,11 +110,14 @@ export const formatCurrencyAmount = (
 
 export const getLatestEffectiveFrom = (
   amounts: PriceAmount[],
-  currencyCode: string
+  currencyCode: string,
+  meterId?: string | null
 ) => {
-  const matches = amounts.filter(
-    (amount) => amount.currency?.toUpperCase() === currencyCode.toUpperCase()
+  const matches = amounts.filter((amount) =>
+    amount.currency?.toUpperCase() === currencyCode.toUpperCase()
+    && (meterId ? amount.meter_id === meterId : true)
   )
+
   return matches.reduce<Date | null>((latest, amount) => {
     const parsed = parseDate(amount.effective_from)
     if (!parsed) return latest
