@@ -19,4 +19,10 @@ type Repository interface {
 	FindPrevious(ctx context.Context, db *gorm.DB, orgID, priceID snowflake.ID, meterID *snowflake.ID, currency string, before time.Time) (*PriceAmount, error)
 	FindNext(ctx context.Context, db *gorm.DB, orgID, priceID snowflake.ID, meterID *snowflake.ID, currency string, after time.Time) (*PriceAmount, error)
 	ListOverlapping(ctx context.Context, db *gorm.DB, orgID, priceID snowflake.ID, meterID *snowflake.ID, currency string, start, end time.Time) ([]PriceAmount, error)
+	FindLatestByPriceAndCurrency(
+		ctx context.Context,
+		db *gorm.DB,
+		orgID, priceID snowflake.ID,
+		currency string,
+	) (*PriceAmount, error)
 }

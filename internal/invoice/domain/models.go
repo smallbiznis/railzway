@@ -21,8 +21,8 @@ const (
 type Invoice struct {
 	ID                snowflake.ID      `gorm:"primaryKey"`
 	OrgID             snowflake.ID      `gorm:"not null;index;uniqueIndex:ux_invoice_number_org,priority:1"`
-	InvoiceNumber     *int64            `gorm:"uniqueIndex:ux_invoice_number_org,priority:2"`
-	DisplayNumber     string            `gorm:"-"`
+	InvoiceSeq        *int64            `gorm:"uniqueIndex:ux_invoice_number_org,priority:2"`
+	InvoiceNumber     string            `gorm:"not null;index;"`
 	BillingCycleID    snowflake.ID      `gorm:"not null;index;uniqueIndex:ux_invoice_billing_cycle"`
 	SubscriptionID    snowflake.ID      `gorm:"not null;index"`
 	CustomerID        snowflake.ID      `gorm:"not null;index"`
@@ -46,21 +46,56 @@ type Invoice struct {
 // TableName sets the database table name.
 func (Invoice) TableName() string { return "invoices" }
 
+type InvoiceItemLineType string
+
+const (
+	// Subscription / plan / flat fee
+	InvoiceItemLineTypeSubscription InvoiceItemLineType = "subscription"
+
+	// Usage-based billing (metered)
+	InvoiceItemLineTypeUsage InvoiceItemLineType = "usage"
+
+	// Credit / promotion / signup credit / adjustment (negative amount)
+	InvoiceItemLineTypeCredit InvoiceItemLineType = "credit"
+
+	// One-off charge (manual charge, setup fee, migration fee)
+	InvoiceItemLineTypeOneOff InvoiceItemLineType = "one_off"
+
+	// Tax line (VAT, GST, sales tax)
+	InvoiceItemLineTypeTax InvoiceItemLineType = "tax"
+)
+
+func (t InvoiceItemLineType) String() string {
+	switch t {
+	case InvoiceItemLineTypeSubscription, InvoiceItemLineTypeUsage, InvoiceItemLineTypeCredit, InvoiceItemLineTypeOneOff, InvoiceItemLineTypeTax:
+		return string(t)
+	default:
+		return ""
+	}
+}
+
 // InvoiceItem represents a line on an invoice.
 type InvoiceItem struct {
-	ID                 snowflake.ID      `gorm:"primaryKey"`
-	OrgID              snowflake.ID      `gorm:"not null;index"`
-	InvoiceID          snowflake.ID      `gorm:"not null;index"`
-	RatingResultID     *snowflake.ID     `gorm:"index"`
-	LedgerEntryLineID  *snowflake.ID     `gorm:"column:ledger_entry_line_id;index"`
-	SubscriptionItemID *snowflake.ID     `gorm:"index"`
-	Description        string            `gorm:"type:text"`
-	Quantity           float64           `gorm:"not null"`
-	UnitPrice          int64             `gorm:"not null"`
-	Amount             int64             `gorm:"not null"`
-	Metadata           datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt          time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	ID             snowflake.ID        `gorm:"primaryKey"`
+	OrgID          snowflake.ID        `gorm:"not null;index"`
+	InvoiceID      snowflake.ID        `gorm:"not null;index"`
+	RatingResultID *snowflake.ID       `gorm:"index"`
+	LineType       InvoiceItemLineType `gorm:"type:text"`
+	Description    string              `gorm:"type:text"`
+	Quantity       float64             `gorm:"not null"`
+	UnitPrice      int64               `gorm:"not null"`
+	Amount         int64               `gorm:"not null"`
+	Metadata       datatypes.JSONMap   `gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt      time.Time           `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
 // TableName sets the database table name.
 func (InvoiceItem) TableName() string { return "invoice_items" }
+
+type InvoiceSequence struct {
+	OrgID      snowflake.ID `gorm:"primaryKey"`
+	NextNumber int          `gorm:"not null;default:1"`
+	UpdatedAt  time.Time    `gorm:"not null"`
+}
+
+func (InvoiceSequence) TableName() string { return "invoice_sequences" }

@@ -540,7 +540,7 @@ export default function OrgInvoiceDetailPage() {
           }
         }}
       >
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Invoice preview</DialogTitle>
             <DialogDescription>

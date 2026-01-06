@@ -291,7 +291,7 @@ func isNotFoundError(err error) bool {
 		errors.Is(err, productdomain.ErrNotFound),
 		errors.Is(err, pricedomain.ErrNotFound),
 		errors.Is(err, apikeydomain.ErrNotFound),
-		errors.Is(err, meterdomain.ErrNotFound),
+		errors.Is(err, meterdomain.ErrMeterNotFound),
 		errors.Is(err, priceamountdomain.ErrNotFound),
 		errors.Is(err, pricetierdomain.ErrNotFound),
 		errors.Is(err, invoicedomain.ErrBillingCycleNotFound),

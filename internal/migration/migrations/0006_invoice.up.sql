@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     billing_cycle_id BIGINT NOT NULL,
     subscription_id BIGINT NOT NULL,
     customer_id BIGINT NOT NULL,
+    invoice_seq INT NOT NULL,
+    invoice_number TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT',
     total_amount BIGINT NOT NULL DEFAULT 0,
     currency TEXT NOT NULL,
@@ -17,6 +19,8 @@ CREATE TABLE IF NOT EXISTS invoices (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_billing_cycle ON invoices(billing_cycle_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_invoice_seq ON invoices(org_id, invoice_seq);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_invoice_number ON invoices(org_id, invoice_number);
 CREATE INDEX IF NOT EXISTS idx_invoices_org_id ON invoices(org_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_subscription_id ON invoices(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
@@ -27,6 +31,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     invoice_id BIGINT NOT NULL,
     rating_result_item_id BIGINT,
     subscription_item_id BIGINT,
+    line_type TEXT,
     description TEXT,
     quantity BIGINT NOT NULL,
     unit_amount BIGINT NOT NULL,
@@ -42,6 +47,6 @@ CREATE INDEX IF NOT EXISTS idx_invoice_items_subscription_item_id ON invoice_ite
 
 CREATE TABLE invoice_sequences (
   org_id          BIGINT PRIMARY KEY,
-  next_number     BIGINT NOT NULL,
+  next_number     BIGINT NOT NULL DEFAULT 1,
   updated_at      TIMESTAMPTZ NOT NULL
 );

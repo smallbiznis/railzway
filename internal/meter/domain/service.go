@@ -55,11 +55,11 @@ type Response struct {
 
 var (
 	ErrInvalidOrganization = errors.New("invalid_organization")
+	ErrMeterNotFound       = errors.New("meter_not_found")
 	ErrInvalidCode         = errors.New("invalid_code")
 	ErrInvalidName         = errors.New("invalid_name")
 	ErrInvalidAggregation  = errors.New("invalid_aggregation_type")
 	ErrInvalidUnit         = errors.New("invalid_unit")
-	ErrNotFound            = errors.New("not_found")
 	ErrInvalidID           = errors.New("invalid_id")
 )
 

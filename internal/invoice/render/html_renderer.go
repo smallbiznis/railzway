@@ -133,10 +133,19 @@ const invoiceHTMLTemplate = `<!doctype html>
         <tbody>
           {{range .Items}}
           <tr>
-            <td>{{.Description}}</td>
-            <td>{{formatQuantity .Quantity}}</td>
-            <td>{{formatMoney .UnitPrice $.Invoice.Currency}}</td>
-            <td>{{formatMoney .Amount $.Invoice.Currency}}</td>
+            <td>
+              <div style="font-weight: 600;">
+                {{.Title}}
+              </div>
+              {{if .SubTitle}}
+              <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">
+                {{.SubTitle}}
+              </div>
+              {{end}}
+            </td>
+            <td>{{.Quantity}}</td>
+            <td>{{.UnitPrice}}</td>
+            <td>{{.Amount}}</td>
           </tr>
           {{end}}
         </tbody>
@@ -187,6 +196,7 @@ func (r *HTMLRenderer) RenderHTML(input RenderInput) (string, error) {
 	if err := r.tpl.Execute(&buf, input); err != nil {
 		return "", err
 	}
+
 	return buf.String(), nil
 }
 

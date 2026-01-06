@@ -42,10 +42,11 @@ const fetchPrice = async (priceId: string) => {
 }
 
 const fetchPriceAmounts = async (priceId: string) => {
+  // const now = new Date().toISOString()
   const response = await admin.get("/price_amounts", {
     params: {
       price_id: priceId,
-      effective_from: "1970-01-01T00:00:00Z",
+      // effective_from: now,
     },
   })
   const payload = response.data?.data

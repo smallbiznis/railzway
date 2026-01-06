@@ -65,7 +65,8 @@ func (s *Service) ListCustomerBalances(ctx context.Context) (billingdashboard.Cu
 		LEFT JOIN customer_balances cb ON cb.customer_id = c.id AND cb.org_id = ?
 		LEFT JOIN latest_invoice li ON li.customer_id = c.id
 		WHERE c.org_id = ?
-		ORDER BY c.name ASC`
+		ORDER BY c.name ASC
+		LIMIT 10`
 
 	if err := s.db.WithContext(ctx).Raw(
 		query,
@@ -144,7 +145,7 @@ func (s *Service) ListBillingCycles(ctx context.Context) (billingdashboard.Billi
 		period := row.PeriodStart.UTC().Format("2006-01")
 		status := strings.ToLower(strings.TrimSpace(row.Status))
 		cycles = append(cycles, billingdashboard.BillingCycleSummary{
-			CycleID:      row.CycleID.String(),
+			// CycleID:      row.CycleID.String(),
 			Period:       period,
 			TotalRevenue: row.TotalRevenue,
 			InvoiceCount: row.InvoiceCount,

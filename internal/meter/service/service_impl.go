@@ -132,7 +132,7 @@ func (s *Service) Update(ctx context.Context, req meterdomain.UpdateRequest) (*m
 		return nil, err
 	}
 	if item == nil {
-		return nil, meterdomain.ErrNotFound
+		return nil, meterdomain.ErrMeterNotFound
 	}
 
 	if req.Name != nil {
@@ -187,7 +187,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	if item == nil {
-		return meterdomain.ErrNotFound
+		return meterdomain.ErrMeterNotFound
 	}
 
 	return s.repo.Delete(ctx, s.db, orgID, meterID)
@@ -204,7 +204,7 @@ func (s *Service) GetByCode(ctx context.Context, code string) (*meterdomain.Resp
 		return nil, err
 	}
 	if item == nil {
-		return nil, meterdomain.ErrNotFound
+		return nil, meterdomain.ErrMeterNotFound
 	}
 
 	return s.toResponse(item), nil
@@ -226,7 +226,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (*meterdomain.Response
 		return nil, err
 	}
 	if item == nil {
-		return nil, meterdomain.ErrNotFound
+		return nil, meterdomain.ErrMeterNotFound
 	}
 
 	return s.toResponse(item), nil

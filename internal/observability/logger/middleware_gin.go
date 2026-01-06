@@ -101,6 +101,10 @@ func logRequest(log *zap.Logger, route string, status int, errorType string, fie
 		level = zap.DebugLevel
 	}
 
+	if isMetric(route) {
+		level = zap.DebugLevel
+	}
+
 	switch level {
 	case zap.DebugLevel:
 		log.Debug("http_request", fields...)
@@ -109,6 +113,10 @@ func logRequest(log *zap.Logger, route string, status int, errorType string, fie
 	default:
 		log.Info("http_request", fields...)
 	}
+}
+
+func isMetric(route string) bool {
+	return strings.EqualFold(strings.TrimSpace(route), "/metrics")
 }
 
 func isUsageIngest(route string) bool {

@@ -7,9 +7,9 @@ import (
 )
 
 type ListPriceAmountRequest struct {
-	PriceID       string     `url:"price_id"`
-	EffectiveFrom *time.Time `url:"effective_from"`
-	EffectiveTo   *time.Time `url:"effective_to"`
+	PriceID       string     `url:"price_id" form:"price_id"`
+	EffectiveFrom *time.Time `url:"effective_from" form:"effective_from"`
+	EffectiveTo   *time.Time `url:"effective_to" form:"effective_to"`
 }
 
 type GetPriceAmountByID struct {

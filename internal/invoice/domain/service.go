@@ -11,7 +11,7 @@ import (
 
 type ListInvoiceRequest struct {
 	Status        *InvoiceStatus
-	InvoiceNumber *int64
+	InvoiceNumber *string
 	CustomerID    *snowflake.ID
 	CreatedFrom   *time.Time
 	CreatedTo     *time.Time
@@ -39,7 +39,7 @@ type Service interface {
 	List(context.Context, ListInvoiceRequest) (ListInvoiceResponse, error)
 	GetByID(ctx context.Context, id string) (Invoice, error)
 	RenderInvoice(ctx context.Context, invoiceID string) (RenderInvoiceResponse, error)
-	GenerateInvoice(ctx context.Context, billingCycleID string) error
+	GenerateInvoice(ctx context.Context, billingCycleID string) (*Invoice, error)
 	FinalizeInvoice(ctx context.Context, invoiceID string) error
 	VoidInvoice(ctx context.Context, invoiceID string, reason string) error
 }

@@ -14,6 +14,7 @@ export type Price = {
 export type PriceAmount = {
   id: string
   price_id: string
+  meter_id: string
   currency: string
   amount?: number | null
   unit_amount_cents?: number | null

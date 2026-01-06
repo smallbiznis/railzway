@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
@@ -132,7 +133,7 @@ func (s *Service) resolveTemplate(ctx context.Context, db *gorm.DB, orgID snowfl
 func (s *Service) listInvoiceItems(ctx context.Context, db *gorm.DB, orgID, invoiceID snowflake.ID) ([]invoicedomain.InvoiceItem, error) {
 	var items []invoicedomain.InvoiceItem
 	err := db.WithContext(ctx).Raw(
-		`SELECT id, org_id, invoice_id, rating_result_id, ledger_entry_line_id, subscription_item_id,
+		`SELECT id, org_id, invoice_id, rating_result_id,
 		        description, quantity, unit_price, amount, metadata, created_at
 		 FROM invoice_items
 		 WHERE org_id = ? AND invoice_id = ?
@@ -192,21 +193,19 @@ func buildInvoiceView(invoice *invoicedomain.Invoice) render.InvoiceView {
 		return render.InvoiceView{}
 	}
 	number := ""
-	if strings.TrimSpace(invoice.DisplayNumber) != "" {
-		number = invoice.DisplayNumber
-	} else if invoice.InvoiceNumber != nil && invoice.IssuedAt != nil {
+	if invoice.InvoiceSeq != nil && invoice.IssuedAt != nil {
 		formatted, err := invoiceformat.FormatInvoiceNumber(
 			invoiceformat.DefaultInvoiceNumberTemplate,
 			*invoice.IssuedAt,
-			*invoice.InvoiceNumber,
+			*invoice.InvoiceSeq,
 		)
 		if err == nil {
 			number = formatted
 		} else {
-			number = fmtInvoiceNumber(*invoice.InvoiceNumber)
+			number = fmtInvoiceNumber(*invoice.InvoiceSeq)
 		}
-	} else if invoice.InvoiceNumber != nil {
-		number = fmtInvoiceNumber(*invoice.InvoiceNumber)
+	} else if invoice.InvoiceSeq != nil {
+		number = fmtInvoiceNumber(*invoice.InvoiceSeq)
 	}
 	return render.InvoiceView{
 		ID:             invoice.ID.String(),
@@ -233,12 +232,27 @@ func buildCustomerView(customer *customerRow) render.CustomerView {
 
 func buildLineItemViews(items []invoicedomain.InvoiceItem) []render.LineItemView {
 	views := make([]render.LineItemView, 0, len(items))
+
 	for _, item := range items {
+		meta := map[string]any(item.Metadata)
+
+		period := ""
+		if ps, ok := meta["period_start"].(string); ok {
+			if pe, ok := meta["period_end"].(string); ok {
+				period = fmt.Sprintf(
+					"%s – %s",
+					formatDate(ps),
+					formatDate(pe),
+				)
+			}
+		}
+
 		views = append(views, render.LineItemView{
-			Description: item.Description,
-			Quantity:    item.Quantity,
-			UnitPrice:   item.UnitPrice,
-			Amount:      item.Amount,
+			Title:     item.Description,
+			SubTitle:  period,
+			Quantity:  item.Quantity,
+			UnitPrice: item.UnitPrice,
+			Amount:    item.Amount,
 		})
 	}
 	return views
@@ -264,4 +278,12 @@ func fmtInvoiceNumber(value int64) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", value)
+}
+
+func formatDate(v string) string {
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return v
+	}
+	return t.Format("Jan 2, 2006")
 }

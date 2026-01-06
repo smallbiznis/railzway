@@ -22,6 +22,14 @@ const (
 )
 
 const (
+	SchedulerErrorTypeDeadlineExceeded = schedulerErrorTypeDeadlineExceeded
+	SchedulerErrorTypeAuthorization    = schedulerErrorTypeAuthorization
+	SchedulerErrorTypeBusinessRule     = schedulerErrorTypeBusinessRule
+	SchedulerErrorTypeDB               = schedulerErrorTypeDB
+	SchedulerErrorTypeUnknown          = "unknown"
+)
+
+const (
 	SchedulerJobReasonDeadlineExceeded     = "deadline_exceeded"
 	SchedulerJobReasonDBLockTimeout        = "db_lock_timeout"
 	SchedulerJobReasonSerializationFailure = "serialization_failure"
@@ -419,6 +427,34 @@ func classifySchedulerError(err error) string {
 		return schedulerErrorTypeDB
 	}
 	return schedulerErrorTypeBusinessRule
+}
+
+// ClassifySchedulerErrorType returns a low-cardinality error type for logging.
+func ClassifySchedulerErrorType(err error) string {
+	if err == nil {
+		return SchedulerErrorTypeUnknown
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return SchedulerErrorTypeDeadlineExceeded
+	}
+	if isAuthorizationError(err) {
+		return SchedulerErrorTypeAuthorization
+	}
+	if isDBError(err) {
+		return SchedulerErrorTypeDB
+	}
+	return SchedulerErrorTypeBusinessRule
+}
+
+// IsSchedulerErrorRetryable reports whether the scheduler error should be retried.
+func IsSchedulerErrorRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return isDBError(err)
 }
 
 // ClassifySchedulerJobReason maps scheduler job errors to low-cardinality reasons.

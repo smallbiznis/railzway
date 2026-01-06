@@ -8,6 +8,11 @@ CREATE TABLE IF NOT EXISTS invoice_templates (
     header JSONB,
     footer JSONB,
     style JSONB,
+    show_ship_to BOOLEAN NOT NULL DEFAULT true,
+    show_payment_details BOOLEAN NOT NULL DEFAULT true,
+    show_tax_details BOOLEAN NOT NULL DEFAULT false,
+    version INT NOT NULL DEFAULT 1,
+    is_locked BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
