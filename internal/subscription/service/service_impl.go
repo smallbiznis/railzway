@@ -7,9 +7,11 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
+	"github.com/smallbiznis/valora/internal/clock"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
+	priceamount "github.com/smallbiznis/valora/internal/priceamount/domain"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
 	"github.com/smallbiznis/valora/pkg/db/option"
 	"github.com/smallbiznis/valora/pkg/db/pagination"
@@ -25,11 +27,13 @@ type Service struct {
 	log *zap.Logger
 
 	genID            *snowflake.Node
+	clock            clock.Clock
 	repo             subscriptiondomain.Repository
 	billingCycleRepo repository.Repository[billingcycledomain.BillingCycle]
 	subscriptionRepo repository.Repository[subscriptiondomain.Subscription]
 
-	pricesvc pricedomain.Service
+	pricesvc       pricedomain.Service
+	priceamountsvc priceamount.Service
 }
 
 type ServiceParam struct {
@@ -38,9 +42,11 @@ type ServiceParam struct {
 	DB    *gorm.DB
 	Log   *zap.Logger
 	GenID *snowflake.Node
+	Clock clock.Clock
 	Repo  subscriptiondomain.Repository
 
-	Pricesvc pricedomain.Service
+	Pricesvc       pricedomain.Service
+	PriceAmountsvc priceamount.Service
 }
 
 func NewService(p ServiceParam) subscriptiondomain.Service {
@@ -49,11 +55,13 @@ func NewService(p ServiceParam) subscriptiondomain.Service {
 		log: p.Log.Named("subscription.service"),
 
 		genID:            p.GenID,
+		clock:            p.Clock,
 		repo:             p.Repo,
 		billingCycleRepo: repository.ProvideStore[billingcycledomain.BillingCycle](p.DB),
 		subscriptionRepo: repository.ProvideStore[subscriptiondomain.Subscription](p.DB),
 
-		pricesvc: p.Pricesvc,
+		pricesvc:       p.Pricesvc,
+		priceamountsvc: p.PriceAmountsvc,
 	}
 }
 
@@ -393,13 +401,13 @@ func (s *Service) validateActivation(ctx context.Context, tx *gorm.DB, subscript
 		return subscriptiondomain.ErrMissingSubscriptionItems
 	}
 
-	meterCount, err := s.countSubscriptionItemsWithMeter(ctx, tx, subscription.OrgID, subscription.ID)
-	if err != nil {
-		return err
-	}
-	if meterCount == 0 {
-		return subscriptiondomain.ErrInvalidMeterID
-	}
+	// meterCount, err := s.countSubscriptionItemsWithMeter(ctx, tx, subscription.OrgID, subscription.ID)
+	// if err != nil {
+	// 	return err
+	// }
+	// if meterCount == 0 {
+	// 	return subscriptiondomain.ErrInvalidMeterID
+	// }
 
 	pricedCount, err := s.countSubscriptionItemsWithPrice(ctx, tx, subscription.OrgID, subscription.ID)
 	if err != nil {
@@ -489,7 +497,7 @@ func (s *Service) countSubscriptionItemsWithMeter(ctx context.Context, tx *gorm.
 	if err := tx.WithContext(ctx).Raw(
 		`SELECT COUNT(1)
 		 FROM subscription_items
-		 WHERE org_id = ? AND subscription_id = ? AND meter_id IS NOT NULL`,
+		 WHERE org_id = ? AND subscription_id = ?`,
 		orgID,
 		subscriptionID,
 	).Scan(&count).Error; err != nil {
@@ -659,6 +667,10 @@ func (s *Service) buildSubscriptionItems(
 			return nil, err
 		}
 
+		if price == nil {
+			return nil, pricedomain.ErrInvalidID
+		}
+
 		if err := validateSubscriptionPricingModel(price, &flatCount); err != nil {
 			return nil, err
 		}
@@ -681,9 +693,22 @@ func (s *Service) buildSubscriptionItems(
 			return nil, subscriptiondomain.ErrInvalidBillingCycleType
 		}
 
-		meterID, meterCode, err := s.resolvePriceMeter(ctx, orgID, parsedPriceID, item.MeterID)
-		if err != nil {
-			return nil, err
+		var (
+			meterID   *snowflake.ID
+			meterCode *string
+		)
+		if price.PricingModel == pricedomain.PerUnit ||
+			price.PricingModel == pricedomain.TieredGraduated ||
+			price.PricingModel == pricedomain.TieredVolume {
+			priceAmounts, err := s.loadPriceAmount(ctx, price.ID)
+			if err != nil {
+				return nil, err
+			}
+
+			meterID, meterCode, err = s.resolvePriceMeter(ctx, orgID, parsedPriceID, *priceAmounts[0].MeterID)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		var priceCodePtr *string
@@ -735,6 +760,14 @@ func (s *Service) loadPrice(
 
 	cache[trimmed] = loaded
 	return loaded, nil
+}
+
+func (s *Service) loadPriceAmount(ctx context.Context, priceID string) ([]priceamount.Response, error) {
+	now := s.clock.Now()
+	return s.priceamountsvc.List(ctx, priceamount.ListPriceAmountRequest{
+		PriceID:       priceID,
+		EffectiveFrom: &now,
+	})
 }
 
 func validateSubscriptionPricingModel(price *pricedomain.Response, flatCount *int) error {

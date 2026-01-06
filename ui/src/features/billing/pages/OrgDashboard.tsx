@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table"
 import { useOrgStore } from "@/stores/orgStore"
 import { getErrorMessage, isForbiddenError } from "@/lib/api-errors"
+import { CircleCheck, CreditCard, Receipt } from "lucide-react"
 
 type CustomerBalance = {
   customer_id: string
@@ -37,8 +38,14 @@ type BillingCycleSummary = {
 }
 
 type BillingActivity = {
+  action: string
   message: string
   occurred_at: string
+}
+
+type BillingGroup = {
+  title: string
+  activities: BillingActivity[]
 }
 
 type InvoiceRecord = Record<string, unknown>
@@ -209,7 +216,7 @@ export default function OrgDashboard() {
   const [customerBalances, setCustomerBalances] = useState<CustomerBalance[]>([])
   const [billingCycles, setBillingCycles] = useState<BillingCycleSummary[]>([])
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([])
-  const [activity, setActivity] = useState<BillingActivity[]>([])
+  const [activity, setActivity] = useState<BillingGroup[]>([])
 
   const loadDashboard = useCallback(async () => {
     if (!org) {
@@ -233,7 +240,7 @@ export default function OrgDashboard() {
         cyclesRes.data?.cycles
       const invoicePayload: DashboardResponse<InvoiceRecord> =
         invoicesRes.data?.data
-      const activityPayload: DashboardResponse<BillingActivity> =
+      const activityPayload: DashboardResponse<BillingGroup> =
         activityRes.data?.activity
 
       setCustomerBalances(Array.isArray(customersPayload) ? customersPayload : [])
@@ -269,14 +276,6 @@ export default function OrgDashboard() {
     [customerBalances]
   )
 
-  const customerLookup = useMemo(() => {
-    const map = new Map<string, CustomerBalance>()
-    for (const customer of customerBalances) {
-      map.set(customer.customer_id, customer)
-    }
-    return map
-  }, [customerBalances])
-
   const invoiceLookup = useMemo(() => {
     const map = new Map<string, InvoiceRecord>()
     for (const invoice of invoices) {
@@ -297,6 +296,19 @@ export default function OrgDashboard() {
     )
     return openCycle ?? billingCycles[0]
   }, [billingCycles])
+
+  const IconAction = (act: string): any => {
+    switch (act) {
+      case "invoice.finalize":
+        return <CircleCheck className="text-emerald-500" />
+      case "invoice.generate":
+        return <Receipt className="text-gray-500" />
+      case "payment.received":
+        return <CreditCard />
+      default:
+        return <></>
+    }
+  }
 
   if (!org) {
     return <Navigate to="/orgs" replace />
@@ -464,7 +476,7 @@ export default function OrgDashboard() {
                   <TableRow>
                     <TableHead>Invoice</TableHead>
                     <TableHead>Customer</TableHead>
-                    <TableHead>Subtotal</TableHead>
+                    {/* <TableHead>Subtotal</TableHead> */}
                     <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Due Date</TableHead>
@@ -489,8 +501,6 @@ export default function OrgDashboard() {
                       const customerID = String(
                         readField(invoice, ["customer_id", "CustomerID"]) ?? ""
                       )
-                      const customerName =
-                        customerLookup.get(customerID)?.name ?? "-"
                       const currency =
                         String(readField(invoice, ["currency", "Currency"]) ?? "") ||
                         currencyFallback
@@ -498,6 +508,8 @@ export default function OrgDashboard() {
                       const subtotal = typeof subtotalRaw === "number" ? subtotalRaw : null
                       const status = String(readField(invoice, ["status", "Status"]) ?? "")
                       const dueAt = String(readField(invoice, ["due_at", "DueAt"]) ?? "")
+
+                      const customerDetailLink = customerID ? `/orgs/${org.id}/customers/${customerID}` : ""
                       const detailLink = id ? `/orgs/${org.id}/invoices/${id}` : ""
 
                       return (
@@ -511,8 +523,12 @@ export default function OrgDashboard() {
                               invoiceLabel(invoice)
                             )}
                           </TableCell>
-                          <TableCell>{customerName}</TableCell>
-                          <TableCell>{formatCurrency(subtotal, currency)}</TableCell>
+                          <TableCell>
+                            <Link className="text-accent-primary hover:underline" to={customerDetailLink}>
+                              {customerID}
+                            </Link>
+                          </TableCell>
+                          {/* <TableCell>{formatCurrency(subtotal, currency)}</TableCell> */}
                           <TableCell>{formatCurrency(subtotal, currency)}</TableCell>
                           <TableCell>
                             <Badge variant={invoiceStatusVariant(status)}>
@@ -531,7 +547,7 @@ export default function OrgDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Billing status & activity</CardTitle>
+              <CardTitle>Recent activity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-lg border border-border-subtle bg-bg-surface-strong px-4 py-3">
@@ -568,18 +584,46 @@ export default function OrgDashboard() {
                 ) : activity.length === 0 ? (
                   <p className="text-sm text-text-muted">No recent billing activity.</p>
                 ) : (
-                  <ul className="space-y-3">
-                    {activity.slice(0, 6).map((item, index) => (
-                      <li key={`${item.message}-${index}`} className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium">{item.message}</p>
-                          <p className="text-xs text-text-muted">
-                            {formatDateTime(item.occurred_at)}
-                          </p>
-                        </div>
-                      </li>
+                  // <ul className="space-y-3">
+                  //   {activity.slice(0, 6).map((item, index) => (
+                  //     <li key={`${item.message}-${index}`} className="flex items-start justify-between gap-4">
+                  //       <div>
+                  //         <p className="text-sm font-medium">{item.message}</p>
+                  //         <p className="text-xs text-text-muted">
+                  //           {formatDateTime(item.occurred_at)}
+                  //         </p>
+                  //       </div>
+                  //     </li>
+                  //   ))}
+                  // </ul>
+                  <>
+                    {activity.map((group) => (
+                      <div key={group.title}>
+                        <h4 className="mb-2 text-xs font-semibold uppercase text-text-muted">
+                          {group.title}
+                        </h4>
+
+                        <ul className="space-y-3">
+                          {group.activities.slice(0, 6).map((item, index) => (
+                            <li
+                              key={`${item.message}-${index}`}
+                              className="flex items-start justify-between gap-4"
+                            >
+                              <div className="grid gap-1.5">
+                                <p className="flex text-sm font-medium">
+                                  <span className="mr-2">{IconAction(item.action)}</span>
+                                  {item.message}
+                                </p>
+                                <p className="text-xs text-text-muted">
+                                  {formatDateTime(item.occurred_at)}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ))}
-                  </ul>
+                  </>
                 )}
               </div>
             </CardContent>

@@ -52,7 +52,8 @@ const (
 	AccountCodeCash               LedgerAccountCode = "cash"
 
 	// Revenue
-	AccountCodeRevenue LedgerAccountCode = "revenue"
+	AccountCodeRevenueFlat  LedgerAccountCode = "revenue_flat"
+	AccountCodeRevenueUsage LedgerAccountCode = "revenue_usage"
 
 	// Liabilities
 	AccountCodeTaxPayable    LedgerAccountCode = "tax_payable"
@@ -66,11 +67,22 @@ const (
 	AccountCodeAdjustment LedgerAccountCode = "adjustment"
 )
 
+type LedgerAccountType string
+
+const (
+	Assets    LedgerAccountType = "assets"
+	Liability LedgerAccountType = "liability"
+	Income    LedgerAccountType = "income"
+	Expense   LedgerAccountType = "expense"
+	Equity    LedgerAccountType = "equity"
+)
+
 // LedgerAccount defines a chart-of-accounts entry.
 type LedgerAccount struct {
 	ID        snowflake.ID      `gorm:"primaryKey"`
 	OrgID     snowflake.ID      `gorm:"not null;index;uniqueIndex:ux_ledger_accounts_org_code,priority:1"`
-	Code      LedgerAccountCode `gorm:"type:text;not null;uniqueIndex:ux_ledger_accounts_org_code,priority:2"`
+	Code      LedgerAccountCode `gorm:"code:text;not null;uniqueIndex:ux_ledger_accounts_org_code,priority:2"`
+	Type      LedgerAccountType `gorm:"type:text;not null;uniqueIndex:ux_ledger_accounts_org_type"`
 	Name      string            `gorm:"type:text;not null"`
 	CreatedAt time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
@@ -98,6 +110,7 @@ type LedgerEntryLine struct {
 	LedgerEntryID snowflake.ID         `gorm:"not null;index"`
 	AccountID     snowflake.ID         `gorm:"not null;index"`
 	Direction     LedgerEntryDirection `gorm:"type:text;not null"`
+	Currency      string               `gorm:"type:text;not null;default:USD"`
 	Amount        int64                `gorm:"not null"`
 	CreatedAt     time.Time            `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }

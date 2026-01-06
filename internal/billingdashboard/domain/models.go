@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/datatypes"
+)
 
 // CustomerBalance represents a customer's net position.
 type CustomerBalance struct {
@@ -33,11 +37,23 @@ type BillingCycleSummaryResponse struct {
 
 // BillingActivity represents a human-readable billing event.
 type BillingActivity struct {
+	Action     string    `json:"action"`
 	Message    string    `json:"message"`
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
 // BillingActivityResponse is the API response for billing activity.
 type BillingActivityResponse struct {
-	Activity []BillingActivity `json:"activity"`
+	Activity []ActivityGroup `json:"activity"`
+}
+
+type ActivityGroup struct {
+	Title      string            `json:"title"`
+	Activities []BillingActivity `json:"activities"`
+}
+
+type ActivityRow struct {
+	Action    string            `gorm:"column:action" json:"action"`
+	Metadata  datatypes.JSONMap `gorm:"column:metadata" json:"metadata"`
+	CreatedAt time.Time         `gorm:"column:created_at" json:"created_at"`
 }

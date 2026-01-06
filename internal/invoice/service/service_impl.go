@@ -343,7 +343,6 @@ func (s *Service) GenerateInvoice(ctx context.Context, billingCycleID string) (*
 			Currency:       entry.Currency,
 			PeriodStart:    &cycle.PeriodStart,
 			PeriodEnd:      &cycle.PeriodEnd,
-			IssuedAt:       &now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}
@@ -567,12 +566,18 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		renderedChecksum = hex.EncodeToString(checksum[:])
 
 		now := time.Now().UTC()
+		dueAt := now.AddDate(0, 0, 30)
+		invoice.DueAt = &dueAt
+		invoice.IssuedAt = &now
+		invoice.FinalizedAt = &now
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE invoices
-			 SET status = ?, finalized_at = ?, invoice_template_id = ?, rendered_html = ?, rendered_pdf_url = ?, updated_at = ?
+			 SET status = ?, finalized_at = ?, issued_at = ?, due_at = ?, invoice_template_id = ?, rendered_html = ?, rendered_pdf_url = ?, updated_at = ?
 			 WHERE id = ?`,
 			invoice.Status,
 			now,
+			now,
+			now.AddDate(0, 30, 0),
 			invoice.InvoiceTemplateID,
 			invoice.RenderedHTML,
 			invoice.RenderedPDFURL,
@@ -581,7 +586,6 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		).Error; err != nil {
 			return err
 		}
-		invoice.FinalizedAt = &now
 		finalizedInvoice = invoice
 
 		if s.outbox != nil {

@@ -90,8 +90,13 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 	var entity *priceamountdomain.PriceAmount
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 6. Ensure the price exists
-		if err := s.ensurePriceExists(ctx, tx, orgID, priceID); err != nil {
+		price, err := s.ensurePriceExists(ctx, tx, orgID, priceID)
+		if err != nil {
 			return err
+		}
+
+		if price == nil {
+			return priceamountdomain.ErrInvalidPrice
 		}
 
 		// 7. CRITICAL: Resolve the pricing dimension
@@ -101,6 +106,10 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 		)
 		if err != nil {
 			return err
+		}
+
+		if price.PricingModel != pricedomain.Flat {
+			meterID = requestedMeterID
 		}
 
 		// 8. If versioning, validate continuity and close current window
@@ -193,12 +202,7 @@ func (s *Service) resolvePricingDimension(
 
 	// Case 1: No existing price amount - this is initial creation
 	if latest == nil {
-		if requestedMeterID == nil {
-			// Cannot create initial price amount without meter_id
-			return nil, false, priceamountdomain.ErrInvalidMeterID
-		}
-		// Use the provided meter_id for new dimension
-		return requestedMeterID, false, nil
+		return nil, false, nil
 	}
 
 	// Case 2: Existing price amount found - this is versioning
@@ -281,15 +285,15 @@ func (s *Service) alignEffectiveTo(
 
 // Validation and helper methods below remain largely unchanged
 
-func (s *Service) ensurePriceExists(ctx context.Context, db *gorm.DB, orgID, priceID snowflake.ID) error {
+func (s *Service) ensurePriceExists(ctx context.Context, db *gorm.DB, orgID, priceID snowflake.ID) (*pricedomain.Price, error) {
 	item, err := s.priceRepo.FindByID(ctx, db, orgID, priceID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if item == nil {
-		return priceamountdomain.ErrInvalidPrice
+		return nil, priceamountdomain.ErrInvalidPrice
 	}
-	return nil
+	return item, nil
 }
 
 func (s *Service) parseAmountIdentifiers(req priceamountdomain.CreateRequest) (snowflake.ID, *snowflake.ID, string, error) {

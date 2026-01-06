@@ -13,8 +13,33 @@ import (
 
 // Note: Deprecated
 type ratingSummary struct {
+	Kind     string
 	Currency string
 	Total    int64
+}
+
+func (s *Scheduler) getLedgerAccountID(
+	ctx context.Context,
+	orgID snowflake.ID,
+	code ledgerdomain.LedgerAccountCode,
+) (snowflake.ID, error) {
+
+	var id snowflake.ID
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT id
+		 FROM ledger_accounts
+		 WHERE org_id = ? AND code = ?`,
+		orgID,
+		string(code),
+	).Scan(&id).Error; err != nil {
+		return 0, err
+	}
+
+	if id == 0 {
+		return 0, ledgerdomain.ErrInvalidAccount
+	}
+
+	return id, nil
 }
 
 func (s *Scheduler) ensureLedgerEntryForCycle(
@@ -27,52 +52,75 @@ func (s *Scheduler) ensureLedgerEntryForCycle(
 		return err
 	}
 
-	if summary.Total <= 0 {
+	var (
+		currency string
+		total    int64
+		lines    []ledgerdomain.LedgerEntryLine
+	)
+
+	for _, v := range summary {
+		if v.Total <= 0 {
+			continue
+		}
+
+		// Enforce single currency
+		if currency == "" {
+			currency = v.Currency
+		} else if currency != v.Currency {
+			return invoicedomain.ErrCurrencyMismatch
+		}
+
+		var accountCode ledgerdomain.LedgerAccountCode
+		switch v.Kind {
+		case "flat":
+			accountCode = ledgerdomain.AccountCodeRevenueFlat
+		case "usage":
+			accountCode = ledgerdomain.AccountCodeRevenueUsage
+		default:
+			continue
+		}
+
+		revenueID, err := s.getLedgerAccountID(ctx, cycle.OrgID, accountCode)
+		if err != nil {
+			return err
+		}
+
+		total += v.Total
+
+		lines = append(lines, ledgerdomain.LedgerEntryLine{
+			AccountID: revenueID,
+			Direction: ledgerdomain.LedgerEntryDirectionCredit,
+			Currency:  v.Currency,
+			Amount:    v.Total,
+		})
+	}
+
+	if len(lines) == 0 {
 		return invoicedomain.ErrMissingRatingResults
 	}
 
-	now := s.clock.Now()
-	arID, err := s.ensureLedgerAccount(
+	arID, err := s.getLedgerAccountID(
 		ctx,
 		cycle.OrgID,
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		"Accounts Receivable",
-		now,
+		ledgerdomain.AccountCodeAccountsReceivable,
 	)
 	if err != nil {
 		return err
 	}
 
-	revenueUsageID, err := s.ensureLedgerAccount(
-		ctx,
-		cycle.OrgID,
-		string(ledgerdomain.AccountCodeRevenue),
-		"Revenue (Usage)",
-		now,
-	)
-	if err != nil {
-		return err
-	}
-
-	lines := []ledgerdomain.LedgerEntryLine{
-		{
-			AccountID: arID,
-			Direction: ledgerdomain.LedgerEntryDirectionDebit,
-			Amount:    summary.Total,
-		},
-		{
-			AccountID: revenueUsageID,
-			Direction: ledgerdomain.LedgerEntryDirectionCredit,
-			Amount:    summary.Total,
-		},
-	}
+	lines = append(lines, ledgerdomain.LedgerEntryLine{
+		AccountID: arID,
+		Direction: ledgerdomain.LedgerEntryDirectionDebit,
+		Currency:  currency,
+		Amount:    total,
+	})
 
 	return s.ledgerSvc.CreateEntry(
 		ctx,
 		cycle.OrgID,
 		string(ledgerdomain.SourceTypeBillingCycle),
 		cycle.ID,
-		summary.Currency,
+		currency,
 		cycle.PeriodEnd,
 		lines,
 	)
@@ -82,24 +130,23 @@ func (s *Scheduler) summarizeRatingResults(
 	ctx context.Context,
 	orgID snowflake.ID,
 	billingCycleID snowflake.ID,
-) (*ratingSummary, error) {
+) ([]ratingSummary, error) {
 
-	type row struct {
-		Currency string
-		Total    int64
-	}
-
-	var rows []row
+	var rows []ratingSummary
 
 	err := s.db.WithContext(ctx).Raw(
 		`
 		SELECT
+			CASE
+				WHEN meter_id IS NULL THEN 'flat'
+				ELSE 'usage'
+			END AS kind,
 			currency,
 			SUM(amount) AS total
 		FROM rating_results
 		WHERE org_id = ?
 		  AND billing_cycle_id = ?
-		GROUP BY currency
+		GROUP BY kind, currency
 		`,
 		orgID,
 		billingCycleID,
@@ -111,20 +158,11 @@ func (s *Scheduler) summarizeRatingResults(
 	if len(rows) == 0 {
 		return nil, invoicedomain.ErrMissingRatingResults
 	}
-	if len(rows) > 1 {
-		return nil, invoicedomain.ErrCurrencyMismatch
-	}
 
-	if rows[0].Total <= 0 {
-		return nil, ledgerdomain.ErrInvalidLineAmount
-	}
-
-	return &ratingSummary{
-		Currency: rows[0].Currency,
-		Total:    rows[0].Total,
-	}, nil
+	return rows, nil
 }
 
+// Deprecated
 func (s *Scheduler) ensureLedgerAccount(ctx context.Context, orgID snowflake.ID, code string, name string, now time.Time) (snowflake.ID, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {

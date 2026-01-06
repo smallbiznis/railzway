@@ -113,6 +113,10 @@ func EnsureMainOrgAndAdmin(db *gorm.DB) error {
 			}
 		}
 
+		_, err = ensureInvoiceSequenceTx(ctx, tx, node, org.ID)
+		_, err = ensureInvoiceTemplateTx(ctx, tx, node, org.ID)
+		err = ensureLedgerAccounts(ctx, tx, node, org.ID)
+
 		return nil
 	})
 }
@@ -224,31 +228,36 @@ func ensureInvoiceTemplateTx(ctx context.Context, tx *gorm.DB, node *snowflake.N
 func ensureLedgerAccounts(ctx context.Context, db *gorm.DB, node *snowflake.Node, orgID snowflake.ID) error {
 	type account struct {
 		Code string
+		Type string
 		Name string
 	}
 
 	accounts := []account{
-		{"accounts_receivable", "Accounts Receivable"},
-		{"revenue_usage", "Usage Revenue"},
-		{"revenue_flat", "Subscription Revenue"},
-		{"tax_payable", "Tax Payable"},
-		{"cash", "Cash / Bank"},
-		{"payment_fee_expense", "Payment Gateway Fees"},
-		{"credit_balance", "Customer Credit Balance"},
-		{"refund_liability", "Refund Liability"},
-		{"adjustment", "Billing Adjustment"},
+		{"accounts_receivable", "asset", "Accounts Receivable"},
+		{"cash", "asset", "Cash / Bank"},
+
+		{"revenue_usage", "income", "Usage Revenue"},
+		{"revenue_flat", "income", "Subscription Revenue"},
+
+		{"tax_payable", "liability", "Tax Payable"},
+		{"credit_balance", "liability", "Customer Credit Balance"},
+		{"refund_liability", "liability", "Refund Liability"},
+
+		{"payment_fee_expense", "expense", "Payment Gateway Fees"},
+		{"adjustment", "expense", "Billing Adjustment"},
 	}
 
 	for _, a := range accounts {
 		err := db.WithContext(ctx).
 			Exec(`
-				INSERT INTO ledger_accounts (id, org_id, code, name)
-				VALUES (?, ?, ?, ?)
+				INSERT INTO ledger_accounts (id, org_id, code, type, name)
+				VALUES (?, ?, ?, ?, ?)
 				ON CONFLICT (org_id, code) DO NOTHING
 			`,
 				node.Generate(),
 				orgID,
 				a.Code,
+				a.Type,
 				a.Name,
 			).Error
 

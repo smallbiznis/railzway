@@ -408,6 +408,7 @@ func startEnv() (*testEnv, error) {
 		usage.Module,
 		rating.Module,
 		billingcycle.Module,
+		migration.Module,
 		fx.Provide(scheduler.New),
 		fx.Provide(func() *snowflake.Node {
 			node, err := snowflake.NewNode(1)

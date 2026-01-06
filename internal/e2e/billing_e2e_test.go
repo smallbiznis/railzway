@@ -57,7 +57,6 @@ func TestE2E_RatingFlatOnly(t *testing.T) {
 	})
 	createAdminPriceAmount(t, client, orgID, map[string]any{
 		"price_id":             priceID,
-		"meter_id":             meterID,
 		"currency":             "USD",
 		"unit_amount_cents":    500,
 		"minimum_amount_cents": 500,
@@ -177,7 +176,7 @@ func TestE2E_RatingHybrid(t *testing.T) {
 	client, orgID := loginAdmin(t)
 	apiKey := createAPIKey(t, client, orgID)
 	suffix := testSuffix(t)
-	flatMeterID, _ := createAdminMeter(t, client, orgID, "hybrid-flat-meter-"+suffix)
+
 	usageMeterID, usageMeterCode := createAdminMeter(t, client, orgID, "hybrid-usage-meter-"+suffix)
 	productID := createAdminProduct(t, client, orgID, "hybrid-product-"+suffix)
 
@@ -193,7 +192,6 @@ func TestE2E_RatingHybrid(t *testing.T) {
 	})
 	createAdminPriceAmount(t, client, orgID, map[string]any{
 		"price_id":             flatPriceID,
-		"meter_id":             flatMeterID,
 		"currency":             "USD",
 		"unit_amount_cents":    900,
 		"minimum_amount_cents": 900,
@@ -224,8 +222,8 @@ func TestE2E_RatingHybrid(t *testing.T) {
 		"collection_mode":    "SEND_INVOICE",
 		"billing_cycle_type": "MONTHLY",
 		"items": []map[string]any{
-			{"price_id": flatPriceID, "meter_id": flatMeterID, "quantity": 1},
-			{"price_id": usagePriceID, "meter_id": usageMeterID, "quantity": 1},
+			{"price_id": flatPriceID, "quantity": 1},
+			{"price_id": usagePriceID, "quantity": 1},
 		},
 	})
 	activateSubscription(t, client, orgID, subscriptionID)
@@ -278,9 +276,6 @@ func TestE2E_RatingHybrid(t *testing.T) {
 		t.Fatalf("expected both flat and usage rating results")
 	}
 
-	if countRows(t, env.db, "usage_events", "meter_id = ? AND org_id = ?", mustParseID(t, flatMeterID), mustParseID(t, orgID)) != 0 {
-		t.Fatalf("expected no usage_events for flat meter")
-	}
 }
 
 func TestE2E_CustomerLifecycleValidation(t *testing.T) {
@@ -459,7 +454,6 @@ func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
 	client, orgID := loginAdmin(t)
 	apiKey := createAPIKey(t, client, orgID)
 	suffix := testSuffix(t)
-	flatMeterID, _ := createAdminMeter(t, client, orgID, "hybrid-flat-meter-"+suffix)
 	usageMeterID, usageMeterCode := createAdminMeter(t, client, orgID, "hybrid-usage-meter-"+suffix)
 	productID := createAdminProduct(t, client, orgID, "hybrid-product-"+suffix)
 
@@ -475,11 +469,9 @@ func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
 	})
 
 	createAdminPriceAmount(t, client, orgID, map[string]any{
-		"price_id":             flatPriceID,
-		"meter_id":             flatMeterID,
-		"currency":             "USD",
-		"unit_amount_cents":    900,
-		"minimum_amount_cents": 900,
+		"price_id":          flatPriceID,
+		"currency":          "USD",
+		"unit_amount_cents": 900,
 	})
 
 	usagePriceID := createAdminPrice(t, client, orgID, map[string]any{
@@ -502,7 +494,7 @@ func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
 		"unit_amount_cents": 150,
 	})
 
-	subs := createManyCustomersAndSubscriptionsParallel(t, client, orgID, 10000, flatPriceID, flatMeterID, usagePriceID, usageMeterID, 30)
+	subs := createManyCustomersAndSubscriptionsParallel(t, client, orgID, 10000, flatPriceID, usagePriceID, 30)
 
 	usages := make([]map[string]any, 0, len(subs))
 	for i := 0; i < len(subs); i++ {
@@ -617,7 +609,7 @@ func createAdminSubscription(t *testing.T, client *http.Client, orgID string, re
 	t.Helper()
 	resp, body := createSubscriptionWithResponse(t, client, orgID, req)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("create subscription failed: %d", resp.StatusCode)
+		t.Fatalf("create subscription failed: %d: %s", resp.StatusCode, string(body))
 	}
 	var payload struct {
 		Data struct {
@@ -694,8 +686,8 @@ func createManyCustomersAndSubscriptionsParallel(
 	client *http.Client,
 	orgID string,
 	count int,
-	flatPriceID, flatMeterID string,
-	usagePriceID, usageMeterID string,
+	flatPriceID string,
+	usagePriceID string,
 	concurrency int,
 ) []SubInfo {
 	t.Helper()
@@ -726,8 +718,8 @@ func createManyCustomersAndSubscriptionsParallel(
 				"collection_mode":    "SEND_INVOICE",
 				"billing_cycle_type": "MONTHLY",
 				"items": []map[string]any{
-					{"price_id": flatPriceID, "meter_id": flatMeterID, "quantity": 1},
-					{"price_id": usagePriceID, "meter_id": usageMeterID, "quantity": 1},
+					{"price_id": flatPriceID, "quantity": 1},
+					{"price_id": usagePriceID, "quantity": 1},
 				},
 			})
 

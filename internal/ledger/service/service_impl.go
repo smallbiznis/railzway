@@ -94,6 +94,7 @@ func (s *Service) CreateEntry(
 		normalized = append(normalized, ledgerdomain.LedgerEntryLine{
 			AccountID: line.AccountID,
 			Direction: direction,
+			Currency:  line.Currency,
 			Amount:    line.Amount,
 		})
 	}
@@ -135,12 +136,13 @@ func (s *Service) CreateEntry(
 		for _, line := range normalized {
 			if err := tx.WithContext(ctx).Exec(
 				`INSERT INTO ledger_entry_lines (
-					id, ledger_entry_id, account_id, direction, amount, created_at
-				) VALUES (?, ?, ?, ?, ?, ?)`,
+					id, ledger_entry_id, account_id, direction, currency, amount, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 				s.genID.Generate(),
 				entryID,
 				line.AccountID,
 				string(line.Direction),
+				line.Currency,
 				line.Amount,
 				now,
 			).Error; err != nil {

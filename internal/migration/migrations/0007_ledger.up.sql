@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS ledger_accounts (
   org_id BIGINT NOT NULL,
   code TEXT NOT NULL,
   name TEXT NOT NULL,
+  type TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS ledger_entry_lines (
   ledger_entry_id BIGINT NOT NULL REFERENCES ledger_entries(id),
   account_id BIGINT NOT NULL REFERENCES ledger_accounts(id),
   direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
+  currency TEXT NOT NULL DEFAULT 'USD',
   amount BIGINT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS subscription_items (
     subscription_id BIGINT NOT NULL,
     price_id BIGINT NOT NULL,
     price_code TEXT,
-    meter_id BIGINT NOT NULL,
+    meter_id BIGINT,
     meter_code TEXT,
     quantity SMALLINT,
     billing_mode TEXT NOT NULL,

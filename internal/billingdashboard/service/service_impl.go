@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	billingdashboard "github.com/smallbiznis/valora/internal/billingdashboard/domain"
+	"github.com/smallbiznis/valora/internal/clock"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -18,19 +19,22 @@ import (
 type Params struct {
 	fx.In
 
-	DB  *gorm.DB
-	Log *zap.Logger
+	DB    *gorm.DB
+	Log   *zap.Logger
+	Clock clock.Clock
 }
 
 type Service struct {
-	db  *gorm.DB
-	log *zap.Logger
+	db    *gorm.DB
+	log   *zap.Logger
+	clock clock.Clock
 }
 
 func NewService(p Params) billingdashboard.Service {
 	return &Service{
-		db:  p.DB,
-		log: p.Log.Named("billingdashboard.service"),
+		db:    p.DB,
+		log:   p.Log.Named("billingdashboard.service"),
+		clock: p.Clock,
 	}
 }
 
@@ -109,7 +113,7 @@ func (s *Service) ListCustomerBalances(ctx context.Context) (billingdashboard.Cu
 
 type billingCycleRow struct {
 	CycleID      snowflake.ID `gorm:"column:id"`
-	PeriodStart  time.Time    `gorm:"column:period_start"`
+	PeriodStart  string       `gorm:"column:period_start"`
 	Status       string       `gorm:"column:status"`
 	TotalRevenue int64        `gorm:"column:total_revenue"`
 	InvoiceCount int64        `gorm:"column:invoice_count"`
@@ -123,15 +127,16 @@ func (s *Service) ListBillingCycles(ctx context.Context) (billingdashboard.Billi
 
 	var rows []billingCycleRow
 	query := `
-		SELECT billing_cycle_id AS id,
-		       period_start,
-		       status,
-		       total_revenue,
-		       invoice_count
+		SELECT
+			to_char(period_start, 'YYYY-MM')       AS period_start,
+			SUM(total_revenue)                     AS total_revenue,
+			SUM(invoice_count)                     AS invoice_count,
+			MAX(status)                            AS status
 		FROM billing_cycle_stats
 		WHERE org_id = ?
-		ORDER BY period_start DESC, billing_cycle_id DESC
-		LIMIT 36`
+		AND period_start >= date_trunc('month', now()) - interval '2 months'
+		GROUP BY 1
+		ORDER BY period_start DESC`
 
 	if err := s.db.WithContext(ctx).Raw(
 		query,
@@ -142,11 +147,12 @@ func (s *Service) ListBillingCycles(ctx context.Context) (billingdashboard.Billi
 
 	cycles := make([]billingdashboard.BillingCycleSummary, 0, len(rows))
 	for _, row := range rows {
-		period := row.PeriodStart.UTC().Format("2006-01")
 		status := strings.ToLower(strings.TrimSpace(row.Status))
+		if row.TotalRevenue == 0 {
+			status = "no_activity"
+		}
 		cycles = append(cycles, billingdashboard.BillingCycleSummary{
-			// CycleID:      row.CycleID.String(),
-			Period:       period,
+			Period:       row.PeriodStart,
 			TotalRevenue: row.TotalRevenue,
 			InvoiceCount: row.InvoiceCount,
 			Status:       status,
@@ -154,12 +160,6 @@ func (s *Service) ListBillingCycles(ctx context.Context) (billingdashboard.Billi
 	}
 
 	return billingdashboard.BillingCycleSummaryResponse{Cycles: cycles}, nil
-}
-
-type activityRow struct {
-	Action    string            `gorm:"column:action"`
-	Metadata  datatypes.JSONMap `gorm:"column:metadata"`
-	CreatedAt time.Time         `gorm:"column:created_at"`
 }
 
 func (s *Service) ListBillingActivity(ctx context.Context, limit int) (billingdashboard.BillingActivityResponse, error) {
@@ -172,18 +172,12 @@ func (s *Service) ListBillingActivity(ctx context.Context, limit int) (billingda
 	}
 
 	actions := []string{
-		"billing_cycle.closed",
-		"billing_cycle.closing_started",
 		"invoice.generate",
 		"invoice.finalize",
-		"invoice.void",
-		"invoice.generated",
-		"invoice.finalized",
-		"invoice.voided",
 		"payment.received",
 	}
 
-	var rows []activityRow
+	var rows []billingdashboard.ActivityRow
 	if err := s.db.WithContext(ctx).Raw(
 		`SELECT action, metadata, created_at
 		 FROM audit_logs
@@ -197,19 +191,53 @@ func (s *Service) ListBillingActivity(ctx context.Context, limit int) (billingda
 		return billingdashboard.BillingActivityResponse{}, err
 	}
 
-	activity := make([]billingdashboard.BillingActivity, 0, len(rows))
+	loc, _ := time.LoadLocation("Asia/Jakarta") // change based on org location/customer
+	now := s.clock.Now().In(loc)
+	today := truncateToDate(now)
+	yesterday := today.AddDate(0, 0, -1)
+
+	groups := make(map[string][]billingdashboard.BillingActivity)
+	order := []string{}
+
 	for _, row := range rows {
 		message := buildActivityMessage(row.Action, row.Metadata)
 		if message == "" {
 			continue
 		}
-		activity = append(activity, billingdashboard.BillingActivity{
+
+		actTime := row.CreatedAt
+		actDate := truncateToDate(actTime)
+
+		var key string
+		switch {
+		case actDate.Equal(today):
+			key = "Today"
+		case actDate.Equal(yesterday):
+			key = "Yesterday"
+		default:
+			key = actDate.Format("Jan 02")
+		}
+
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+
+		groups[key] = append(groups[key], billingdashboard.BillingActivity{
+			Action:     row.Action,
 			Message:    message,
 			OccurredAt: row.CreatedAt,
 		})
 	}
 
-	return billingdashboard.BillingActivityResponse{Activity: activity}, nil
+	result := make([]billingdashboard.ActivityGroup, 0, len(order))
+	for _, key := range order {
+		result = append(result, billingdashboard.ActivityGroup{
+			Title:      key,
+			Activities: groups[key],
+		})
+	}
+
+	return billingdashboard.BillingActivityResponse{Activity: result}, nil
 }
 
 func buildActivityMessage(action string, metadata datatypes.JSONMap) string {
@@ -240,6 +268,11 @@ func buildActivityMessage(action string, metadata datatypes.JSONMap) string {
 	}
 }
 
+func truncateToDate(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
 func formatInvoiceMessage(verb string, metadata datatypes.JSONMap) string {
 	label := formatInvoiceLabel(metadata)
 	if label == "" {
@@ -268,13 +301,13 @@ func formatInvoiceLabel(metadata datatypes.JSONMap) string {
 	if value, ok := metadata["invoice_number"]; ok {
 		switch typed := value.(type) {
 		case float64:
-			return fmt.Sprintf("INV-%d", int64(typed))
+			return fmt.Sprintf("%d", int64(typed))
 		case int64:
-			return fmt.Sprintf("INV-%d", typed)
+			return fmt.Sprintf("%d", typed)
 		case string:
 			trimmed := strings.TrimSpace(typed)
 			if trimmed != "" {
-				return fmt.Sprintf("INV-%s", trimmed)
+				return fmt.Sprintf("%s", trimmed)
 			}
 		}
 	}

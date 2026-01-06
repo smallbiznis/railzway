@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS rating_results (
     org_id BIGINT NOT NULL,
     subscription_id BIGINT NOT NULL,
     billing_cycle_id BIGINT NOT NULL,
-    meter_id BIGINT NOT NULL,
+    meter_id BIGINT,
     price_id BIGINT NOT NULL,
     quantity DOUBLE PRECISION NOT NULL,
     unit_price BIGINT NOT NULL,
