@@ -136,13 +136,26 @@ func (s *Service) ProcessEvent(ctx context.Context, event *disputedomain.Dispute
 
 	switch event.Type {
 	case disputedomain.EventTypeDisputeFundsWithdrawn:
-		if err := s.createLedgerEntry(ctx, stored, event, ledgerdomain.SourceTypeDisputeWithdrawn,
-			ledgerdomain.LedgerEntryDirectionCredit, ledgerdomain.LedgerEntryDirectionDebit); err != nil {
+		if err := s.createLedgerEntry(
+			ctx,
+			stored,
+			event,
+			string(ledgerdomain.SourceTypeDisputeHold),
+			ledgerdomain.LedgerEntryDirectionCredit,
+			ledgerdomain.LedgerEntryDirectionDebit,
+		); err != nil {
 			return err
 		}
+
 	case disputedomain.EventTypeDisputeFundsReinstated:
-		if err := s.createLedgerEntry(ctx, stored, event, ledgerdomain.SourceTypeDisputeReinstated,
-			ledgerdomain.LedgerEntryDirectionDebit, ledgerdomain.LedgerEntryDirectionCredit); err != nil {
+		if err := s.createLedgerEntry(
+			ctx,
+			stored,
+			event,
+			string(ledgerdomain.SourceTypeDisputeWin),
+			ledgerdomain.LedgerEntryDirectionDebit,
+			ledgerdomain.LedgerEntryDirectionCredit,
+		); err != nil {
 			return err
 		}
 	}
@@ -269,11 +282,25 @@ func (s *Service) createLedgerEntry(
 	}
 
 	now := time.Now().UTC()
-	cashID, err := s.ensureLedgerAccount(ctx, dispute.OrgID, ledgerdomain.AccountCodeCashClearing, "Cash / Clearing", now)
+
+	cashID, err := s.ensureLedgerAccount(
+		ctx,
+		dispute.OrgID,
+		string(ledgerdomain.AccountCodeRefundLiab),
+		"Refund / Dispute Liability",
+		now,
+	)
 	if err != nil {
 		return err
 	}
-	arID, err := s.ensureLedgerAccount(ctx, dispute.OrgID, ledgerdomain.AccountCodeAccountsReceivable, "Accounts Receivable", now)
+
+	arID, err := s.ensureLedgerAccount(
+		ctx,
+		dispute.OrgID,
+		string(ledgerdomain.AccountCodeAccountsReceivable),
+		"Accounts Receivable",
+		now,
+	)
 	if err != nil {
 		return err
 	}

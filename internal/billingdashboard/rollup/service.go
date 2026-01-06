@@ -174,73 +174,110 @@ type balanceDeltaRow struct {
 	Delta      int64        `gorm:"column:delta"`
 }
 
-func (s *Service) applyCustomerBalanceDelta(ctx context.Context, tx *gorm.DB, entryID snowflake.ID) error {
+func (s *Service) applyCustomerBalanceDelta(
+	ctx context.Context,
+	tx *gorm.DB,
+	entryID snowflake.ID,
+) error {
+
 	var rows []balanceDeltaRow
+
 	if err := tx.WithContext(ctx).Raw(
-		`WITH ledger_balances AS (
-			SELECT le.org_id AS org_id,
-			       s.customer_id AS customer_id,
-			       le.currency AS currency,
-			       SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS balance
+		`
+		WITH ar_delta AS (
+
+			-- Billing cycle & adjustment (subscription-scoped)
+			SELECT
+				le.org_id,
+				s.customer_id,
+				le.currency,
+				SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS delta
 			FROM ledger_entries le
 			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
 			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN billing_cycles bc ON bc.id = le.source_id AND le.source_type = ?
+			JOIN billing_cycles bc ON bc.id = le.source_id
 			JOIN subscriptions s ON s.id = bc.subscription_id
-			WHERE le.id = ? AND a.code = ?
+			WHERE le.id = ?
+			  AND le.source_type IN (?, ?)
+			  AND a.code = ?
 			GROUP BY le.org_id, s.customer_id, le.currency
 
 			UNION ALL
 
-			SELECT le.org_id AS org_id,
-			       pe.customer_id AS customer_id,
-			       le.currency AS currency,
-			       SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS balance
+			-- Payments, fees, refunds (payment-scoped)
+			SELECT
+				le.org_id,
+				pe.customer_id,
+				le.currency,
+				SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS delta
 			FROM ledger_entries le
 			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
 			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id AND le.source_type = ?
-			WHERE le.id = ? AND a.code = ?
+			JOIN payment_events pe ON pe.id = le.source_id
+			WHERE le.id = ?
+			  AND le.source_type IN (?, ?, ?)
+			  AND a.code = ?
 			GROUP BY le.org_id, pe.customer_id, le.currency
 
 			UNION ALL
 
-			SELECT le.org_id AS org_id,
-			       pd.customer_id AS customer_id,
-			       le.currency AS currency,
-			       SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS balance
+			-- Disputes (economic impact only)
+			SELECT
+				le.org_id,
+				pd.customer_id,
+				le.currency,
+				SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END) AS delta
 			FROM ledger_entries le
 			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
 			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_disputes pd ON pd.id = le.source_id AND le.source_type IN (?, ?)
-			WHERE le.id = ? AND a.code = ?
+			JOIN payment_disputes pd ON pd.id = le.source_id
+			WHERE le.id = ?
+			  AND le.source_type IN (?, ?, ?)
+			  AND a.code = ?
 			GROUP BY le.org_id, pd.customer_id, le.currency
 		)
-		SELECT org_id, customer_id, currency, SUM(balance) AS delta
-		FROM ledger_balances
-		GROUP BY org_id, customer_id, currency`,
+
+		SELECT org_id, customer_id, currency, SUM(delta) AS delta
+		FROM ar_delta
+		GROUP BY org_id, customer_id, currency
+		`,
+		// billing / adjustment
+		entryID,
 		ledgerdomain.SourceTypeBillingCycle,
-		entryID,
+		ledgerdomain.SourceTypeAdjustment,
 		ledgerdomain.AccountCodeAccountsReceivable,
-		ledgerdomain.SourceTypePaymentEvent,
+
+		// payment scoped
 		entryID,
+		ledgerdomain.SourceTypePayment,
+		ledgerdomain.SourceTypePaymentFee,
+		ledgerdomain.SourceTypeRefund,
 		ledgerdomain.AccountCodeAccountsReceivable,
-		ledgerdomain.SourceTypeDisputeWithdrawn,
-		ledgerdomain.SourceTypeDisputeReinstated,
+
+		// disputes
 		entryID,
+		ledgerdomain.SourceTypeDisputeHold,
+		ledgerdomain.SourceTypeDisputeLoss,
+		ledgerdomain.SourceTypeDisputeWin,
 		ledgerdomain.AccountCodeAccountsReceivable,
 	).Scan(&rows).Error; err != nil {
 		return err
 	}
 
 	now := time.Now().UTC()
+
 	for _, row := range rows {
 		currency := strings.ToUpper(strings.TrimSpace(row.Currency))
+
 		if err := tx.WithContext(ctx).Exec(
-			`INSERT INTO customer_balances (org_id, customer_id, currency, balance, updated_at)
-			 VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT (org_id, customer_id, currency)
-			 DO UPDATE SET balance = customer_balances.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at`,
+			`
+			INSERT INTO customer_balances (org_id, customer_id, currency, balance, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (org_id, customer_id, currency)
+			DO UPDATE SET
+				balance = customer_balances.balance + EXCLUDED.balance,
+				updated_at = EXCLUDED.updated_at
+			`,
 			row.OrgID,
 			row.CustomerID,
 			currency,
@@ -250,6 +287,7 @@ func (s *Service) applyCustomerBalanceDelta(ctx context.Context, tx *gorm.DB, en
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -261,37 +299,66 @@ type revenueDeltaRow struct {
 	Delta          int64        `gorm:"column:delta"`
 }
 
-func (s *Service) applyRevenueDelta(ctx context.Context, tx *gorm.DB, entryID snowflake.ID) error {
+func (s *Service) applyRevenueDelta(
+	ctx context.Context,
+	tx *gorm.DB,
+	entryID snowflake.ID,
+) error {
+
 	var rows []revenueDeltaRow
+
 	if err := tx.WithContext(ctx).Raw(
-		`SELECT le.org_id AS org_id,
-		        le.source_id AS billing_cycle_id,
-		        bc.period_start AS period_start,
-		        bc.status AS status,
-		        SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS delta
-		 FROM ledger_entries le
-		 JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-		 JOIN ledger_accounts a ON a.id = l.account_id
-		 JOIN billing_cycles bc ON bc.id = le.source_id
-		 WHERE le.id = ? AND le.source_type = ? AND a.code = ?
-		 GROUP BY le.org_id, le.source_id, bc.period_start, bc.status`,
+		`
+		SELECT
+			le.org_id AS org_id,
+			le.source_id AS billing_cycle_id,
+			bc.period_start AS period_start,
+			bc.status AS status,
+			SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS delta
+		FROM ledger_entries le
+		JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
+		JOIN ledger_accounts a ON a.id = l.account_id
+		JOIN billing_cycles bc ON bc.id = le.source_id
+		WHERE le.id = ?
+		  AND le.source_type IN (?, ?)
+		  AND a.code IN (?, ?)
+		GROUP BY
+			le.org_id,
+			le.source_id,
+			bc.period_start,
+			bc.status
+		`,
 		entryID,
 		ledgerdomain.SourceTypeBillingCycle,
-		ledgerdomain.AccountCodeRevenue,
+		ledgerdomain.SourceTypeAdjustment,
+		ledgerdomain.AccountCodeRevenueUsage,
+		ledgerdomain.AccountCodeRevenueFlat,
 	).Scan(&rows).Error; err != nil {
 		return err
 	}
 
 	now := time.Now().UTC()
+
 	for _, row := range rows {
 		if err := tx.WithContext(ctx).Exec(
-			`INSERT INTO billing_cycle_stats (billing_cycle_id, org_id, period_start, status, total_revenue, invoice_count, updated_at)
-			 VALUES (?, ?, ?, ?, ?, 0, ?)
-			 ON CONFLICT (billing_cycle_id)
-			 DO UPDATE SET total_revenue = billing_cycle_stats.total_revenue + EXCLUDED.total_revenue,
-			               period_start = EXCLUDED.period_start,
-			               status = EXCLUDED.status,
-			               updated_at = EXCLUDED.updated_at`,
+			`
+			INSERT INTO billing_cycle_stats (
+				billing_cycle_id,
+				org_id,
+				period_start,
+				status,
+				total_revenue,
+				invoice_count,
+				updated_at
+			)
+			VALUES (?, ?, ?, ?, ?, 0, ?)
+			ON CONFLICT (billing_cycle_id)
+			DO UPDATE SET
+				total_revenue = billing_cycle_stats.total_revenue + EXCLUDED.total_revenue,
+				period_start = EXCLUDED.period_start,
+				status = EXCLUDED.status,
+				updated_at = EXCLUDED.updated_at
+			`,
 			row.BillingCycleID,
 			row.OrgID,
 			row.PeriodStart,
@@ -302,6 +369,7 @@ func (s *Service) applyRevenueDelta(ctx context.Context, tx *gorm.DB, entryID sn
 			return err
 		}
 	}
+
 	return nil
 }
 

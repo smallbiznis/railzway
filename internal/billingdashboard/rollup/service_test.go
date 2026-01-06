@@ -234,7 +234,7 @@ func seedRollupData(t *testing.T, dbConn *gorm.DB, node *snowflake.Node) rollupS
 	revenueAccount := ledgerdomain.LedgerAccount{
 		ID:        node.Generate(),
 		OrgID:     orgID,
-		Code:      ledgerdomain.AccountCodeRevenue,
+		Code:      ledgerdomain.AccountCodeRevenueUsage,
 		Name:      "Revenue",
 		CreatedAt: time.Now().UTC(),
 	}

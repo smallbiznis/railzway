@@ -4,6 +4,8 @@
 
 # GO
 .gocache
+/internal/e2e
+/internal/docs
 
 # Node / JS
 **/node_modules
@@ -38,5 +40,11 @@ docs/build
 Dockerfile
 docker-compose.yml
 
+# Utilities
+*.md
 /k6
 /.github
+
+# Secrets must never be baked into images
+.env
+.env.*

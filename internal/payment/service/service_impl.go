@@ -186,8 +186,22 @@ func (s *Service) processEvent(ctx context.Context, stored *paymentdomain.EventR
 	return nil
 }
 
-func (s *Service) settlePayment(ctx context.Context, stored *paymentdomain.EventRecord, event *paymentdomain.PaymentEvent) error {
-	if err := s.createLedgerEntry(ctx, stored, event, ledgerdomain.LedgerEntryDirectionDebit, ledgerdomain.LedgerEntryDirectionCredit); err != nil {
+func (s *Service) settlePayment(
+	ctx context.Context,
+	stored *paymentdomain.EventRecord,
+	event *paymentdomain.PaymentEvent,
+) error {
+
+	if err := s.createPaymentLedgerEntry(
+		ctx,
+		stored,
+		event,
+		string(ledgerdomain.SourceTypePayment),
+		ledgerdomain.AccountCodeCash,
+		ledgerdomain.AccountCodeAccountsReceivable,
+		ledgerdomain.LedgerEntryDirectionDebit,
+		ledgerdomain.LedgerEntryDirectionCredit,
+	); err != nil {
 		return err
 	}
 
@@ -200,16 +214,31 @@ func (s *Service) settlePayment(ctx context.Context, stored *paymentdomain.Event
 		return err
 	}
 
-	metadata := map[string]any{"balance": balance}
-	return s.writeAuditLog(ctx, "payment.received", stored, event, metadata)
+	return s.writeAuditLog(
+		ctx,
+		"payment.received",
+		stored,
+		event,
+		map[string]any{"balance": balance},
+	)
 }
 
-func (s *Service) settleRefund(ctx context.Context, stored *paymentdomain.EventRecord, event *paymentdomain.PaymentEvent) error {
-	if err := s.createLedgerEntry(ctx, stored, event, ledgerdomain.LedgerEntryDirectionCredit, ledgerdomain.LedgerEntryDirectionDebit); err != nil {
-		return err
-	}
+func (s *Service) settleRefund(
+	ctx context.Context,
+	stored *paymentdomain.EventRecord,
+	event *paymentdomain.PaymentEvent,
+) error {
 
-	if err := s.updateInvoiceSettlement(ctx, stored.OrgID, event, true); err != nil {
+	if err := s.createPaymentLedgerEntry(
+		ctx,
+		stored,
+		event,
+		string(ledgerdomain.SourceTypeRefund),
+		ledgerdomain.AccountCodeRefundLiab,
+		ledgerdomain.AccountCodeCash,
+		ledgerdomain.LedgerEntryDirectionDebit,
+		ledgerdomain.LedgerEntryDirectionCredit,
+	); err != nil {
 		return err
 	}
 
@@ -218,36 +247,59 @@ func (s *Service) settleRefund(ctx context.Context, stored *paymentdomain.EventR
 		return err
 	}
 
-	metadata := map[string]any{"balance": balance}
-	return s.writeAuditLog(ctx, "payment.refunded", stored, event, metadata)
+	return s.writeAuditLog(
+		ctx,
+		"payment.refunded",
+		stored,
+		event,
+		map[string]any{"balance": balance},
+	)
 }
 
-func (s *Service) createLedgerEntry(
+func (s *Service) createPaymentLedgerEntry(
 	ctx context.Context,
 	stored *paymentdomain.EventRecord,
 	event *paymentdomain.PaymentEvent,
-	cashDirection ledgerdomain.LedgerEntryDirection,
-	arDirection ledgerdomain.LedgerEntryDirection,
+	sourceType string,
+	debitAccount ledgerdomain.LedgerAccountCode,
+	creditAccount ledgerdomain.LedgerAccountCode,
+	debitDir ledgerdomain.LedgerEntryDirection,
+	creditDir ledgerdomain.LedgerEntryDirection,
 ) error {
+
 	now := time.Now().UTC()
-	cashID, err := s.ensureLedgerAccount(ctx, stored.OrgID, ledgerdomain.AccountCodeCashClearing, "Cash / Clearing", now)
+
+	debitID, err := s.ensureLedgerAccount(
+		ctx,
+		stored.OrgID,
+		string(debitAccount),
+		string(debitAccount),
+		now,
+	)
 	if err != nil {
 		return err
 	}
-	arID, err := s.ensureLedgerAccount(ctx, stored.OrgID, ledgerdomain.AccountCodeAccountsReceivable, "Accounts Receivable", now)
+
+	creditID, err := s.ensureLedgerAccount(
+		ctx,
+		stored.OrgID,
+		string(creditAccount),
+		string(creditAccount),
+		now,
+	)
 	if err != nil {
 		return err
 	}
 
 	lines := []ledgerdomain.LedgerEntryLine{
-		{AccountID: cashID, Direction: cashDirection, Amount: event.Amount},
-		{AccountID: arID, Direction: arDirection, Amount: event.Amount},
+		{AccountID: debitID, Direction: debitDir, Amount: event.Amount},
+		{AccountID: creditID, Direction: creditDir, Amount: event.Amount},
 	}
 
 	return s.ledgerSvc.CreateEntry(
 		ctx,
 		stored.OrgID,
-		ledgerdomain.SourceTypePaymentEvent,
+		sourceType,
 		stored.ID,
 		event.Currency,
 		event.OccurredAt,
@@ -402,46 +454,93 @@ func readMetadataAmount(metadata datatypes.JSONMap, key string) int64 {
 	return 0
 }
 
-func (s *Service) customerBalance(ctx context.Context, orgID snowflake.ID, customerID snowflake.ID, currency string) (int64, error) {
-	currency = strings.TrimSpace(currency)
+func (s *Service) customerBalance(
+	ctx context.Context,
+	orgID snowflake.ID,
+	customerID snowflake.ID,
+	currency string,
+) (int64, error) {
+
+	currency = strings.ToUpper(strings.TrimSpace(currency))
 	if currency == "" {
 		return 0, paymentdomain.ErrInvalidCurrency
 	}
 
 	var balance int64
+
 	err := s.db.WithContext(ctx).Raw(
-		`SELECT COALESCE(SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END), 0) AS balance
-		 FROM ledger_entries le
-		 JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-		 JOIN ledger_accounts a ON a.id = l.account_id
-		 LEFT JOIN billing_cycles bc ON bc.id = le.source_id AND le.source_type = ?
-		 LEFT JOIN subscriptions s ON s.id = bc.subscription_id
-		 LEFT JOIN payment_events pe ON pe.id = le.source_id AND le.source_type = ?
-		 LEFT JOIN payment_disputes pd ON pd.id = le.source_id AND le.source_type IN (?, ?)
-		 WHERE le.org_id = ?
-		   AND a.code = ?
-		   AND le.currency = ?
-		   AND ((le.source_type = ? AND s.customer_id = ?)
-		     OR (le.source_type = ? AND pe.customer_id = ?)
-		     OR (le.source_type IN (?, ?) AND pd.customer_id = ?))`,
+		`
+		SELECT COALESCE(
+			SUM(CASE l.direction WHEN 'debit' THEN l.amount ELSE -l.amount END),
+			0
+		) AS balance
+		FROM ledger_entries le
+		JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
+		JOIN ledger_accounts a ON a.id = l.account_id
+
+		-- billing & adjustment → subscription scoped
+		LEFT JOIN billing_cycles bc
+			ON bc.id = le.source_id
+		   AND le.source_type IN (?, ?)
+		LEFT JOIN subscriptions s
+			ON s.id = bc.subscription_id
+
+		-- payment / refund / fee → payment scoped
+		LEFT JOIN payment_events pe
+			ON pe.id = le.source_id
+		   AND le.source_type IN (?, ?, ?)
+
+		-- disputes → dispute scoped
+		LEFT JOIN payment_disputes pd
+			ON pd.id = le.source_id
+		   AND le.source_type IN (?, ?, ?)
+
+		WHERE le.org_id = ?
+		  AND a.code = ?
+		  AND le.currency = ?
+		  AND (
+			   (le.source_type IN (?, ?) AND s.customer_id = ?)
+			OR (le.source_type IN (?, ?, ?) AND pe.customer_id = ?)
+			OR (le.source_type IN (?, ?, ?) AND pd.customer_id = ?)
+		  )
+		`,
+		// joins
 		ledgerdomain.SourceTypeBillingCycle,
-		ledgerdomain.SourceTypePaymentEvent,
-		ledgerdomain.SourceTypeDisputeWithdrawn,
-		ledgerdomain.SourceTypeDisputeReinstated,
+		ledgerdomain.SourceTypeAdjustment,
+
+		ledgerdomain.SourceTypePayment,
+		ledgerdomain.SourceTypePaymentFee,
+		ledgerdomain.SourceTypeRefund,
+
+		ledgerdomain.SourceTypeDisputeHold,
+		ledgerdomain.SourceTypeDisputeWin,
+		ledgerdomain.SourceTypeDisputeLoss,
+
+		// filters
 		orgID,
 		ledgerdomain.AccountCodeAccountsReceivable,
 		currency,
+
+		// customer resolution
 		ledgerdomain.SourceTypeBillingCycle,
+		ledgerdomain.SourceTypeAdjustment,
 		customerID,
-		ledgerdomain.SourceTypePaymentEvent,
+
+		ledgerdomain.SourceTypePayment,
+		ledgerdomain.SourceTypePaymentFee,
+		ledgerdomain.SourceTypeRefund,
 		customerID,
-		ledgerdomain.SourceTypeDisputeWithdrawn,
-		ledgerdomain.SourceTypeDisputeReinstated,
+
+		ledgerdomain.SourceTypeDisputeHold,
+		ledgerdomain.SourceTypeDisputeWin,
+		ledgerdomain.SourceTypeDisputeLoss,
 		customerID,
 	).Scan(&balance).Error
+
 	if err != nil {
 		return 0, err
 	}
+
 	return balance, nil
 }
 

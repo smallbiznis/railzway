@@ -12,7 +12,7 @@ var (
 	seqPadRe = regexp.MustCompile(`\{SEQ(\d+)\}`)
 )
 
-const DefaultInvoiceNumberTemplate = "INV-{YYYY}{MM}{DD}-{SEQ}"
+const DefaultInvoiceNumberTemplate = "INV-{YYYY}{MM}{DD}-{SEQ6}"
 
 // FormatInvoiceNumber formats a human-readable invoice number
 // based on a template, invoice issue time, and monotonic sequence.

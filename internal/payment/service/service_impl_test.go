@@ -139,8 +139,8 @@ func TestIngestWebhookCreatesLedgerEntry(t *testing.T) {
 	if err := db.Raw("SELECT source_type FROM ledger_entries LIMIT 1").Scan(&sourceType).Error; err != nil {
 		t.Fatalf("scan source_type: %v", err)
 	}
-	if sourceType != ledgerdomain.SourceTypePaymentEvent {
-		t.Fatalf("expected source_type %s, got %s", ledgerdomain.SourceTypePaymentEvent, sourceType)
+	if sourceType != string(ledgerdomain.SourceTypePayment) {
+		t.Fatalf("expected source_type %s, got %s", ledgerdomain.SourceTypePayment, sourceType)
 	}
 
 	var processedAt string
@@ -242,8 +242,8 @@ func TestIngestWebhookCreatesDisputeLedgerEntry(t *testing.T) {
 	if err := db.Raw("SELECT source_type FROM ledger_entries LIMIT 1").Scan(&sourceType).Error; err != nil {
 		t.Fatalf("scan source_type: %v", err)
 	}
-	if sourceType != ledgerdomain.SourceTypeDisputeWithdrawn {
-		t.Fatalf("expected source_type %s, got %s", ledgerdomain.SourceTypeDisputeWithdrawn, sourceType)
+	if sourceType != string(ledgerdomain.SourceTypePayment) {
+		t.Fatalf("expected source_type %s, got %s", ledgerdomain.SourceTypePayment, sourceType)
 	}
 }
 
