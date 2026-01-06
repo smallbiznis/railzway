@@ -510,7 +510,7 @@ func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
 			"customer_id": subs[i].CustomerID,
 			"meter_code":  usageMeterCode,
 			"value":       randomUsageValue(),
-			"recorded_at": time.Now().Add(-5 * time.Minute),
+			"recorded_at": time.Now().UTC(),
 		})
 	}
 
