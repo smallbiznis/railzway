@@ -27,6 +27,7 @@ import (
 	"github.com/smallbiznis/valora/internal/authorization"
 	"github.com/smallbiznis/valora/internal/billingcycle"
 	"github.com/smallbiznis/valora/internal/billingdashboard"
+	"github.com/smallbiznis/valora/internal/clock"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
@@ -40,8 +41,8 @@ import (
 	"github.com/smallbiznis/valora/internal/migration"
 	"github.com/smallbiznis/valora/internal/observability"
 	"github.com/smallbiznis/valora/internal/organization"
-	"github.com/smallbiznis/valora/internal/paymentprovider"
 	"github.com/smallbiznis/valora/internal/payment"
+	"github.com/smallbiznis/valora/internal/paymentprovider"
 	"github.com/smallbiznis/valora/internal/price"
 	"github.com/smallbiznis/valora/internal/priceamount"
 	"github.com/smallbiznis/valora/internal/pricetier"
@@ -379,6 +380,7 @@ func startEnv() (*testEnv, error) {
 		observability.Module,
 		config.Module,
 		db.Module,
+		clock.Module,
 		cloudmetrics.Module,
 		authorization.Module,
 		audit.Module,
@@ -439,7 +441,7 @@ func startEnv() (*testEnv, error) {
 		app.Stop(context.Background())
 		return nil, err
 	}
-	if err := seed.EnsureMainOrgAndAdmin(dbConn); err != nil {
+	if err := seed.EnsureMainOrg(dbConn); err != nil {
 		app.Stop(context.Background())
 		return nil, err
 	}

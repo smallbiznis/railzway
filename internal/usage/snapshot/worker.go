@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smallbiznis/valora/internal/clock"
 	meterdomain "github.com/smallbiznis/valora/internal/meter/domain"
+	"github.com/smallbiznis/valora/internal/observability/metrics"
 	subscriptiondomain "github.com/smallbiznis/valora/internal/subscription/domain"
 	usagedomain "github.com/smallbiznis/valora/internal/usage/domain"
 	"go.uber.org/fx"
@@ -18,6 +20,7 @@ type Params struct {
 
 	DB               *gorm.DB
 	Log              *zap.Logger
+	Clock            clock.Clock
 	MeterRepo        meterdomain.Repository
 	SubscriptionRepo subscriptiondomain.Repository
 	UsageRepo        usagedomain.SnapshotRepository
@@ -27,6 +30,7 @@ type Params struct {
 type Worker struct {
 	db               *gorm.DB
 	log              *zap.Logger
+	clock            clock.Clock
 	meterRepo        meterdomain.Repository
 	subscriptionRepo subscriptiondomain.Repository
 	usageRepo        usagedomain.SnapshotRepository
@@ -38,6 +42,7 @@ func NewWorker(p Params) *Worker {
 	return &Worker{
 		db:               p.DB,
 		log:              p.Log.Named("usage.snapshot"),
+		clock:            p.Clock,
 		meterRepo:        p.MeterRepo,
 		subscriptionRepo: p.SubscriptionRepo,
 		usageRepo:        p.UsageRepo,
@@ -87,7 +92,7 @@ func (w *Worker) processBatch(ctx context.Context, limit int) (int, error) {
 	}
 
 	processed := 0
-	now := time.Now().UTC()
+	now := w.clock.Now()
 
 	for _, row := range rows {
 		rowCtx, cancel := context.WithTimeout(ctx, w.cfg.RowTimeout)
@@ -105,11 +110,19 @@ func (w *Worker) processBatch(ctx context.Context, limit int) (int, error) {
 				zap.Error(err),
 				zap.String("usage_id", row.ID.String()),
 			)
+			metrics.Snapshot().IncSnapshotProcessed("failed")
 			continue
 		}
 
+		lag := now.Sub(row.RecordedAt)
+		snapshot := metrics.Snapshot()
+		snapshot.ObserveSnapshotLag(lag)
+		snapshot.IncSnapshotProcessed("success")
+
 		processed++
 	}
+
+	w.updateBacklogMetrics(ctx)
 
 	return processed, nil
 }
@@ -160,4 +173,43 @@ func (w *Worker) buildSnapshot(
 	}
 
 	return update, nil
+}
+
+func (w *Worker) updateBacklogMetrics(ctx context.Context) {
+	snapshot := metrics.Snapshot()
+
+	type row struct {
+		Status   string
+		Count    int
+		OldestAt *time.Time
+	}
+
+	var rows []row
+	err := w.db.WithContext(ctx).Raw(`
+		SELECT status, COUNT(*) AS count, MIN(recorded_at) AS oldest_at
+		FROM usage_events
+		WHERE status IN (
+			'accepted',
+			'unmatched_subscription',
+			'unmatched_meter'
+		)
+		GROUP BY status
+	`).Scan(&rows).Error
+	if err != nil {
+		w.log.Warn("failed to update snapshot backlog metrics", zap.Error(err))
+		return
+	}
+
+	// reset known statuses to 0 first (important!)
+	snapshot.SetBacklog("accepted", 0)
+	snapshot.SetBacklog("unmatched_subscription", 0)
+	snapshot.SetBacklog("unmatched_meter", 0)
+
+	for _, r := range rows {
+		snapshot.SetBacklog(r.Status, r.Count)
+		if r.OldestAt != nil {
+			age := w.clock.Now().Sub(*r.OldestAt)
+			snapshot.SetBacklogOldest(r.Status, age)
+		}
+	}
 }

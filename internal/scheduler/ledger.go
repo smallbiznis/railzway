@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -18,16 +17,6 @@ type ratingSummary struct {
 	Total    int64
 }
 
-type RatingRevenueSummary struct {
-	Currency string
-	Lines    []RatingRevenueLine
-}
-
-type RatingRevenueLine struct {
-	AccountCode ledgerdomain.LedgerAccountCode
-	Amount      int64
-}
-
 func (s *Scheduler) ensureLedgerEntryForCycle(
 	ctx context.Context,
 	cycle WorkBillingCycle,
@@ -37,12 +26,12 @@ func (s *Scheduler) ensureLedgerEntryForCycle(
 	if err != nil {
 		return err
 	}
-	if len(summary.Lines) == 0 {
+
+	if summary.Total <= 0 {
 		return invoicedomain.ErrMissingRatingResults
 	}
 
-	now := time.Now().UTC()
-
+	now := s.clock.Now()
 	arID, err := s.ensureLedgerAccount(
 		ctx,
 		cycle.OrgID,
@@ -54,48 +43,29 @@ func (s *Scheduler) ensureLedgerEntryForCycle(
 		return err
 	}
 
-	var lines []ledgerdomain.LedgerEntryLine
-	var total int64
-
-	for _, line := range summary.Lines {
-		if line.Amount <= 0 {
-			continue
-		}
-
-		revenueID, err := s.ensureLedgerAccount(
-			ctx,
-			cycle.OrgID,
-			string(line.AccountCode), // revenue_usage / revenue_flat
-			string(line.AccountCode),
-			now,
-		)
-		if err != nil {
-			return err
-		}
-
-		lines = append(lines,
-			ledgerdomain.LedgerEntryLine{
-				AccountID: revenueID,
-				Direction: ledgerdomain.LedgerEntryDirectionCredit,
-				Amount:    line.Amount,
-			},
-		)
-
-		total += line.Amount
+	revenueUsageID, err := s.ensureLedgerAccount(
+		ctx,
+		cycle.OrgID,
+		string(ledgerdomain.AccountCodeRevenue),
+		"Revenue (Usage)",
+		now,
+	)
+	if err != nil {
+		return err
 	}
 
-	if total <= 0 {
-		return ledgerdomain.ErrInvalidLineAmount
-	}
-
-	// AR line (single, aggregated)
-	lines = append(lines,
-		ledgerdomain.LedgerEntryLine{
+	lines := []ledgerdomain.LedgerEntryLine{
+		{
 			AccountID: arID,
 			Direction: ledgerdomain.LedgerEntryDirectionDebit,
-			Amount:    total,
+			Amount:    summary.Total,
 		},
-	)
+		{
+			AccountID: revenueUsageID,
+			Direction: ledgerdomain.LedgerEntryDirectionCredit,
+			Amount:    summary.Total,
+		},
+	}
 
 	return s.ledgerSvc.CreateEntry(
 		ctx,
@@ -112,12 +82,11 @@ func (s *Scheduler) summarizeRatingResults(
 	ctx context.Context,
 	orgID snowflake.ID,
 	billingCycleID snowflake.ID,
-) (*RatingRevenueSummary, error) {
+) (*ratingSummary, error) {
 
 	type row struct {
-		Currency   string
-		ChargeType string
-		Amount     int64
+		Currency string
+		Total    int64
 	}
 
 	var rows []row
@@ -125,20 +94,16 @@ func (s *Scheduler) summarizeRatingResults(
 	err := s.db.WithContext(ctx).Raw(
 		`
 		SELECT
-			rr.currency,
-			rri.charge_type,
-			SUM(rri.amount) AS amount
-		FROM rating_results rr
-		JOIN rating_result_items rri
-			ON rri.rating_result_id = rr.id
-		WHERE rr.org_id = ?
-		  AND rr.billing_cycle_id = ?
-		GROUP BY rr.currency, rri.charge_type
+			currency,
+			SUM(amount) AS total
+		FROM rating_results
+		WHERE org_id = ?
+		  AND billing_cycle_id = ?
+		GROUP BY currency
 		`,
 		orgID,
 		billingCycleID,
 	).Scan(&rows).Error
-
 	if err != nil {
 		return nil, err
 	}
@@ -146,38 +111,18 @@ func (s *Scheduler) summarizeRatingResults(
 	if len(rows) == 0 {
 		return nil, invoicedomain.ErrMissingRatingResults
 	}
-
-	summary := &RatingRevenueSummary{
-		Currency: rows[0].Currency,
+	if len(rows) > 1 {
+		return nil, invoicedomain.ErrCurrencyMismatch
 	}
 
-	for _, r := range rows {
-		var account ledgerdomain.LedgerAccountCode
-
-		switch r.ChargeType {
-		case "usage":
-			account = ledgerdomain.AccountCodeRevenueUsage
-		case "flat":
-			account = ledgerdomain.AccountCodeRevenueFlat
-		default:
-			return nil, fmt.Errorf("unknown charge_type: %s", r.ChargeType)
-		}
-
-		if r.Amount <= 0 {
-			continue
-		}
-
-		summary.Lines = append(summary.Lines, RatingRevenueLine{
-			AccountCode: account,
-			Amount:      r.Amount,
-		})
-	}
-
-	if len(summary.Lines) == 0 {
+	if rows[0].Total <= 0 {
 		return nil, ledgerdomain.ErrInvalidLineAmount
 	}
 
-	return summary, nil
+	return &ratingSummary{
+		Currency: rows[0].Currency,
+		Total:    rows[0].Total,
+	}, nil
 }
 
 func (s *Scheduler) ensureLedgerAccount(ctx context.Context, orgID snowflake.ID, code string, name string, now time.Time) (snowflake.ID, error) {

@@ -52,8 +52,7 @@ const (
 	AccountCodeCash               LedgerAccountCode = "cash"
 
 	// Revenue
-	AccountCodeRevenueUsage LedgerAccountCode = "revenue_usage"
-	AccountCodeRevenueFlat  LedgerAccountCode = "revenue_flat"
+	AccountCodeRevenue LedgerAccountCode = "revenue"
 
 	// Liabilities
 	AccountCodeTaxPayable    LedgerAccountCode = "tax_payable"
