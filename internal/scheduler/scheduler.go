@@ -13,6 +13,7 @@ import (
 	"github.com/smallbiznis/valora/internal/authorization"
 	billingcycledomain "github.com/smallbiznis/valora/internal/billingcycle/domain"
 	"github.com/smallbiznis/valora/internal/billingdashboard/rollup"
+	"github.com/smallbiznis/valora/internal/clock"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	ledgerdomain "github.com/smallbiznis/valora/internal/ledger/domain"
 	obsmetrics "github.com/smallbiznis/valora/internal/observability/metrics"
@@ -38,6 +39,7 @@ type Params struct {
 	AuthzSvc        authorization.Service
 	RollupSvc       *rollup.Service `optional:"true"`
 	GenID           *snowflake.Node
+	Clock           clock.Clock
 	Config          Config `optional:"true"`
 }
 
@@ -46,6 +48,7 @@ type Scheduler struct {
 	log             *zap.Logger
 	cfg             Config
 	genID           *snowflake.Node
+	clock           clock.Clock
 	ratingSvc       ratingdomain.Service
 	invoiceSvc      invoicedomain.Service
 	ledgerSvc       ledgerdomain.Service
@@ -66,7 +69,7 @@ type auditEvent struct {
 }
 
 func New(p Params) (*Scheduler, error) {
-	if p.DB == nil || p.Log == nil || p.RatingSvc == nil || p.InvoiceSvc == nil || p.LedgerSvc == nil || p.SubscriptionSvc == nil || p.GenID == nil || p.AuditSvc == nil || p.AuthzSvc == nil {
+	if p.DB == nil || p.Log == nil || p.RatingSvc == nil || p.InvoiceSvc == nil || p.LedgerSvc == nil || p.SubscriptionSvc == nil || p.GenID == nil || p.AuditSvc == nil || p.AuthzSvc == nil || p.Clock == nil {
 		return nil, ErrInvalidConfig
 	}
 	cfg := p.Config.withDefaults()
@@ -75,6 +78,7 @@ func New(p Params) (*Scheduler, error) {
 		log:             p.Log.Named("scheduler").With(zap.String("component", "scheduler")),
 		cfg:             cfg,
 		genID:           p.GenID,
+		clock:           p.Clock,
 		ratingSvc:       p.RatingSvc,
 		invoiceSvc:      p.InvoiceSvc,
 		ledgerSvc:       p.LedgerSvc,

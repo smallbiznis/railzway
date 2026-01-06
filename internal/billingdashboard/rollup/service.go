@@ -321,7 +321,7 @@ func (s *Service) applyRevenueDelta(
 		JOIN billing_cycles bc ON bc.id = le.source_id
 		WHERE le.id = ?
 		  AND le.source_type IN (?, ?)
-		  AND a.code IN (?, ?)
+		  AND a.code IN (?)
 		GROUP BY
 			le.org_id,
 			le.source_id,
@@ -331,8 +331,7 @@ func (s *Service) applyRevenueDelta(
 		entryID,
 		ledgerdomain.SourceTypeBillingCycle,
 		ledgerdomain.SourceTypeAdjustment,
-		ledgerdomain.AccountCodeRevenueUsage,
-		ledgerdomain.AccountCodeRevenueFlat,
+		ledgerdomain.AccountCodeRevenue,
 	).Scan(&rows).Error; err != nil {
 		return err
 	}
