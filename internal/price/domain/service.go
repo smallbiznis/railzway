@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/bwmarrin/snowflake"
 )
 
 type Service interface {
@@ -35,9 +37,9 @@ type CreateRequest struct {
 }
 
 type Response struct {
-	ID                   string          `json:"id"`
-	OrganizationID       string          `json:"organization_id"`
-	ProductID            string          `json:"product_id"`
+	ID                   snowflake.ID    `json:"id"`
+	OrganizationID       snowflake.ID    `json:"organization_id"`
+	ProductID            snowflake.ID    `json:"product_id"`
 	Code                 string          `json:"code"`
 	LookupKey            *string         `json:"lookup_key,omitempty"`
 	Name                 string          `json:"name,omitempty"`

@@ -145,9 +145,9 @@ func (s *Service) productExists(ctx context.Context, orgID, productID snowflake.
 
 func (s *Service) toResponse(p *pricedomain.Price) *pricedomain.Response {
 	return &pricedomain.Response{
-		ID:                   p.ID.String(),
-		OrganizationID:       p.OrgID.String(),
-		ProductID:            p.ProductID.String(),
+		ID:                   p.ID,
+		OrganizationID:       p.OrgID,
+		ProductID:            p.ProductID,
 		Code:                 p.Code,
 		Name:                 p.Name,
 		Description:          p.Description,

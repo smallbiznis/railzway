@@ -249,13 +249,18 @@ func (s *Service) Create(ctx context.Context, req subscriptiondomain.CreateSubsc
 		return subscriptiondomain.CreateSubscriptionResponse{}, subscriptiondomain.ErrInvalidItems
 	}
 
+	collectionMode, err := parseCollectionMode(string(req.CollectionMode))
+	if err != nil {
+		return subscriptiondomain.CreateSubscriptionResponse{}, err
+	}
+
 	now := time.Now().UTC()
 	subscription := subscriptiondomain.Subscription{
 		ID:               s.genID.Generate(),
 		OrgID:            orgID,
 		CustomerID:       customerID,
 		Status:           subscriptiondomain.SubscriptionStatusDraft,
-		CollectionMode:   req.CollectionMode,
+		CollectionMode:   collectionMode,
 		StartAt:          now,
 		BillingCycleType: billingCycleType,
 		CreatedAt:        now,
@@ -680,7 +685,7 @@ func (s *Service) buildSubscriptionItems(
 			return nil, err
 		}
 
-		parsedPriceID, err := s.parseID(price.ID, subscriptiondomain.ErrInvalidPrice)
+		parsedPriceID, err := s.parseID(price.ID.String(), subscriptiondomain.ErrInvalidPrice)
 		if err != nil {
 			return nil, err
 		}
@@ -697,17 +702,26 @@ func (s *Service) buildSubscriptionItems(
 			meterID   *snowflake.ID
 			meterCode *string
 		)
-		if price.PricingModel == pricedomain.PerUnit ||
-			price.PricingModel == pricedomain.TieredGraduated ||
-			price.PricingModel == pricedomain.TieredVolume {
-			priceAmounts, err := s.loadPriceAmount(ctx, price.ID)
+		if price.PricingModel != pricedomain.Flat {
+			priceAmounts, err := s.loadPriceAmount(ctx, price.ID.String())
 			if err != nil {
 				return nil, err
 			}
 
-			meterID, meterCode, err = s.resolvePriceMeter(ctx, orgID, parsedPriceID, *priceAmounts[0].MeterID)
-			if err != nil {
-				return nil, err
+			if priceAmounts[0].MeterID == nil {
+				// Flat price → no meter
+				meterID = nil
+				meterCode = nil
+			} else {
+				meterID, meterCode, err = s.resolvePriceMeter(
+					ctx,
+					orgID,
+					parsedPriceID,
+					priceAmounts[0].MeterID,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -853,41 +867,42 @@ func (s *Service) toCreateResponse(subscription *subscriptiondomain.Subscription
 	}
 }
 
-func (s *Service) resolvePriceMeter(ctx context.Context, orgID, priceID snowflake.ID, meterID string) (*snowflake.ID, *string, error) {
-	trimmedMeterID := strings.TrimSpace(meterID)
-	if trimmedMeterID == "" {
-		return nil, nil, subscriptiondomain.ErrInvalidMeterID
-	}
+func (s *Service) resolvePriceMeter(
+	ctx context.Context,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+) (*snowflake.ID, *string, error) {
 
-	parsedMeterID, err := s.parseID(trimmedMeterID, subscriptiondomain.ErrInvalidMeterID)
-	if err != nil {
-		return nil, nil, err
+	// Case 1: Flat price → no meter
+	if meterID == nil {
+		return nil, nil, nil
 	}
 
 	var row struct {
 		MeterID   snowflake.ID `gorm:"column:meter_id"`
 		MeterCode string       `gorm:"column:code"`
 	}
+
 	if err := s.db.WithContext(ctx).Raw(
 		`SELECT m.id AS meter_id, m.code
-		 FROM price_amounts pa
-		 JOIN meters m ON m.id = pa.meter_id AND m.org_id = pa.org_id
-		 WHERE pa.org_id = ? AND pa.price_id = ? AND pa.meter_id = ?
-		 ORDER BY pa.meter_id DESC
+		 FROM meters m
+		 WHERE m.org_id = ? AND m.id = ?
 		 LIMIT 1`,
 		orgID,
-		priceID,
-		parsedMeterID,
+		*meterID,
 	).Scan(&row).Error; err != nil {
 		return nil, nil, err
 	}
+
 	if row.MeterID == 0 {
 		return nil, nil, subscriptiondomain.ErrInvalidMeterID
 	}
+
 	meterCode := strings.TrimSpace(row.MeterCode)
 	if meterCode == "" {
 		return nil, nil, subscriptiondomain.ErrInvalidMeterCode
 	}
+
 	resolvedMeterID := row.MeterID
 	return &resolvedMeterID, &meterCode, nil
 }

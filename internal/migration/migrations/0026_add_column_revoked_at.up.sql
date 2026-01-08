@@ -1,0 +1,3 @@
+ALTER TABLE price_amounts
+  ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
