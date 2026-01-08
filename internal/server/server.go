@@ -306,22 +306,18 @@ func (s *Server) registerAPIRoutes() {
 
 	// -------- Pricing --------
 	api.GET("/pricings", s.APIKeyRequired(), s.ListPricings)
-	api.POST("/pricings", s.APIKeyRequired(), s.CreatePricing)
 	api.GET("/pricings/:id", s.APIKeyRequired(), s.GetPricingByID)
 
 	// -------- Prices --------
 	api.GET("/prices", s.APIKeyRequired(), s.ListPrices)
-	api.POST("/prices", s.APIKeyRequired(), s.CreatePrice)
 	api.GET("/prices/:id", s.APIKeyRequired(), s.GetPriceByID)
 
 	// -------- Price Amounts --------
 	api.GET("/price_amounts", s.APIKeyRequired(), s.ListPriceAmounts)
-	api.POST("/price_amounts", s.APIKeyRequired(), s.CreatePriceAmount)
 	api.GET("/price_amounts/:id", s.APIKeyRequired(), s.GetPriceAmountByID)
 
 	// -------- Tiers ---------
 	api.GET("/price_tiers", s.APIKeyRequired(), s.ListPriceTiers)
-	api.POST("/price_tiers", s.APIKeyRequired(), s.CreatePriceTier)
 	api.GET("/price_tiers/:id", s.APIKeyRequired(), s.GetPriceTierByID)
 
 	// -------- Subscriptions --------

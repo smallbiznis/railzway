@@ -42,11 +42,14 @@ func (r *repo) Insert(ctx context.Context, db *gorm.DB, amount *priceamountdomai
 func (r *repo) FindByID(ctx context.Context, db *gorm.DB, orgID, id snowflake.ID) (*priceamountdomain.PriceAmount, error) {
 	var amount priceamountdomain.PriceAmount
 	err := db.WithContext(ctx).Raw(
-		`SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents, effective_from, effective_to,
-		 metadata, created_at, updated_at
-		 FROM price_amounts WHERE org_id = ? AND id = ?`,
-		orgID,
-		id,
+		`SELECT id, org_id, price_id, meter_id, currency,
+		        unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
+		        effective_from, effective_to,
+		        revoked_at, revoked_reason,
+		        metadata, created_at, updated_at
+		 FROM price_amounts
+		 WHERE org_id = ? AND id = ?`,
+		orgID, id,
 	).Scan(&amount).Error
 	if err != nil {
 		return nil, err
@@ -85,12 +88,14 @@ func (r *repo) FindOne(ctx context.Context, db *gorm.DB, amount *priceamountdoma
 }
 
 func (r *repo) Update(ctx context.Context, db *gorm.DB, amount *priceamountdomain.PriceAmount) (*priceamountdomain.PriceAmount, error) {
-	err := db.WithContext(ctx).Model(&priceamountdomain.PriceAmount{}).
+	err := db.WithContext(ctx).
+		Model(&priceamountdomain.PriceAmount{}).
 		Where("org_id = ? AND id = ?", amount.OrgID, amount.ID).
 		Updates(map[string]interface{}{
-			// Only allow closing windows; pricing is append-only.
-			"effective_to": amount.EffectiveTo,
-			"updated_at":   amount.UpdatedAt,
+			"effective_to":   amount.EffectiveTo,
+			"revoked_at":     amount.RevokedAt,
+			"revoked_reason": amount.RevokedReason,
+			"updated_at":     amount.UpdatedAt,
 		}).Error
 	if err != nil {
 		return nil, err
@@ -109,12 +114,12 @@ func (r *repo) FindEffectiveAt(
 	var amount priceamountdomain.PriceAmount
 	query := `
 		SELECT id, org_id, price_id, meter_id, currency, unit_amount_cents, minimum_amount_cents, maximum_amount_cents,
-		       effective_from, effective_to, metadata, created_at, updated_at
+		       effective_from, effective_to, revoked_at, revoked_reason, metadata, created_at, updated_at
 		FROM price_amounts
 		WHERE org_id = ? AND price_id = ?
-		  AND effective_from <= ?
-		  AND (effective_to IS NULL OR effective_to > ?)`
-	args := []any{orgID, priceID, at, at}
+			AND revoked_at IS NULL
+		  AND effective_from <= ?`
+	args := []any{orgID, priceID, at}
 	query, args = applyMeterCondition(query, args, meterID)
 	query, args = applyCurrencyCondition(query, args, currency)
 	query += `
@@ -173,6 +178,7 @@ func (r *repo) FindNext(
 		       effective_from, effective_to, metadata, created_at, updated_at
 		FROM price_amounts
 		WHERE org_id = ? AND price_id = ?
+			AND revoked_at IS NULL
 		  AND effective_from > ?`
 	args := []any{orgID, priceID, after}
 	query, args = applyMeterCondition(query, args, meterID)
@@ -249,6 +255,7 @@ func (r *repo) FindLatestByPriceAndCurrency(
 		Where("org_id = ?", orgID).
 		Where("price_id = ?", priceID).
 		Where("currency = ?", currency).
+		Where("revoked_at IS NULL").
 		Order("effective_from DESC").
 		Limit(1).
 		Take(&item).Error
@@ -261,4 +268,39 @@ func (r *repo) FindLatestByPriceAndCurrency(
 	}
 
 	return &item, nil
+}
+
+func (r *repo) FindUpcoming(
+	ctx context.Context,
+	db *gorm.DB,
+	orgID, priceID snowflake.ID,
+	meterID *snowflake.ID,
+	currency string,
+) (*priceamountdomain.PriceAmount, error) {
+	now := time.Now().UTC()
+
+	q := db.WithContext(ctx).
+		Model(&priceamountdomain.PriceAmount{}).
+		Where("org_id = ?", orgID).
+		Where("price_id = ?", priceID).
+		Where("currency = ?", currency).
+		Where("revoked_at IS NULL").
+		Where("effective_from > ?", now)
+
+	// NULL-safe match for meter_id
+	if meterID == nil {
+		q = q.Where("meter_id IS NULL")
+	} else {
+		q = q.Where("meter_id = ?", *meterID)
+	}
+
+	var out priceamountdomain.PriceAmount
+	err := q.Order("effective_from ASC").Limit(1).Take(&out).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &out, nil
 }

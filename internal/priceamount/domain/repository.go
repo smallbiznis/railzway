@@ -25,4 +25,11 @@ type Repository interface {
 		orgID, priceID snowflake.ID,
 		currency string,
 	) (*PriceAmount, error)
+	FindUpcoming(
+		ctx context.Context,
+		db *gorm.DB,
+		orgID, priceID snowflake.ID,
+		meterID *snowflake.ID,
+		currency string,
+	) (*PriceAmount, error)
 }

@@ -22,11 +22,11 @@ func (s *Server) CreatePriceAmount(c *gin.Context) {
 	}
 
 	if s.auditSvc != nil {
-		targetID := resp.ID
+		targetID := resp.ID.String()
 		metadata := map[string]any{
-			"price_amount_id": resp.ID,
-			"price_id":        resp.PriceID,
-			"currency":        resp.Currency,
+			"price_amount_id":   resp.ID,
+			"price_id":          resp.PriceID,
+			"currency":          resp.Currency,
 			"unit_amount_cents": resp.UnitAmountCents,
 		}
 		if resp.MinimumAmountCents != nil {

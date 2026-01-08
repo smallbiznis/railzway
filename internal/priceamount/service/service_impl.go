@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
+	"github.com/smallbiznis/valora/internal/clock"
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
@@ -22,6 +23,7 @@ type Params struct {
 	DB        *gorm.DB
 	Log       *zap.Logger
 	GenID     *snowflake.Node
+	Clock     clock.Clock
 	Repo      priceamountdomain.Repository
 	PriceRepo pricedomain.Repository
 }
@@ -30,6 +32,7 @@ type Service struct {
 	db        *gorm.DB
 	log       *zap.Logger
 	genID     *snowflake.Node
+	clock     clock.Clock
 	repo      priceamountdomain.Repository
 	priceRepo pricedomain.Repository
 }
@@ -39,6 +42,7 @@ func New(p Params) priceamountdomain.Service {
 		db:        p.DB,
 		log:       p.Log.Named("priceamount.service"),
 		genID:     p.GenID,
+		clock:     p.Clock,
 		repo:      p.Repo,
 		priceRepo: p.PriceRepo,
 	}
@@ -69,7 +73,7 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 	}
 
 	// 4. Normalize effective_from to minute precision
-	effectiveFrom := normalizeToMinutePrecision(time.Now().UTC())
+	effectiveFrom := normalizeToMinutePrecision(s.clock.Now())
 	if req.EffectiveFrom != nil {
 		effectiveFrom = normalizeToMinutePrecision(*req.EffectiveFrom)
 	}
@@ -108,10 +112,6 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 			return err
 		}
 
-		if price.PricingModel != pricedomain.Flat {
-			meterID = requestedMeterID
-		}
-
 		// 8. If versioning, validate continuity and close current window
 		if isVersioning {
 			current, err := s.repo.FindEffectiveAt(ctx, tx, orgID, priceID, meterID, currency, effectiveFrom.Add(-time.Minute))
@@ -130,7 +130,7 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 
 			// Close the current window
 			current.EffectiveTo = &effectiveFrom
-			current.UpdatedAt = time.Now().UTC()
+			current.UpdatedAt = s.clock.Now()
 			if _, err := s.repo.Update(ctx, tx, current); err != nil {
 				return err
 			}
@@ -148,8 +148,23 @@ func (s *Service) Create(ctx context.Context, req priceamountdomain.CreateReques
 			return err
 		}
 
+		// Check if there is already an upcoming price
+		upcoming, err := s.repo.FindUpcoming(
+			ctx, tx,
+			orgID,
+			priceID,
+			meterID,
+			currency,
+		)
+		if err != nil {
+			return err
+		}
+		if upcoming != nil {
+			return priceamountdomain.ErrUpcomingAlreadyExists
+		}
+
 		// 10. Insert new price amount (append-only)
-		now := time.Now().UTC()
+		now := s.clock.Now()
 		entity = &priceamountdomain.PriceAmount{
 			ID:                 s.genID.Generate(),
 			OrgID:              orgID,
@@ -200,8 +215,13 @@ func (s *Service) resolvePricingDimension(
 		return nil, false, err
 	}
 
-	// Case 1: No existing price amount - this is initial creation
+	// Case 1: No existing price amount - initial creation
 	if latest == nil {
+		// If meter_id is provided, this is a usage-based price
+		if requestedMeterID != nil {
+			return requestedMeterID, false, nil
+		}
+		// Otherwise, this is a flat price
 		return nil, false, nil
 	}
 
@@ -340,16 +360,16 @@ func validateAmountValues(req priceamountdomain.CreateRequest) error {
 }
 
 func (s *Service) toResponse(a *priceamountdomain.PriceAmount) *priceamountdomain.Response {
-	var meterID *string
+	var meterID *snowflake.ID
 	if a.MeterID != nil {
-		value := a.MeterID.String()
-		meterID = &value
+		value := a.MeterID
+		meterID = value
 	}
 
 	return &priceamountdomain.Response{
-		ID:                 a.ID.String(),
-		OrganizationID:     a.OrgID.String(),
-		PriceID:            a.PriceID.String(),
+		ID:                 a.ID,
+		OrganizationID:     a.OrgID,
+		PriceID:            a.PriceID,
 		MeterID:            meterID,
 		Currency:           a.Currency,
 		UnitAmountCents:    a.UnitAmountCents,
@@ -357,6 +377,9 @@ func (s *Service) toResponse(a *priceamountdomain.PriceAmount) *priceamountdomai
 		MaximumAmountCents: a.MaximumAmountCents,
 		EffectiveFrom:      a.EffectiveFrom,
 		EffectiveTo:        a.EffectiveTo,
+		RevokedAt:          a.RevokedAt,
+		RevokedReason:      a.RevokedReason,
+		Status:             deriveStatus(a, s.clock.Now()),
 		CreatedAt:          a.CreatedAt,
 		UpdatedAt:          a.UpdatedAt,
 	}
@@ -465,7 +488,7 @@ func (o whereOption) Apply(db *gorm.DB) *gorm.DB {
 }
 
 func (s *Service) resolveEffectiveRange(req priceamountdomain.CreateRequest) (time.Time, *time.Time, error) {
-	effectiveFrom := time.Now().UTC()
+	effectiveFrom := s.clock.Now()
 	if req.EffectiveFrom != nil {
 		effectiveFrom = req.EffectiveFrom.UTC()
 	}
@@ -483,4 +506,20 @@ func (s *Service) resolveEffectiveRange(req priceamountdomain.CreateRequest) (ti
 	}
 
 	return effectiveFrom, effectiveTo, nil
+}
+
+func deriveStatus(a *priceamountdomain.PriceAmount, now time.Time) string {
+	if a.RevokedAt != nil {
+		return "revoked"
+	}
+
+	if a.EffectiveFrom.After(now) {
+		return "upcoming"
+	}
+
+	if a.EffectiveTo != nil && !a.EffectiveTo.After(now) {
+		return "expired"
+	}
+
+	return "active"
 }

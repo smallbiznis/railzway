@@ -65,7 +65,7 @@ func (s *Server) CreatePrice(c *gin.Context) {
 	}
 
 	if s.auditSvc != nil {
-		targetID := resp.ID
+		targetID := resp.ID.String()
 		_ = s.auditSvc.AuditLog(c.Request.Context(), nil, "", nil, "price.create", "price", &targetID, map[string]any{
 			"price_id":      resp.ID,
 			"product_id":    resp.ProductID,
