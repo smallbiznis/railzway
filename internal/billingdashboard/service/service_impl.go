@@ -149,7 +149,7 @@ func (s *Service) ListBillingCycles(ctx context.Context) (billingdashboard.Billi
 	for _, row := range rows {
 		status := strings.ToLower(strings.TrimSpace(row.Status))
 		if row.TotalRevenue == 0 {
-			status = "no_activity"
+			status = "No Activity"
 		}
 		cycles = append(cycles, billingdashboard.BillingCycleSummary{
 			Period:       row.PeriodStart,
