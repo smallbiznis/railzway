@@ -86,6 +86,8 @@ func (a *Adapter) Parse(ctx context.Context, payload []byte) (*paymentdomain.Pay
 	switch strings.TrimSpace(event.Type) {
 	case "payment_intent.succeeded":
 		return a.parsePaymentIntent(event, payload)
+	case "payment_intent.payment_failed":
+		return a.parsePaymentIntentFailed(event, payload)
 	case "charge.succeeded":
 		return a.parseCharge(event, payload, paymentdomain.EventTypePaymentSucceeded)
 	case "charge.refunded":
@@ -202,16 +204,46 @@ func (a *Adapter) parsePaymentIntent(event stripeEvent, payload []byte) (*paymen
 
 	occurredAt := timestamp(intent.Created, event.Created)
 	return &paymentdomain.PaymentEvent{
-		Provider:        "stripe",
-		ProviderEventID: event.ID,
-		Type:            paymentdomain.EventTypePaymentSucceeded,
-		OrgID:           a.orgID,
-		CustomerID:      customerID,
-		Amount:          amount,
-		Currency:        strings.ToUpper(strings.TrimSpace(intent.Currency)),
-		OccurredAt:      occurredAt,
-		RawPayload:      payload,
-		InvoiceID:       invoiceID,
+		Provider:            "stripe",
+		ProviderEventID:     event.ID,
+		ProviderPaymentID:   intent.ID,
+		ProviderPaymentType: "payment_intent",
+		Type:                paymentdomain.EventTypePaymentSucceeded,
+		OrgID:               a.orgID,
+		CustomerID:          customerID,
+		Amount:              amount,
+		Currency:            strings.ToUpper(strings.TrimSpace(intent.Currency)),
+		OccurredAt:          occurredAt,
+		RawPayload:          payload,
+		InvoiceID:           invoiceID,
+	}, nil
+}
+
+func (a *Adapter) parsePaymentIntentFailed(event stripeEvent, payload []byte) (*paymentdomain.PaymentEvent, error) {
+	var intent stripePaymentIntent
+	if err := json.Unmarshal(event.Data.Object, &intent); err != nil {
+		return nil, paymentdomain.ErrInvalidPayload
+	}
+
+	customerID, invoiceID, err := parseMetadataIDs(intent.Metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	occurredAt := timestamp(intent.Created, event.Created)
+	return &paymentdomain.PaymentEvent{
+		Provider:            "stripe",
+		ProviderEventID:     event.ID,
+		ProviderPaymentID:   intent.ID,
+		ProviderPaymentType: "payment_intent",
+		Type:                paymentdomain.EventTypePaymentFailed,
+		OrgID:               a.orgID,
+		CustomerID:          customerID,
+		Amount:              intent.Amount,
+		Currency:            strings.ToUpper(strings.TrimSpace(intent.Currency)),
+		OccurredAt:          occurredAt,
+		RawPayload:          payload,
+		InvoiceID:           invoiceID,
 	}, nil
 }
 
@@ -232,16 +264,18 @@ func (a *Adapter) parseCharge(event stripeEvent, payload []byte, eventType strin
 
 	occurredAt := timestamp(charge.Created, event.Created)
 	return &paymentdomain.PaymentEvent{
-		Provider:        "stripe",
-		ProviderEventID: event.ID,
-		Type:            eventType,
-		OrgID:           a.orgID,
-		CustomerID:      customerID,
-		Amount:          amount,
-		Currency:        strings.ToUpper(strings.TrimSpace(charge.Currency)),
-		OccurredAt:      occurredAt,
-		RawPayload:      payload,
-		InvoiceID:       invoiceID,
+		Provider:            "stripe",
+		ProviderEventID:     event.ID,
+		ProviderPaymentID:   charge.ID,
+		ProviderPaymentType: "charge",
+		Type:                eventType,
+		OrgID:               a.orgID,
+		CustomerID:          customerID,
+		Amount:              amount,
+		Currency:            strings.ToUpper(strings.TrimSpace(charge.Currency)),
+		OccurredAt:          occurredAt,
+		RawPayload:          payload,
+		InvoiceID:           invoiceID,
 	}, nil
 }
 

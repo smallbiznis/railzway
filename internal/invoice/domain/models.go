@@ -34,6 +34,7 @@ type Invoice struct {
 	PeriodEnd         *time.Time        `gorm:""`
 	IssuedAt          *time.Time        `gorm:""`
 	DueAt             *time.Time        `gorm:""`
+	PaidAt            *time.Time        `gorm:"column:paid_at"`
 	FinalizedAt       *time.Time        `gorm:""`
 	VoidedAt          *time.Time        `gorm:""`
 	RenderedHTML      *string           `gorm:"column:rendered_html;type:text"`

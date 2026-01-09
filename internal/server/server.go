@@ -24,6 +24,8 @@ import (
 	"github.com/smallbiznis/valora/internal/billingdashboard"
 	billingdashboarddomain "github.com/smallbiznis/valora/internal/billingdashboard/domain"
 	billingrollup "github.com/smallbiznis/valora/internal/billingdashboard/rollup"
+	"github.com/smallbiznis/valora/internal/billingoverview"
+	billingoverviewdomain "github.com/smallbiznis/valora/internal/billingoverview/domain"
 	"github.com/smallbiznis/valora/internal/cloudmetrics"
 	"github.com/smallbiznis/valora/internal/config"
 	"github.com/smallbiznis/valora/internal/customer"
@@ -54,6 +56,8 @@ import (
 	pricetierdomain "github.com/smallbiznis/valora/internal/pricetier/domain"
 	"github.com/smallbiznis/valora/internal/product"
 	productdomain "github.com/smallbiznis/valora/internal/product/domain"
+	"github.com/smallbiznis/valora/internal/publicinvoice"
+	publicinvoicedomain "github.com/smallbiznis/valora/internal/publicinvoice/domain"
 	"github.com/smallbiznis/valora/internal/ratelimit"
 	"github.com/smallbiznis/valora/internal/rating"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
@@ -83,6 +87,7 @@ var Module = fx.Module("http.server",
 	apikey.Module,
 	customer.Module,
 	billingdashboard.Module,
+	billingoverview.Module,
 	invoice.Module,
 	invoicetemplate.Module,
 	ledger.Module,
@@ -94,6 +99,7 @@ var Module = fx.Module("http.server",
 	product.Module,
 	payment.Module,
 	paymentprovider.Module,
+	publicinvoice.Module,
 	reference.Module,
 	rating.Module,
 	ratelimit.Module,
@@ -150,37 +156,43 @@ func run(lc fx.Lifecycle, r *gin.Engine) {
 }
 
 type Server struct {
-	engine              *gin.Engine
-	cfg                 config.Config
-	db                  *gorm.DB
-	authsvc             authdomain.Service
-	oauthsvc            authoauth.Service
-	sessions            *session.Manager
-	genID               *snowflake.Node
-	apiKeySvc           apikeydomain.Service
-	apiKeyLimiter       *rateLimiter
-	authzSvc            authorization.Service
-	auditSvc            auditdomain.Service
-	billingDashboardSvc billingdashboarddomain.Service
-	billingRollup       *billingrollup.Service
-	invoiceSvc          invoicedomain.Service
-	meterSvc            meterdomain.Service
-	organizationSvc     organizationdomain.Service
-	customerSvc         customerdomain.Service
-	priceSvc            pricedomain.Service
-	priceAmountSvc      priceamountdomain.Service
-	priceTierSvc        pricetierdomain.Service
-	productSvc          productdomain.Service
-	paymentSvc          paymentdomain.Service
-	paymentProviderSvc  paymentproviderdomain.Service
-	invoiceTemplateSvc  invoicetemplatedomain.Service
-	refrepo             referencedomain.Repository
-	signupsvc           signupdomain.Service
-	ratingSvc           ratingdomain.Service
-	subscriptionSvc     subscriptiondomain.Service
-	usagesvc            usagedomain.Service
-	obsMetrics          *obsmetrics.Metrics
-	usageLimiter        *ratelimit.UsageIngestLimiter
+	engine                      *gin.Engine
+	cfg                         config.Config
+	db                          *gorm.DB
+	authsvc                     authdomain.Service
+	oauthsvc                    authoauth.Service
+	sessions                    *session.Manager
+	genID                       *snowflake.Node
+	apiKeySvc                   apikeydomain.Service
+	apiKeyLimiter               *rateLimiter
+	authzSvc                    authorization.Service
+	auditSvc                    auditdomain.Service
+	billingDashboardSvc         billingdashboarddomain.Service
+	billingOverviewSvc          billingoverviewdomain.Service
+	billingRollup               *billingrollup.Service
+	invoiceSvc                  invoicedomain.Service
+	meterSvc                    meterdomain.Service
+	organizationSvc             organizationdomain.Service
+	customerSvc                 customerdomain.Service
+	priceSvc                    pricedomain.Service
+	priceAmountSvc              priceamountdomain.Service
+	priceTierSvc                pricetierdomain.Service
+	productSvc                  productdomain.Service
+	paymentSvc                  paymentdomain.Service
+	paymentProviderSvc          paymentproviderdomain.Service
+	invoiceTemplateSvc          invoicetemplatedomain.Service
+	refrepo                     referencedomain.Repository
+	signupsvc                   signupdomain.Service
+	ratingSvc                   ratingdomain.Service
+	subscriptionSvc             subscriptiondomain.Service
+	usagesvc                    usagedomain.Service
+	obsMetrics                  *obsmetrics.Metrics
+	usageLimiter                *ratelimit.UsageIngestLimiter
+	publicInvoiceSvc            publicinvoicedomain.Service
+	publicInvoiceLimiter        *rateLimiter
+	publicPaymentIntentLimiter  *rateLimiter
+	publicPaymentMethodsLimiter *rateLimiter
+	publicPaymentMethodsCache   *paymentMethodsCache
 
 	scheduler *scheduler.Scheduler `optional:"true"`
 }
@@ -199,6 +211,7 @@ type ServerParams struct {
 	AuthzSvc            authorization.Service
 	AuditSvc            auditdomain.Service
 	BillingDashboardSvc billingdashboarddomain.Service
+	BillingOverviewSvc  billingoverviewdomain.Service
 	BillingRollup       *billingrollup.Service
 	InvoiceSvc          invoicedomain.Service
 	MeterSvc            meterdomain.Service
@@ -215,6 +228,7 @@ type ServerParams struct {
 	RatingSvc           ratingdomain.Service
 	SubscriptionSvc     subscriptiondomain.Service
 	Usagesvc            usagedomain.Service
+	PublicInvoiceSvc    publicinvoicedomain.Service
 	ObsMetrics          *obsmetrics.Metrics           `optional:"true"`
 	UsageLimiter        *ratelimit.UsageIngestLimiter `optional:"true"`
 
@@ -223,42 +237,49 @@ type ServerParams struct {
 
 func NewServer(p ServerParams) *Server {
 	svc := &Server{
-		engine:              p.Gin,
-		cfg:                 p.Cfg,
-		db:                  p.DB,
-		authsvc:             p.Authsvc,
-		oauthsvc:            p.OAuthsvc,
-		sessions:            p.Sessions,
-		genID:               p.GenID,
-		apiKeySvc:           p.APIKeySvc,
-		apiKeyLimiter:       newRateLimiter(5, 10*time.Minute),
-		authzSvc:            p.AuthzSvc,
-		auditSvc:            p.AuditSvc,
-		billingDashboardSvc: p.BillingDashboardSvc,
-		billingRollup:       p.BillingRollup,
-		invoiceSvc:          p.InvoiceSvc,
-		meterSvc:            p.MeterSvc,
-		organizationSvc:     p.OrganizationSvc,
-		customerSvc:         p.CustomerSvc,
-		priceSvc:            p.PriceSvc,
-		priceAmountSvc:      p.PriceAmountSvc,
-		priceTierSvc:        p.PriceTierSvc,
-		productSvc:          p.ProductSvc,
-		paymentSvc:          p.PaymentSvc,
-		paymentProviderSvc:  p.PaymentProviderSvc,
-		invoiceTemplateSvc:  p.InvoiceTemplateSvc,
-		refrepo:             p.Refrepo,
-		ratingSvc:           p.RatingSvc,
-		subscriptionSvc:     p.SubscriptionSvc,
-		usagesvc:            p.Usagesvc,
-		obsMetrics:          p.ObsMetrics,
-		usageLimiter:        p.UsageLimiter,
-		scheduler:           p.Scheduler,
+		engine:                      p.Gin,
+		cfg:                         p.Cfg,
+		db:                          p.DB,
+		authsvc:                     p.Authsvc,
+		oauthsvc:                    p.OAuthsvc,
+		sessions:                    p.Sessions,
+		genID:                       p.GenID,
+		apiKeySvc:                   p.APIKeySvc,
+		apiKeyLimiter:               newRateLimiter(5, 10*time.Minute),
+		authzSvc:                    p.AuthzSvc,
+		auditSvc:                    p.AuditSvc,
+		billingDashboardSvc:         p.BillingDashboardSvc,
+		billingOverviewSvc:          p.BillingOverviewSvc,
+		billingRollup:               p.BillingRollup,
+		invoiceSvc:                  p.InvoiceSvc,
+		meterSvc:                    p.MeterSvc,
+		organizationSvc:             p.OrganizationSvc,
+		customerSvc:                 p.CustomerSvc,
+		priceSvc:                    p.PriceSvc,
+		priceAmountSvc:              p.PriceAmountSvc,
+		priceTierSvc:                p.PriceTierSvc,
+		productSvc:                  p.ProductSvc,
+		paymentSvc:                  p.PaymentSvc,
+		paymentProviderSvc:          p.PaymentProviderSvc,
+		invoiceTemplateSvc:          p.InvoiceTemplateSvc,
+		refrepo:                     p.Refrepo,
+		ratingSvc:                   p.RatingSvc,
+		subscriptionSvc:             p.SubscriptionSvc,
+		usagesvc:                    p.Usagesvc,
+		obsMetrics:                  p.ObsMetrics,
+		usageLimiter:                p.UsageLimiter,
+		publicInvoiceSvc:            p.PublicInvoiceSvc,
+		publicInvoiceLimiter:        newRateLimiter(30, time.Minute),
+		publicPaymentIntentLimiter:  newRateLimiter(5, time.Minute),
+		publicPaymentMethodsLimiter: newRateLimiter(30, time.Minute),
+		publicPaymentMethodsCache:   newPaymentMethodsCache(2 * time.Minute),
+		scheduler:                   p.Scheduler,
 	}
 
 	svc.registerAuthRoutes()
 	svc.registerAPIRoutes()
 	svc.registerAdminRoutes()
+	svc.registerPublicRoutes()
 	svc.registerUIRoutes()
 	svc.registerFallback()
 	svc.RegisterDevBillingRoutes()
@@ -295,10 +316,8 @@ func (s *Server) registerAPIRoutes() {
 
 	// -------- Meters --------
 	api.GET("/meters", s.APIKeyRequired(), s.ListMeters)
-	api.POST("/meters", s.APIKeyRequired(), s.CreateMeter)
 	api.GET("/meters/:id", s.APIKeyRequired(), s.GetMeterByID)
-	api.PATCH("/meters/:id", s.APIKeyRequired(), s.UpdateMeter)
-	api.DELETE("/meters/:id", s.APIKeyRequired(), s.DeleteMeter)
+
 	// -------- Product --------
 	api.GET("/products", s.APIKeyRequired(), s.ListProducts)
 	api.POST("/products", s.APIKeyRequired(), s.CreateProduct)
@@ -405,6 +424,12 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/billing/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCustomers)
 	admin.GET("/billing/cycles", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCycles)
 	admin.GET("/billing/activity", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingActivity)
+	admin.GET("/billing/overview/mrr", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRR)
+	admin.GET("/billing/overview/mrr-movement", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRRMovement)
+	admin.GET("/billing/overview/revenue", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewRevenue)
+	admin.GET("/billing/overview/outstanding", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewOutstandingBalance)
+	admin.GET("/billing/overview/collection-rate", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewCollectionRate)
+	admin.GET("/billing/overview/subscribers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewSubscribers)
 	admin.POST("/internal/rebuild-billing-snapshots", s.RequireRole(organizationdomain.RoleOwner), s.RebuildBillingSnapshots)
 
 	// -------- Invoice Templates --------

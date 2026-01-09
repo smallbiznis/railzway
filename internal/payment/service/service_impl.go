@@ -178,7 +178,14 @@ func (s *Service) processEvent(ctx context.Context, stored *paymentdomain.EventR
 			return err
 		}
 	case paymentdomain.EventTypePaymentFailed:
-		return s.writeAuditLog(ctx, "payment.failed", stored, event, nil)
+		if err := s.markPaymentFailed(ctx, stored.OrgID, event); err != nil {
+			return err
+		}
+		action := "payment.failed"
+		if isPaymentIntentEvent(event) {
+			action = "payment.intent_failed"
+		}
+		return s.writeAuditLog(ctx, action, stored, event, nil)
 	default:
 		return paymentdomain.ErrInvalidEvent
 	}
@@ -191,6 +198,15 @@ func (s *Service) settlePayment(
 	stored *paymentdomain.EventRecord,
 	event *paymentdomain.PaymentEvent,
 ) error {
+	if event.InvoiceID != nil && *event.InvoiceID != 0 {
+		paid, err := s.invoiceAlreadyPaid(ctx, stored.OrgID, *event.InvoiceID)
+		if err != nil {
+			return err
+		}
+		if paid {
+			return nil
+		}
+	}
 
 	if err := s.createPaymentLedgerEntry(
 		ctx,
@@ -370,10 +386,11 @@ func (s *Service) updateInvoiceSettlement(ctx context.Context, orgID snowflake.I
 			ID             snowflake.ID      `gorm:"column:id"`
 			OrgID          snowflake.ID      `gorm:"column:org_id"`
 			SubtotalAmount int64             `gorm:"column:subtotal_amount"`
+			PaidAt         *time.Time        `gorm:"column:paid_at"`
 			Metadata       datatypes.JSONMap `gorm:"column:metadata"`
 		}
 		if err := tx.WithContext(ctx).Raw(
-			`SELECT id, org_id, subtotal_amount, metadata
+			`SELECT id, org_id, subtotal_amount, paid_at, metadata
 			 FROM invoices
 			 WHERE id = ? AND org_id = ?
 			 FOR UPDATE`,
@@ -383,6 +400,9 @@ func (s *Service) updateInvoiceSettlement(ctx context.Context, orgID snowflake.I
 			return err
 		}
 		if row.ID == 0 {
+			return nil
+		}
+		if row.PaidAt != nil && !isRefund {
 			return nil
 		}
 
@@ -398,20 +418,26 @@ func (s *Service) updateInvoiceSettlement(ctx context.Context, orgID snowflake.I
 		if row.Metadata == nil {
 			row.Metadata = datatypes.JSONMap{}
 		}
+		applyPaymentMetadata(row.Metadata, event)
 		row.Metadata["amount_paid"] = paid
+		if !isRefund {
+			delete(row.Metadata, "payment_failed_at")
+		}
 
 		now := time.Now().UTC()
+		paidAt := row.PaidAt
 		if row.SubtotalAmount > 0 && paid >= row.SubtotalAmount {
-			row.Metadata["paid_at"] = now.Format(time.RFC3339)
-		} else {
-			delete(row.Metadata, "paid_at")
+			if paidAt == nil {
+				paidAt = &now
+			}
 		}
 
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE invoices
-			 SET metadata = ?, updated_at = ?
+			 SET metadata = ?, paid_at = ?, updated_at = ?
 			 WHERE id = ? AND org_id = ?`,
 			row.Metadata,
+			paidAt,
 			now,
 			row.ID,
 			orgID,
@@ -421,6 +447,92 @@ func (s *Service) updateInvoiceSettlement(ctx context.Context, orgID snowflake.I
 
 		return nil
 	})
+}
+
+func (s *Service) markPaymentFailed(ctx context.Context, orgID snowflake.ID, event *paymentdomain.PaymentEvent) error {
+	if event == nil || event.InvoiceID == nil || *event.InvoiceID == 0 {
+		return nil
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row struct {
+			ID       snowflake.ID      `gorm:"column:id"`
+			OrgID    snowflake.ID      `gorm:"column:org_id"`
+			Metadata datatypes.JSONMap `gorm:"column:metadata"`
+		}
+		if err := tx.WithContext(ctx).Raw(
+			`SELECT id, org_id, metadata
+			 FROM invoices
+			 WHERE id = ? AND org_id = ?
+			 FOR UPDATE`,
+			*event.InvoiceID,
+			orgID,
+		).Scan(&row).Error; err != nil {
+			return err
+		}
+		if row.ID == 0 {
+			return nil
+		}
+
+		if row.Metadata == nil {
+			row.Metadata = datatypes.JSONMap{}
+		}
+		applyPaymentMetadata(row.Metadata, event)
+		row.Metadata["payment_failed_at"] = time.Now().UTC().Format(time.RFC3339)
+
+		return tx.WithContext(ctx).Exec(
+			`UPDATE invoices
+			 SET metadata = ?, updated_at = ?
+			 WHERE id = ? AND org_id = ?`,
+			row.Metadata,
+			time.Now().UTC(),
+			row.ID,
+			row.OrgID,
+		).Error
+	})
+}
+
+func (s *Service) invoiceAlreadyPaid(ctx context.Context, orgID snowflake.ID, invoiceID snowflake.ID) (bool, error) {
+	if orgID == 0 || invoiceID == 0 {
+		return false, nil
+	}
+	var row struct {
+		PaidAt *time.Time `gorm:"column:paid_at"`
+	}
+	if err := s.db.WithContext(ctx).Raw(
+		`SELECT paid_at
+		 FROM invoices
+		 WHERE id = ? AND org_id = ?`,
+		invoiceID,
+		orgID,
+	).Scan(&row).Error; err != nil {
+		return false, err
+	}
+	return row.PaidAt != nil, nil
+}
+
+func applyPaymentMetadata(metadata datatypes.JSONMap, event *paymentdomain.PaymentEvent) {
+	if metadata == nil || event == nil {
+		return
+	}
+	metadata["last_payment_event"] = event.Type
+	metadata["last_payment_provider_event_id"] = event.ProviderEventID
+
+	if strings.EqualFold(event.Provider, "stripe") && strings.TrimSpace(event.ProviderPaymentID) != "" {
+		switch strings.ToLower(strings.TrimSpace(event.ProviderPaymentType)) {
+		case "payment_intent":
+			metadata["stripe_payment_intent_id"] = strings.TrimSpace(event.ProviderPaymentID)
+		case "charge":
+			metadata["stripe_charge_id"] = strings.TrimSpace(event.ProviderPaymentID)
+		}
+	}
+}
+
+func isPaymentIntentEvent(event *paymentdomain.PaymentEvent) bool {
+	if event == nil {
+		return false
+	}
+	return strings.EqualFold(event.ProviderPaymentType, "payment_intent")
 }
 
 func readMetadataAmount(metadata datatypes.JSONMap, key string) int64 {

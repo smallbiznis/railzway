@@ -29,14 +29,16 @@ const (
 
 // PaymentEvent is the canonical payment event parsed by adapters.
 type PaymentEvent struct {
-	Provider        string
-	ProviderEventID string
-	Type            string
-	OrgID           snowflake.ID
-	CustomerID      snowflake.ID
-	Amount          int64
-	Currency        string
-	OccurredAt      time.Time
-	RawPayload      []byte
-	InvoiceID       *snowflake.ID
+	Provider            string
+	ProviderEventID     string
+	ProviderPaymentID   string
+	ProviderPaymentType string
+	Type                string
+	OrgID               snowflake.ID
+	CustomerID          snowflake.ID
+	Amount              int64
+	Currency            string
+	OccurredAt          time.Time
+	RawPayload          []byte
+	InvoiceID           *snowflake.ID
 }

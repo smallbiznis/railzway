@@ -12,6 +12,7 @@ import (
 	authscope "github.com/smallbiznis/valora/internal/auth/scope"
 	"github.com/smallbiznis/valora/internal/authorization"
 	billingdashboarddomain "github.com/smallbiznis/valora/internal/billingdashboard/domain"
+	billingoverviewdomain "github.com/smallbiznis/valora/internal/billingoverview/domain"
 	customerdomain "github.com/smallbiznis/valora/internal/customer/domain"
 	invoicedomain "github.com/smallbiznis/valora/internal/invoice/domain"
 	invoicetemplatedomain "github.com/smallbiznis/valora/internal/invoicetemplate/domain"
@@ -64,6 +65,7 @@ var (
 	ErrServiceUnavailable = errors.New("service_unavailable")
 	ErrOrgRequired        = errors.New("org_required")
 	ErrRateLimited        = errors.New("rate_limited")
+	ErrInvoiceUnavailable = errors.New("invoice_unavailable")
 )
 
 func ErrorHandlingMiddleware() gin.HandlerFunc {
@@ -177,6 +179,11 @@ func mapError(err error) (int, errorPayload) {
 			Type:    "not_found",
 			Message: "not found",
 		}
+	case errors.Is(err, ErrInvoiceUnavailable):
+		return http.StatusNotFound, errorPayload{
+			Type:    "not_found",
+			Message: "invoice not available",
+		}
 	case errors.Is(err, ErrServiceUnavailable):
 		return http.StatusServiceUnavailable, errorPayload{
 			Type:    "service_unavailable",
@@ -233,6 +240,7 @@ func isValidationError(err error) bool {
 	case isOrganizationValidationError(err),
 		isCustomerValidationError(err),
 		isBillingDashboardValidationError(err),
+		isBillingOverviewValidationError(err),
 		isInvoiceValidationError(err),
 		isInvoiceTemplateValidationError(err),
 		isRatingValidationError(err),
@@ -276,6 +284,15 @@ func isUsageValidationError(err error) bool {
 func isBillingDashboardValidationError(err error) bool {
 	switch err {
 	case billingdashboarddomain.ErrInvalidOrganization:
+		return true
+	default:
+		return false
+	}
+}
+
+func isBillingOverviewValidationError(err error) bool {
+	switch err {
+	case billingoverviewdomain.ErrInvalidOrganization:
 		return true
 	default:
 		return false

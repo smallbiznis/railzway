@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -30,7 +29,6 @@ func DefaultConfig() Config {
 
 func (c Config) withDefaults() Config {
 	defaults := DefaultConfig()
-	fmt.Printf("FinalizeInvoices: %v\n", c.FinalizeInvoices)
 	if c.RunInterval <= 0 {
 		c.RunInterval = defaults.RunInterval
 	}

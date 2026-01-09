@@ -47,6 +47,7 @@ import (
 	"github.com/smallbiznis/valora/internal/priceamount"
 	"github.com/smallbiznis/valora/internal/pricetier"
 	"github.com/smallbiznis/valora/internal/product"
+	"github.com/smallbiznis/valora/internal/publicinvoice"
 	"github.com/smallbiznis/valora/internal/rating"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/internal/reference"
@@ -403,6 +404,7 @@ func startEnv() (*testEnv, error) {
 		pricetier.Module,
 		product.Module,
 		paymentprovider.Module,
+		publicinvoice.Module,
 		reference.Module,
 		subscription.Module,
 		usage.Module,

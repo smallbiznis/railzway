@@ -98,7 +98,7 @@ func Load() Config {
 		AuthCookieSecure:            authCookieSecure,
 		DefaultOrgID:                getenvInt64("DEFAULT_ORG", 0),
 		AuthJWTSecret:               strings.TrimSpace(getenv("AUTH_JWT_SECRET", "")),
-		PaymentProviderConfigSecret: strings.TrimSpace(getenv("PAYMENT_PROVIDER_CONFIG_SECRET", "")),
+		PaymentProviderConfigSecret: strings.TrimSpace(getenv("PAYMENT_PROVIDER_CONFIG_SECRET", "base64:Kq7N2f1Jx9yY4mFZp+u7qZb8c9d0eFQ1vS3nZk6hL2A=")),
 		OTLPEndpoint:                getenv("OTLP_ENDPOINT", "localhost:4317"),
 		Cloud: CloudConfig{
 			OrganizationID:   strings.TrimSpace(getenv("CLOUD_ORGANIZATION_ID", "")),
@@ -148,6 +148,9 @@ func Load() Config {
 			UsageIngestEndpointBurst:         getenvInt("USAGE_INGEST_ENDPOINT_BURST", 30),
 			UsageIngestConcurrencyTTLSeconds: clampInt(getenvInt("USAGE_INGEST_CONCURRENCY_TTL_SECONDS", 3), 2, 5),
 		},
+
+		// Vault settings
+
 	}
 
 	return cfg

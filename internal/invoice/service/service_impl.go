@@ -22,6 +22,7 @@ import (
 	"github.com/smallbiznis/valora/internal/orgcontext"
 	pricedomain "github.com/smallbiznis/valora/internal/price/domain"
 	priceamountdomain "github.com/smallbiznis/valora/internal/priceamount/domain"
+	publicinvoicedomain "github.com/smallbiznis/valora/internal/publicinvoice/domain"
 	ratingdomain "github.com/smallbiznis/valora/internal/rating/domain"
 	"github.com/smallbiznis/valora/pkg/db/option"
 	"github.com/smallbiznis/valora/pkg/repository"
@@ -90,25 +91,27 @@ type ledgerEntryLineRow struct {
 type ServiceParam struct {
 	fx.In
 
-	DB           *gorm.DB
-	Log          *zap.Logger
-	GenID        *snowflake.Node
-	AuditSvc     auditdomain.Service
-	TemplateRepo templatedomain.Repository
-	Renderer     render.Renderer
-	Outbox       *events.Outbox `optional:"true"`
+	DB             *gorm.DB
+	Log            *zap.Logger
+	GenID          *snowflake.Node
+	AuditSvc       auditdomain.Service
+	TemplateRepo   templatedomain.Repository
+	Renderer       render.Renderer
+	PublicTokenSvc publicinvoicedomain.PublicInvoiceTokenService
+	Outbox         *events.Outbox `optional:"true"`
 }
 
 type Service struct {
 	db  *gorm.DB
 	log *zap.Logger
 
-	genID        *snowflake.Node
-	invoicerepo  repository.Repository[invoicedomain.Invoice]
-	auditSvc     auditdomain.Service
-	templateRepo templatedomain.Repository
-	renderer     render.Renderer
-	outbox       *events.Outbox
+	genID          *snowflake.Node
+	invoicerepo    repository.Repository[invoicedomain.Invoice]
+	auditSvc       auditdomain.Service
+	templateRepo   templatedomain.Repository
+	renderer       render.Renderer
+	publicTokenSvc publicinvoicedomain.PublicInvoiceTokenService
+	outbox         *events.Outbox
 }
 
 func NewService(p ServiceParam) invoicedomain.Service {
@@ -117,11 +120,12 @@ func NewService(p ServiceParam) invoicedomain.Service {
 		log:   p.Log.Named("invoice.service"),
 		genID: p.GenID,
 
-		invoicerepo:  repository.ProvideStore[invoicedomain.Invoice](p.DB),
-		auditSvc:     p.AuditSvc,
-		templateRepo: p.TemplateRepo,
-		renderer:     p.Renderer,
-		outbox:       p.Outbox,
+		invoicerepo:    repository.ProvideStore[invoicedomain.Invoice](p.DB),
+		auditSvc:       p.AuditSvc,
+		templateRepo:   p.TemplateRepo,
+		renderer:       p.Renderer,
+		publicTokenSvc: p.PublicTokenSvc,
+		outbox:         p.Outbox,
 	}
 }
 
@@ -570,14 +574,15 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 		invoice.DueAt = &dueAt
 		invoice.IssuedAt = &now
 		invoice.FinalizedAt = &now
+
 		if err := tx.WithContext(ctx).Exec(
 			`UPDATE invoices
 			 SET status = ?, finalized_at = ?, issued_at = ?, due_at = ?, invoice_template_id = ?, rendered_html = ?, rendered_pdf_url = ?, updated_at = ?
 			 WHERE id = ?`,
 			invoice.Status,
-			now,
-			now,
-			now.AddDate(0, 30, 0),
+			invoice.FinalizedAt,
+			invoice.IssuedAt,
+			invoice.DueAt,
 			invoice.InvoiceTemplateID,
 			invoice.RenderedHTML,
 			invoice.RenderedPDFURL,
@@ -587,6 +592,10 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) error {
 			return err
 		}
 		finalizedInvoice = invoice
+
+		if _, err := s.publicTokenSvc.EnsureForInvoice(ctx, *finalizedInvoice); err != nil {
+			return err
+		}
 
 		if s.outbox != nil {
 			if err := s.outbox.PublishTx(ctx, tx, events.Event{
