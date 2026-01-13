@@ -1,5 +1,6 @@
 name: GitHub Release
 
+on:
   push:
     # Tag-driven releases only (no branch or SHA releases).
     tags:
