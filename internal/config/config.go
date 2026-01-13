@@ -43,6 +43,20 @@ type Config struct {
 	OAuth2ClientSecret string
 
 	RateLimit RateLimitConfig
+	Email     EmailConfig
+	Logger    LoggerConfig
+}
+
+type EmailConfig struct {
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+}
+
+type LoggerConfig struct {
+	Level string
 }
 
 type CloudConfig struct {
@@ -168,6 +182,18 @@ func Load() Config {
 			UsageIngestEndpointRate:          getenvFloat("USAGE_INGEST_ENDPOINT_RATE", 15),
 			UsageIngestEndpointBurst:         getenvInt("USAGE_INGEST_ENDPOINT_BURST", 30),
 			UsageIngestConcurrencyTTLSeconds: clampInt(getenvInt("USAGE_INGEST_CONCURRENCY_TTL_SECONDS", 3), 2, 5),
+		},
+
+		Email: EmailConfig{
+			SMTPHost:     getenv("SMTP_HOST", "localhost"),
+			SMTPPort:     getenvInt("SMTP_PORT", 1025),
+			SMTPUsername: getenv("SMTP_USERNAME", ""),
+			SMTPPassword: getenv("SMTP_PASSWORD", ""),
+			SMTPFrom:     getenv("SMTP_FROM", "no-reply@valora.test"),
+		},
+
+		Logger: LoggerConfig{
+			Level: getenv("LOG_LEVEL", "info"),
 		},
 
 		// Vault settings
