@@ -47,14 +47,25 @@ Please use the following prefixes for your branches:
     - Once approved and CI passes, use **Squash and Merge** (preferred) to keep history linear.
     - Delete the branch after merging.
 
-## 📦 Release Process
+### 📦 Versioning & Release Process
 
-Releases are **Tag-Driven**.
+We use [Changesets](https://github.com/changesets/changesets) to manage versions and changelogs.
 
-1.  Ensure all features for the proper version are merged into `main`.
-2.  Create and push a tag:
-    ```bash
-    git tag -a v1.0.0 -m "Release v1.0.0"
-    git push origin v1.0.0
-    ```
-3.  GitHub Actions will automatically build Docker images and create a GitHub Release.
+#### 1. Adding a Changeset
+When you make a change that requires a changelog entry (feature, fix, or breaking change), run:
+
+```bash
+pnpm changeset
+```
+
+- Select the package(s) you modified.
+- Select the bump type (major/minor/patch).
+- Write a summary of the change.
+
+This creates a markdown file in `.changeset/`. Commit this file along with your code.
+
+#### 2. Release Lifecycle
+1.  **Version PR**: A "Version Packages" PR runs automatically on `main`. It consumes all changesets and updates `package.json` versions and `CHANGELOG.md`.
+2.  **Tagging**: When the "Version Packages" PR is merged, the system creates Git Tags (e.g., `@railzway/admin@1.0.1`).
+3.  **Docker Build**: Git Tags trigger the Docker Build & Publish workflow.
+
