@@ -93,7 +93,7 @@ jobs:
           fi
 
           {
-            echo "# Railzwayy ${tag}"
+            echo "# ${tag}"
             echo ""
             echo "## ${header}"
             git log --no-merges --pretty=format:'- %s (%h)' "${range}"
