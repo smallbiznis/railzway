@@ -7,5 +7,6 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8"
-  }
+  },
+  "packageManager": "pnpm@10.22.0"
 }
