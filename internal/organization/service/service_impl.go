@@ -266,6 +266,17 @@ func (s *service) AcceptInvite(ctx context.Context, userID snowflake.ID, inviteI
 		return errors.New("invite already accepted or expired")
 	}
 
+	// Check if user is already a member
+	isMember, err := s.repo.IsMember(ctx, invite.OrgID, userID)
+	if err != nil {
+		return err
+	}
+	if isMember {
+		// User is already a member, just mark invite as accepted
+		invite.Status = "accepted"
+		return s.repo.UpdateInvite(ctx, *invite)
+	}
+
 	// Add member
 	now := time.Now().UTC()
 	member := domain.OrganizationMember{
