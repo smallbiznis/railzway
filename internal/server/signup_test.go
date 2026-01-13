@@ -107,6 +107,11 @@ type fakeOrgService struct {
 	lastUserID     snowflake.ID
 }
 
+// AcceptInvite implements domain.Service.
+func (f *fakeOrgService) AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error {
+	panic("unimplemented")
+}
+
 func newFakeOrgService() *fakeOrgService {
 	return &fakeOrgService{
 		org: &orgdomain.OrganizationResponse{

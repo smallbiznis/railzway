@@ -91,3 +91,24 @@ func (s *Server) SetOrganizationBillingPreferences(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+func (s *Server) AcceptOrganizationInvite(c *gin.Context) {
+	userID, ok := s.userIDFromSession(c)
+	if !ok {
+		AbortWithError(c, ErrUnauthorized)
+		return
+	}
+
+	inviteID := strings.TrimSpace(c.Param("invite_id"))
+	if inviteID == "" {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	if err := s.organizationSvc.AcceptInvite(c.Request.Context(), userID, inviteID); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

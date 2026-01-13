@@ -12,6 +12,7 @@ import (
 	"github.com/gosimple/slug"
 	"github.com/smallbiznis/railzway/internal/organization/domain"
 	"github.com/smallbiznis/railzway/internal/organization/event"
+	"github.com/smallbiznis/railzway/internal/providers/email"
 	referencedomain "github.com/smallbiznis/railzway/internal/reference/domain"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -23,15 +24,17 @@ type service struct {
 	ref       referencedomain.Repository
 	genID     *snowflake.Node
 	publisher event.EventPublisher
+	email     email.Provider
 }
 
-func NewService(db *gorm.DB, repo domain.Repository, ref referencedomain.Repository, genID *snowflake.Node, publisher event.EventPublisher) domain.Service {
+func NewService(db *gorm.DB, repo domain.Repository, ref referencedomain.Repository, genID *snowflake.Node, publisher event.EventPublisher, email email.Provider) domain.Service {
 	return &service{
 		db:        db,
 		repo:      repo,
 		ref:       ref,
 		genID:     genID,
 		publisher: publisher,
+		email:     email,
 	}
 }
 
@@ -216,7 +219,78 @@ func (s *service) InviteMembers(ctx context.Context, userID snowflake.ID, orgID 
 		})
 	}
 
-	return s.repo.CreateInvites(ctx, rows)
+	err = s.repo.CreateInvites(ctx, rows)
+	if err != nil {
+		return err
+	}
+
+	// Send emails
+	for _, invite := range rows {
+		go func(inv domain.OrganizationInvite) {
+			if err := s.email.SendTemplate(context.Background(), []string{inv.Email}, "invite_member", map[string]interface{}{
+				"org_name":    org.Name,
+				"invite_link": "http://localhost:8080/invite/" + inv.ID.String(),
+				"role":        inv.Role,
+			}); err != nil {
+				zap.L().Error("failed to send invite email", zap.Error(err), zap.String("email", inv.Email))
+			}
+		}(invite)
+	}
+
+	return nil
+}
+
+func (s *service) AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error {
+	if userID == 0 {
+		return domain.ErrInvalidUser
+	}
+
+	rawInviteID := strings.TrimSpace(inviteID)
+	if rawInviteID == "" {
+		return domain.ErrInvalidOrganization // Should probably carry a specific invite error, but sticking to existing pattern or creating new one.
+	}
+	parsedInviteID, err := snowflake.ParseString(rawInviteID)
+	if err != nil {
+		return err
+	}
+
+	invite, err := s.repo.GetInvite(ctx, parsedInviteID)
+	if err != nil {
+		return err
+	}
+	if invite == nil {
+		return domain.ErrInvalidOrganization
+	}
+
+	if invite.Status != "pending" {
+		return errors.New("invite already accepted or expired")
+	}
+
+	// Add member
+	now := time.Now().UTC()
+	member := domain.OrganizationMember{
+		ID:        s.genID.Generate(),
+		OrgID:     invite.OrgID,
+		UserID:    userID,
+		Role:      invite.Role,
+		CreatedAt: now,
+	}
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		repo := s.repo.WithTx(tx)
+		if err := repo.AddMember(ctx, member); err != nil {
+			return err
+		}
+
+		invite.Status = "accepted"
+		// update invite status
+		if err := repo.UpdateInvite(ctx, *invite); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
 }
 
 func (s *service) SetBillingPreferences(ctx context.Context, userID snowflake.ID, orgID string, req domain.BillingPreferencesRequest) error {
@@ -368,7 +442,7 @@ func normalizeRole(raw string) string {
 
 func isValidRole(role string) bool {
 	switch role {
-	case domain.RoleOwner, domain.RoleAdmin, domain.RoleMember:
+	case domain.RoleOwner, domain.RoleAdmin, domain.RoleMember, domain.RoleFinOps, domain.RoleDeveloper:
 		return true
 	default:
 		return false

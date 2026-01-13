@@ -331,7 +331,14 @@ func (s *Server) RegisterAuthRoutes() {
 	{
 		user.GET("/orgs", s.ListUserOrgs)
 		user.POST("/using/:orgId", s.UseOrg)
+		user.POST("/orgs", s.CreateOrganization)
+		user.POST("/orgs/:id/invites", s.InviteOrganizationMembers)
+		user.POST("/orgs/:id/billing-preferences", s.SetOrganizationBillingPreferences)
 	}
+
+	// Public invite acceptance (requires auth but not org context)
+	auth.POST("/invites/:invite_id/accept", s.WebAuthRequired(), s.AcceptOrganizationInvite)
+
 }
 
 func (s *Server) RegisterAPIRoutes() {

@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	RoleOwner  = "OWNER"
-	RoleAdmin  = "ADMIN"
-	RoleMember = "MEMBER"
+	RoleOwner     = "OWNER"
+	RoleAdmin     = "ADMIN"
+	RoleFinOps    = "FINOPS"    // View Invoices, Reports, Payments
+	RoleDeveloper = "DEVELOPER" // API Keys, Webhooks
+	RoleMember    = "MEMBER"    // Read-only / Limited
 )
 
 type Service interface {
@@ -19,6 +21,7 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*OrganizationResponse, error)
 	ListOrganizationsByUser(ctx context.Context, userID snowflake.ID) ([]OrganizationListResponseItem, error)
 	InviteMembers(ctx context.Context, userID snowflake.ID, orgID string, invites []InviteRequest) error
+	AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error
 	SetBillingPreferences(ctx context.Context, userID snowflake.ID, orgID string, req BillingPreferencesRequest) error
 }
 

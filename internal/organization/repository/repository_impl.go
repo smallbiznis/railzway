@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/smallbiznis/railzway/internal/organization/domain"
@@ -94,4 +95,20 @@ func (r *repository) UpsertBillingPreferences(ctx context.Context, prefs domain.
 		prefs.CreatedAt,
 		prefs.UpdatedAt,
 	).Error
+}
+
+func (r *repository) GetInvite(ctx context.Context, inviteID snowflake.ID) (*domain.OrganizationInvite, error) {
+	var invite domain.OrganizationInvite
+	err := r.db.WithContext(ctx).First(&invite, "id = ?", inviteID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // Or return a specific error if preferred, but nil, nil is common for "not found" in some patterns. However, standard is usually error.
+		}
+		return nil, err
+	}
+	return &invite, nil
+}
+
+func (r *repository) UpdateInvite(ctx context.Context, invite domain.OrganizationInvite) error {
+	return r.db.WithContext(ctx).Save(&invite).Error
 }

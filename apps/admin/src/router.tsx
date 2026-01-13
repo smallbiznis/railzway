@@ -11,6 +11,7 @@ import { useAppMode } from "@/hooks/useAppMode"
 import { useAuthStore } from "@/stores/authStore"
 
 const SignupPage = lazy(() => import("@/pages/signup"))
+const AcceptInvitePage = lazy(() => import("@/pages/accept-invite"))
 
 const OrgHome = lazy(() => import("@/features/billing/pages/OrgHome"))
 const OrgBillingOverviewPage = lazy(
@@ -156,6 +157,14 @@ export const router = createBrowserRouter([
           <SignupPage />
         </FeatureBoundary>
       </CloudOnlyRoute>
+    ),
+  },
+  {
+    path: "/invite/:inviteId",
+    element: (
+      <Suspense fallback={<Skeleton className="h-screen w-screen" />}>
+        <AcceptInvitePage />
+      </Suspense>
     ),
   },
   {
