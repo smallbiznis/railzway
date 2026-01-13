@@ -1,10 +1,9 @@
 name: GitHub Release
 
-on:
   push:
     # Tag-driven releases only (no branch or SHA releases).
     tags:
-      - "v*.*.*"
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -54,8 +53,9 @@ jobs:
           tag="${RELEASE_TAG}"
 
           # Enforce SemVer tags for auditability and tool compatibility.
-          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid tag '${tag}'. Expected vX.Y.Z."
+          # Relaxed regex to allow pre-release suffixes (e.g., -rc.1)
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Invalid tag '${tag}'. Expected vX.Y.Z or vX.Y.Z-rc.N."
             exit 1
           fi
 
