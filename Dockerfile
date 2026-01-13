@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.5
 
 # =========================
-# UI BUILDER (Admin Dashboard)
+# FRONTEND BUILDER (Admin Dashboard)
 # =========================
-FROM node:20-alpine AS ui-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 COPY apps/admin/package.json apps/admin/pnpm-lock.yaml ./
 RUN npm install -g pnpm && pnpm install --frozen-lockfile
@@ -11,9 +11,9 @@ COPY apps/admin/ ./
 RUN pnpm run build
 
 # =========================
-# GO BUILDER (Monolith Binary)
+# BACKEND BUILDER (Monolith Binary)
 # =========================
-FROM golang:1.25-alpine AS go-builder
+FROM golang:1.25-alpine AS backend-builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -27,10 +27,10 @@ FROM alpine:latest
 WORKDIR /app
 
 # Copy binary
-COPY --from=go-builder /app/railzway .
+COPY --from=backend-builder /app/railzway .
 
 # Copy UI assets (Admin Dashboard)
-COPY --from=ui-builder /app/dist ./public
+COPY --from=frontend-builder /app/dist ./public
 
 # Config
 ENV PORT=8080
