@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -24,8 +25,8 @@ const (
 	contextSessionKey = "session"
 )
 
-func serveIndex(c *gin.Context) {
-	c.File("./public/index.html")
+func (s *Server) serveIndex(c *gin.Context) {
+	c.File(filepath.Join(s.cfg.StaticDir, "index.html"))
 }
 
 func RequestID() gin.HandlerFunc {

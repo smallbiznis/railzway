@@ -545,73 +545,73 @@ func (s *Server) RegisterUIRoutes() {
 	r := s.engine.Group("/")
 
 	// ---- SPA entry points ----
-	r.GET("/", serveIndex)
-	r.GET("/login", s.redirectIfLoggedIn(), serveIndex)
+	r.GET("/", s.serveIndex)
+	r.GET("/login", s.redirectIfLoggedIn(), s.serveIndex)
 	r.GET("/login/:name", s.OAuthLogin)
-	r.GET("/invite/:code", serveIndex)
-	r.GET("/change-password", s.WebAuthRequired(), serveIndex)
+	r.GET("/invite/:code", s.serveIndex)
+	r.GET("/change-password", s.WebAuthRequired(), s.serveIndex)
 
 	orgs := r.Group("/orgs", s.WebAuthRequired())
 	{
-		orgs.GET("", serveIndex)
+		orgs.GET("", s.serveIndex)
 		org := orgs.Group("/:id")
 		{
 			home := org.Group("/home")
 			{
-				home.GET("", serveIndex)
+				home.GET("", s.serveIndex)
 			}
 			products := org.Group("/products")
 			{
-				products.GET("", serveIndex)
+				products.GET("", s.serveIndex)
 				features := products.Group("/features")
 				{
-					features.GET("", serveIndex)
+					features.GET("", s.serveIndex)
 				}
 			}
 
 			taxdefinition := org.Group("/tax-definitions")
 			{
-				taxdefinition.GET("", serveIndex)
+				taxdefinition.GET("", s.serveIndex)
 			}
 
 			customers := org.Group("/customers")
 			{
-				customers.GET("", serveIndex)
+				customers.GET("", s.serveIndex)
 			}
 
 			prices := org.Group("/prices")
 			{
-				prices.GET("", serveIndex)
+				prices.GET("", s.serveIndex)
 			}
 
 			subscriptions := org.Group("/subscriptions")
 			{
-				subscriptions.GET("", serveIndex)
+				subscriptions.GET("", s.serveIndex)
 			}
 
 			invoices := org.Group("/invoices")
 			{
-				invoices.GET("", serveIndex)
+				invoices.GET("", s.serveIndex)
 			}
 
 			apiKeys := org.Group("/api-keys")
 			{
-				apiKeys.GET("", serveIndex)
+				apiKeys.GET("", s.serveIndex)
 			}
 
 			auditLogs := org.Group("/audit-logs")
 			{
-				auditLogs.GET("", serveIndex)
+				auditLogs.GET("", s.serveIndex)
 			}
 
 			paymentProviders := org.Group("/payment-providers")
 			{
-				paymentProviders.GET("", serveIndex)
+				paymentProviders.GET("", s.serveIndex)
 			}
 
 			settings := org.Group("/settings", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin))
 			{
-				settings.GET("/", serveIndex)
+				settings.GET("/", s.serveIndex)
 			}
 		}
 	}
