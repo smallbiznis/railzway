@@ -2,7 +2,7 @@ import * as React from "react"
 import {
   IconInnerShadowTop,
 } from "@tabler/icons-react"
-import { NavLink, useParams } from "react-router-dom"
+import { NavLink, useLocation, useParams } from "react-router-dom"
 
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -132,6 +132,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ].filter(() => canAccessAdmin)
 
+  const location = useLocation()
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -156,43 +158,52 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroupLabel>Billing</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {billingNav.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    {item.items && item.items.length > 0 ? (
-                      <Collapsible asChild className="group/collapsible">
-                        <div>
-                          <CollapsibleTrigger asChild>
-                            <SidebarMenuButton tooltip={item.title}>
-                              <item.icon />
-                              <span>{item.title}</span>
-                              <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                            </SidebarMenuButton>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent>
-                            <SidebarMenuSub>
-                              {item.items.map((subItem) => (
-                                <SidebarMenuSubItem key={subItem.title}>
-                                  <SidebarMenuSubButton asChild>
-                                    <NavLink to={subItem.url} end={false}>
-                                      <span>{subItem.title}</span>
-                                    </NavLink>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              ))}
-                            </SidebarMenuSub>
-                          </CollapsibleContent>
-                        </div>
-                      </Collapsible>
-                    ) : (
-                      <SidebarMenuButton asChild tooltip={item.title}>
-                        <NavLink to={item.url}>
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    )}
-                  </SidebarMenuItem>
-                ))}
+                {billingNav.map((item) => {
+                  const isAnySubActive = item.items?.some(sub =>
+                    location.pathname + location.search === sub.url
+                  )
+
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      {item.items && item.items.length > 0 ? (
+                        <Collapsible asChild defaultOpen={isAnySubActive} className="group/collapsible">
+                          <div>
+                            <CollapsibleTrigger asChild>
+                              <SidebarMenuButton tooltip={item.title} isActive={isAnySubActive}>
+                                <item.icon />
+                                <span>{item.title}</span>
+                                <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                              </SidebarMenuButton>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <SidebarMenuSub>
+                                {item.items.map((subItem) => (
+                                  <SidebarMenuSubItem key={subItem.title}>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      isActive={location.pathname + location.search === subItem.url}
+                                    >
+                                      <NavLink to={subItem.url} end={false}>
+                                        <span>{subItem.title}</span>
+                                      </NavLink>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                ))}
+                              </SidebarMenuSub>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      ) : (
+                        <SidebarMenuButton asChild tooltip={item.title}>
+                          <NavLink to={item.url}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      )}
+                    </SidebarMenuItem>
+                  )
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

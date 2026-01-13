@@ -1,3 +1,5 @@
+import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import { Zap, BarChart3 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -8,10 +10,19 @@ import { InboxTab } from "../components/InboxTab"
 import { MyWorkTab } from "../components/MyWorkTab"
 import { RecentlyResolvedTab } from "../components/RecentlyResolvedTab"
 import { TeamViewTab } from "../components/TeamViewTab"
+import { PerformanceDashboard } from "../components/PerformanceDashboard"
 
 export default function OrgBillingOperationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get("tab") || "inbox"
+  const [showPerformance, setShowPerformance] = useState(false)
+
   const role = useOrgStore((state) => state.currentOrg?.role)
   const isManager = canManageBilling(role)
+
+  const handleTabChange = (value: string) => {
+    setSearchParams({ tab: value }, { replace: true })
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-8">
@@ -30,7 +41,11 @@ export default function OrgBillingOperationsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => setShowPerformance(true)}
+          >
             <BarChart3 className="h-4 w-4" />
             Performance Dashboard
           </Button>
@@ -38,7 +53,7 @@ export default function OrgBillingOperationsPage() {
       </header>
 
       {/* Main IA Tabs */}
-      <Tabs defaultValue="inbox" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <div className="border-b">
           <TabsList className="bg-transparent h-auto p-0 gap-6">
             <TabsTrigger
@@ -85,6 +100,8 @@ export default function OrgBillingOperationsPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      <PerformanceDashboard open={showPerformance} onOpenChange={setShowPerformance} />
     </div>
   )
 }

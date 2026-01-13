@@ -494,22 +494,22 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/billing/overview/outstanding", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewOutstandingBalance)
 	admin.GET("/billing/overview/collection-rate", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewCollectionRate)
 	admin.GET("/billing/overview/subscribers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewSubscribers)
-	
+
 	// -------- FinOps Performance --------
 	admin.GET("/finops/performance/me", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsPerformanceMe)
 	admin.GET("/finops/performance/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetBillingOperationsPerformanceTeam)
-	
+
 	// -------- Billing Operations IA (Task-Centric Views) --------
-	admin.GET("/billing-operations/inbox", s.RequireRole(organizationdomain.RoleMember), s.GetBillingOperationsInbox)
-	admin.GET("/billing-operations/my-work", s.RequireRole(organizationdomain.RoleMember), s.GetBillingOperationsMyWork)
-	admin.GET("/billing-operations/recently-resolved", s.RequireRole(organizationdomain.RoleMember), s.GetBillingOperationsRecentlyResolved)
+	admin.GET("/billing-operations/inbox", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsInbox)
+	admin.GET("/billing-operations/my-work", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsMyWork)
+	admin.GET("/billing-operations/recently-resolved", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsRecentlyResolved)
 	admin.GET("/billing-operations/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetBillingOperationsTeamView)
-	
+
 	// -------- Billing Operations Actions --------
 	admin.POST("/billing-operations/claim", s.RequireRole(organizationdomain.RoleMember), s.PostBillingOperationsAssignment)
 	admin.POST("/billing-operations/release", s.RequireRole(organizationdomain.RoleMember), s.ReleaseBillingOperationsAssignment)
 	admin.POST("/billing-operations/resolve", s.RequireRole(organizationdomain.RoleMember), s.ResolveBillingOperationsAssignment)
-	
+
 	admin.POST("/internal/rebuild-billing-snapshots", s.RequireRole(organizationdomain.RoleOwner), s.RebuildBillingSnapshots)
 
 	// -------- Invoice Templates --------

@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react"
+import { Loader2, Inbox } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card"
 import { useInbox, useClaimAssignment } from "../hooks/useIA"
 import { formatCurrency } from "../utils/formatting"
 import { cn } from "@/lib/utils"
@@ -42,37 +43,35 @@ export function InboxTab() {
   }
 
   const items = data?.items || []
+  const invoices = items.filter(item => item.category === "overdue_invoice" || item.category === "high_exposure")
+  const paymentIssues = items.filter(item => item.category === "failed_payment")
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {items.length} {items.length === 1 ? "item" : "items"} need attention
-        </p>
-      </div>
+  const renderSection = (title: string, sectionItems: typeof items) => {
+    if (sectionItems.length === 0) return null
 
-      <div className="rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/30">
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="font-medium">Issue Type</TableHead>
-              <TableHead className="font-medium">Entity</TableHead>
-              <TableHead className="font-medium">Customer</TableHead>
-              <TableHead className="font-medium">Amount / Exposure</TableHead>
-              <TableHead className="font-medium">Days Overdue</TableHead>
-              <TableHead className="text-right font-medium">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                  No items in inbox. All systems nominal! 🎉
-                </TableCell>
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 px-1">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+          <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+            {sectionItems.length}
+          </Badge>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="font-medium">Issue Type</TableHead>
+                <TableHead className="font-medium">Entity</TableHead>
+                <TableHead className="font-medium">Customer</TableHead>
+                <TableHead className="font-medium">Amount / Exposure</TableHead>
+                <TableHead className="font-medium">Days Overdue</TableHead>
+                <TableHead className="text-right font-medium">Action</TableHead>
               </TableRow>
-            ) : (
-              items.map((item) => {
-                const isLoading = claimMutation.isPending
+            </TableHeader>
+            <TableBody>
+              {sectionItems.map((item) => {
+                const isClaiming = claimMutation.isPending
                 const isFailedPayment = item.category === "failed_payment"
 
                 return (
@@ -124,10 +123,10 @@ export function InboxTab() {
                         size="sm"
                         variant="default"
                         className="h-7 text-xs opacity-0 transition-opacity group-hover:opacity-100"
-                        disabled={isLoading}
+                        disabled={isClaiming}
                         onClick={() => handleClaim(item.entity_type, item.entity_id)}
                       >
-                        {isLoading ? (
+                        {isClaiming ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           "Claim"
@@ -136,11 +135,34 @@ export function InboxTab() {
                     </TableCell>
                   </TableRow>
                 )
-              })
-            )}
-          </TableBody>
-        </Table>
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8">
+      {items.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="py-12 flex flex-col items-center justify-center text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted mb-4">
+              <Inbox className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <CardTitle className="text-lg font-medium">Clear Skies!</CardTitle>
+            <CardDescription className="max-w-sm mx-auto mt-1">
+              No pending invoices or payment issues. Everything is currently on track.
+            </CardDescription>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {renderSection("Invoices", invoices)}
+          {renderSection("Payment Issues", paymentIssues)}
+        </>
+      )}
     </div>
   )
 }

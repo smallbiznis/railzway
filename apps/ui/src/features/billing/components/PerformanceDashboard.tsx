@@ -30,9 +30,9 @@ import { admin } from "@/api/client"
 import { cn } from "@/lib/utils"
 
 type PerformanceMetrics = {
-  avg_response_ms: number
+  avg_response_minutes: number
   completion_ratio: number
-  escalation_rate: number
+  escalation_ratio: number
   exposure_handled: number
   total_assigned: number
   total_resolved: number
@@ -72,8 +72,16 @@ export function PerformanceDashboard({
   useEffect(() => {
     if (open) {
       setLoading(true)
-      admin.get("/billing/operations/performance/me")
-        .then(res => setData(res.data))
+      admin.get("/finops/performance/me")
+        .then(res => {
+          const apiData = res.data
+          if (apiData?.snapshots && apiData.snapshots.length > 0) {
+            setData({
+              current: apiData.snapshots[0],
+              history: apiData.snapshots
+            })
+          }
+        })
         .catch(err => console.error("Failed to load performance", err))
         .finally(() => setLoading(false))
     }
@@ -184,7 +192,7 @@ export function PerformanceDashboard({
                 title="Responsiveness"
                 score={data?.current?.scores.responsiveness || 0}
                 max={25}
-                value={`${Math.round((data?.current?.metrics.avg_response_ms || 0) / 1000 / 60)}m avg`}
+                value={`${Math.round(data?.current?.metrics.avg_response_minutes || 0)}m avg`}
                 icon={Zap}
                 color="text-blue-500"
               />
@@ -200,7 +208,7 @@ export function PerformanceDashboard({
                 title="Risk Control"
                 score={data?.current?.scores.risk || 0}
                 max={25}
-                value={`${Math.round((data?.current?.metrics.escalation_rate || 0) * 100)}% esc`}
+                value={`${Math.round((data?.current?.metrics.escalation_ratio || 0) * 100)}% esc`}
                 icon={ShieldCheck}
                 color="text-purple-500"
               />
