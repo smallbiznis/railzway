@@ -1,0 +1,11 @@
+{
+  "name": "railzway-root",
+  "private": true,
+  "scripts": {
+    "changeset": "changeset",
+    "version": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.8"
+  }
+}

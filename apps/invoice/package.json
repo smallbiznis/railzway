@@ -1,5 +1,5 @@
 {
-  "name": "invoice",
+  "name": "@railzway/invoice",
   "private": true,
   "version": "0.0.0",
   "type": "module",

@@ -12,7 +12,6 @@ import {
   DrawerClose,
   DrawerContent,
   DrawerHeader,
-  DrawerTitle,
   DrawerTrigger,
 } from '@/components/ui/drawer'
 import { useIntl, type IntlShape } from 'react-intl'
@@ -1261,7 +1260,7 @@ function CardFormScreen({
           stripe={stripePromise}
           options={{
             clientSecret,
-            appearance,
+            appearance: appearance as any,
           }}
         >
           <CardFormInner isBusy={isBusy} onBack={onBack} onProcessing={onProcessing} />

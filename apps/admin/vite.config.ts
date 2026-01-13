@@ -12,7 +12,6 @@ export default defineConfig({
   },
   root: ".",
   build: {
-    outDir: path.resolve(__dirname, '../../public'),
     emptyOutDir: true,
     rollupOptions: {
       output: {
