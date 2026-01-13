@@ -1,10 +1,10 @@
 # Build Stage 1: Frontend (Vite/React)
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
-COPY package*.json ./
+COPY apps/admin/package.json apps/admin/pnpm-lock.yaml ./
 RUN npm install -g pnpm
 RUN pnpm install --frozen-lockfile
-COPY . .
+COPY apps/admin/ ./
 RUN pnpm run build
 
 # Build Stage 2: Backend (Go)
