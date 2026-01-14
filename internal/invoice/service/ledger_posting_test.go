@@ -24,7 +24,7 @@ type mockTaxResolver struct {
 }
 
 func (m *mockTaxResolver) ResolveForInvoice(ctx context.Context, orgID, customerID snowflake.ID) (*taxdomain.TaxDefinition, error) {
-	args := m.Mock(ctx, orgID, customerID)
+	args := m.Called(ctx, orgID, customerID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -36,7 +36,7 @@ type mockRenderer struct {
 }
 
 func (m *mockRenderer) RenderHTML(input render.RenderInput) (string, error) {
-	args := m.Mock(input)
+	args := m.Called(input)
 	return args.String(0), args.Error(1)
 }
 
@@ -45,7 +45,7 @@ type mockPublicTokenSvc struct {
 }
 
 func (m *mockPublicTokenSvc) EnsureForInvoice(ctx context.Context, invoice invoicedomain.Invoice) (publicinvoicedomain.PublicInvoiceToken, error) {
-	args := m.Mock(ctx, invoice)
+	args := m.Called(ctx, invoice)
 	return args.Get(0).(publicinvoicedomain.PublicInvoiceToken), args.Error(1)
 }
 
@@ -54,12 +54,12 @@ type mockLedgerSvc struct {
 }
 
 func (m *mockLedgerSvc) CreateEntry(ctx context.Context, orgID snowflake.ID, sourceType string, sourceID snowflake.ID, currency string, occurredAt time.Time, lines []ledgerdomain.LedgerEntryLine) error {
-	args := m.Mock(ctx, orgID, sourceType, sourceID, currency, occurredAt, lines)
+	args := m.Called(ctx, orgID, sourceType, sourceID, currency, occurredAt, lines)
 	return args.Error(0)
 }
 
 func TestPostInvoiceToLedger_CorrectPostings(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 
 	// Migrate tables
 	db.AutoMigrate(
@@ -157,7 +157,7 @@ func TestPostInvoiceToLedger_CorrectPostings(t *testing.T) {
 }
 
 func TestFinalizeInvoice_Idempotency(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	db.AutoMigrate(&invoicedomain.Invoice{}, &ledgerdomain.LedgerEntry{}, &ledgerdomain.LedgerEntryLine{}, &ledgerdomain.LedgerAccount{})
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_ledger_entries_source ON ledger_entries(org_id, source_type, source_id)")
 	db.Exec("DROP INDEX IF EXISTS ux_ledger_accounts_org_type")
@@ -214,7 +214,7 @@ func TestFinalizeInvoice_Idempotency(t *testing.T) {
 }
 
 func TestFinalizeInvoice_Idempotency_NoOp(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	db.AutoMigrate(&invoicedomain.Invoice{}, &ledgerdomain.LedgerEntry{}, &ledgerdomain.LedgerAccount{})
 
 	node, _ := snowflake.NewNode(1)
@@ -243,16 +243,18 @@ func TestFinalizeInvoice_Idempotency_NoOp(t *testing.T) {
 		Currency:       "USD",
 		FinalizedAt:    timePtr(time.Now()),
 	}
-	db.Create(invoice)
+	err := db.Create(invoice).Error // Check create error
+	assert.NoError(t, err)
 
 	// Call FinalizeInvoice
 	// Expectation: Return nil (Success), NO side effects.
-	err := svc.FinalizeInvoice(context.Background(), invoiceID.String())
+	err = svc.FinalizeInvoice(context.Background(), invoiceID.String())
 	assert.NoError(t, err)
 
 	// Verify status didn't change (still Finalized)
 	var reloaded invoicedomain.Invoice
-	db.First(&reloaded, "id = ?", invoiceID)
+	err = db.First(&reloaded, "id = ?", invoiceID).Error
+	assert.NoError(t, err)
 	assert.Equal(t, invoicedomain.InvoiceStatusFinalized, reloaded.Status)
 }
 

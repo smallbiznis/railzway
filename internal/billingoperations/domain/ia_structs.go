@@ -37,6 +37,9 @@ type MyWorkItem struct {
 	EntityType   string `json:"entity_type"`
 	EntityID     string `json:"entity_id"`
 	EntityName   string `json:"entity_name"`
+	CustomerName string `json:"customer_name,omitempty"`
+	CustomerEmail string `json:"customer_email,omitempty"`
+	InvoiceNumber string `json:"invoice_number,omitempty"`
 
 	// Snapshot values at claim time (stable)
 	AmountDueAtClaim   int64 `json:"amount_due_at_claim"`
@@ -131,4 +134,22 @@ type ExposureAnalysisResponse struct {
 	ByRiskCategory  []ExposureCategory `json:"by_risk_category"`
 	ByAgingBucket   []ExposureBucket   `json:"by_aging_bucket"`
 	TopHighExposure []InboxItem        `json:"top_high_exposure"` // Reuse InboxItem for list
+}
+
+// Invoice Payment Details
+
+type PaymentDetail struct {
+	PaymentID   string    `json:"payment_id"`
+	Amount      int64     `json:"amount"`
+	Currency    string    `json:"currency"`
+	OccurredAt  time.Time `json:"occurred_at"`
+	Provider    string    `json:"provider"`         // "stripe"
+	Method      string    `json:"method,omitempty"` // "card", "bank_transfer"
+	CardBrand   string    `json:"card_brand,omitempty"`   // "visa", "mastercard"
+	CardLast4   string    `json:"card_last4,omitempty"`   // "4242"
+	Status      string    `json:"status"`           // "succeeded", "failed"
+}
+
+type InvoicePaymentsResponse struct {
+	Payments []PaymentDetail `json:"payments"`
 }

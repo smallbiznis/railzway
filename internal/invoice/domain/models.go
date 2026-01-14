@@ -46,7 +46,11 @@ type Invoice struct {
 	Metadata          datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}'"`
 	CreatedAt         time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
 	UpdatedAt         time.Time         `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	
+	// Items is populated for API responses, not persisted
+	Items []InvoiceItem `gorm:"-" json:"items,omitempty"`
 }
+
 
 // TableName sets the database table name.
 func (Invoice) TableName() string { return "invoices" }

@@ -239,7 +239,7 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 
 	now := s.clock.Now().UTC()
 
-	// Query assignments (source of truth for My Work)
+		// Query assignments (source of truth for My Work)
 	// Joins with billing entities to get current state (optional, non-sorting)
 	query := `
 		SELECT
@@ -255,6 +255,18 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 				WHEN boa.entity_type = 'invoice' THEN COALESCE(i.invoice_number::text, i.id::text)
 				WHEN boa.entity_type = 'customer' THEN c.name
 			END AS entity_name,
+			CASE
+				WHEN boa.entity_type = 'invoice' THEN c_inv.name
+				WHEN boa.entity_type = 'customer' THEN c.name
+			END AS customer_name,
+			CASE
+				WHEN boa.entity_type = 'invoice' THEN c_inv.email
+				WHEN boa.entity_type = 'customer' THEN c.email
+			END AS customer_email,
+			CASE
+				WHEN boa.entity_type = 'invoice' THEN i.invoice_number::text
+				ELSE NULL
+			END AS invoice_number,
 			CASE
 				WHEN boa.entity_type = 'invoice' THEN GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0)
 				WHEN boa.entity_type = 'customer' THEN t.outstanding
@@ -272,6 +284,7 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 		FROM billing_operation_assignments boa
 		LEFT JOIN invoices i ON boa.entity_type = 'invoice' AND boa.entity_id = i.id
 		LEFT JOIN customers c ON boa.entity_type = 'customer' AND boa.entity_id = c.id
+		LEFT JOIN customers c_inv ON boa.entity_type = 'invoice' AND i.customer_id = c_inv.id
 		LEFT JOIN (
 			SELECT
 				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
@@ -348,6 +361,10 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 		Status             string          `gorm:"column:status"`
 		LastActionAt       sql.NullTime    `gorm:"column:last_action_at"`
 		EntityName         sql.NullString  `gorm:"column:entity_name"`
+		CustomerName       sql.NullString  `gorm:"column:customer_name"`
+		CustomerEmail      sql.NullString  `gorm:"column:customer_email"`
+		InvoiceNumber      sql.NullString  `gorm:"column:invoice_number"`
+
 		CurrentAmountDue   sql.NullInt64   `gorm:"column:current_amount_due"`
 		CurrentDaysOverdue sql.NullFloat64 `gorm:"column:current_days_overdue"`
 		TokenHash          sql.NullString  `gorm:"column:token_hash"`
@@ -430,6 +447,10 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 			EntityType:         row.EntityType,
 			EntityID:           row.EntityID,
 			EntityName:         entityName,
+			CustomerName:       row.CustomerName.String,
+			CustomerEmail:      row.CustomerEmail.String,
+			InvoiceNumber:      row.InvoiceNumber.String,
+
 			AmountDueAtClaim:   amountDueAtClaim,
 			DaysOverdueAtClaim: daysOverdueAtClaim,
 			CurrentAmountDue:   currentAmountDue,
@@ -617,8 +638,25 @@ func (s *Service) GetTeamView(ctx context.Context, req domain.TeamViewRequest) (
 		return domain.TeamViewResponse{}, err
 	}
 
+	var (
+		totalActiveAssignments int
+		totalExposure          int64
+		totalEscalationCount   int
+		weightedAgeMinutes     int
+		totalAssignmentsForAge int
+	)
+
 	members := make([]domain.TeamMemberWorkload, 0, len(rows))
 	for _, row := range rows {
+		// Update summary aggregates
+		totalActiveAssignments += row.ActiveAssignments
+		totalExposure += row.TotalExposureOwned
+		totalEscalationCount += row.EscalationCount
+		if row.ActiveAssignments > 0 {
+			weightedAgeMinutes += row.AvgAssignmentAgeMinutes * row.ActiveAssignments
+			totalAssignmentsForAge += row.ActiveAssignments
+		}
+
 		// Format average assignment age
 		hours := row.AvgAssignmentAgeMinutes / 60
 		minutes := row.AvgAssignmentAgeMinutes % 60
@@ -638,13 +676,148 @@ func (s *Service) GetTeamView(ctx context.Context, req domain.TeamViewRequest) (
 		})
 	}
 
+	// Calculate global average age
+	var globalAvgAge string
+	if totalAssignmentsForAge > 0 {
+		avgMins := weightedAgeMinutes / totalAssignmentsForAge
+		h := avgMins / 60
+		m := avgMins % 60
+		if h > 0 {
+			globalAvgAge = fmt.Sprintf("%dh %dm", h, m)
+		} else {
+			globalAvgAge = fmt.Sprintf("%dm", m)
+		}
+	} else {
+		globalAvgAge = "0m"
+	}
+
 	return domain.TeamViewResponse{
-		Members:  members,
+		Members: members,
+		Summary: domain.TeamSummary{
+			TotalActiveAssignments: totalActiveAssignments,
+			TotalExposure:          totalExposure,
+			AvgAssignmentAge:       globalAvgAge,
+			EscalationCount:        totalEscalationCount,
+		},
 		Currency: currency,
 	}, nil
 }
 
-// GetExposureAnalysis returns aggregated financial metrics for FinOps planning
+// GetInvoicePayments returns payment events associated with an invoice
+func (s *Service) GetInvoicePayments(ctx context.Context, invoiceID string) (domain.InvoicePaymentsResponse, error) {
+	orgID, ok := orgcontext.OrgIDFromContext(ctx)
+	if !ok || orgID == 0 {
+		return domain.InvoicePaymentsResponse{}, domain.ErrInvalidOrganization
+	}
+
+	// Query payment events linked to this invoice via metadata
+	// Note: amount is not a column in payment_events, we must extract from payload or use what we can
+	// But `payment_events` struct has `Provider`, `EventType`, etc.
+	// We scan into a struct that captures payload
+	query := `
+		SELECT
+			pe.provider_payment_id,
+			pe.provider,
+			pe.event_type,
+			pe.received_at,
+			pe.currency,
+			pe.payload
+		FROM payment_events pe
+		WHERE pe.org_id = ?
+		  AND pe.payload -> 'data' -> 'object' -> 'metadata' ->> 'invoice_id' = ?
+		ORDER BY pe.received_at DESC`
+
+	type paymentRow struct {
+		ProviderPaymentID string         `gorm:"column:provider_payment_id"`
+		Provider          string         `gorm:"column:provider"`
+		EventType         string         `gorm:"column:event_type"`
+		ReceivedAt        time.Time      `gorm:"column:received_at"`
+		Currency          string         `gorm:"column:currency"`
+		Payload           datatypes.JSON `gorm:"column:payload"`
+	}
+
+	var rows []paymentRow
+	if err := s.db.WithContext(ctx).Raw(query, orgID, invoiceID).Scan(&rows).Error; err != nil {
+		return domain.InvoicePaymentsResponse{}, err
+	}
+
+	payments := make([]domain.PaymentDetail, 0, len(rows))
+	for _, row := range rows {
+		var payload map[string]interface{}
+		if err := json.Unmarshal(row.Payload, &payload); err != nil {
+			continue
+		}
+
+		// Extract amount (Stripe: data.object.amount)
+		amount := int64(0)
+		data, _ := payload["data"].(map[string]interface{})
+		obj, _ := data["object"].(map[string]interface{})
+		if val, ok := obj["amount"].(float64); ok {
+			amount = int64(val)
+		}
+
+		// Status mapping
+		status := "unknown"
+		switch row.EventType {
+		case "payment_succeeded", "charge.succeeded":
+			status = "succeeded"
+		case "payment_failed":
+			status = "failed"
+		case "refunded", "charge.refunded":
+			status = "refunded"
+		}
+
+		// Extract card details (Stripe specific)
+		// charges.data[0].payment_method_details.card or payment_method_details.card
+		var method, brand, last4 string
+		
+		var paymentMethodDetails map[string]interface{}
+
+		// Check top-level payment_method_details (Charge object)
+		if pmd, ok := obj["payment_method_details"].(map[string]interface{}); ok {
+			paymentMethodDetails = pmd
+		} else if charges, ok := obj["charges"].(map[string]interface{}); ok {
+			// Check inside charges (PaymentIntent object)
+			if dataList, ok := charges["data"].([]interface{}); ok && len(dataList) > 0 {
+				if firstCharge, ok := dataList[0].(map[string]interface{}); ok {
+					if pmd, ok := firstCharge["payment_method_details"].(map[string]interface{}); ok {
+						paymentMethodDetails = pmd
+					}
+				}
+			}
+		}
+
+		if paymentMethodDetails != nil {
+			if typeStr, ok := paymentMethodDetails["type"].(string); ok {
+				method = typeStr
+			}
+			if card, ok := paymentMethodDetails["card"].(map[string]interface{}); ok {
+				if b, ok := card["brand"].(string); ok {
+					brand = b
+				}
+				if l, ok := card["last4"].(string); ok {
+					last4 = l
+				}
+			}
+		}
+
+		payments = append(payments, domain.PaymentDetail{
+			PaymentID:   row.ProviderPaymentID,
+			Amount:      amount,
+			Currency:    row.Currency,
+			OccurredAt:  row.ReceivedAt.UTC(),
+			Provider:    row.Provider,
+			Method:      method,
+			CardBrand:   brand,
+			CardLast4:   last4,
+			Status:      status,
+		})
+	}
+
+	return domain.InvoicePaymentsResponse{
+		Payments: payments,
+	}, nil
+}
 func (s *Service) GetExposureAnalysis(ctx context.Context, req domain.ExposureAnalysisRequest) (domain.ExposureAnalysisResponse, error) {
 	orgID, ok := orgcontext.OrgIDFromContext(ctx)
 	if !ok || orgID == 0 {
@@ -724,7 +897,7 @@ func (s *Service) GetExposureAnalysis(ctx context.Context, req domain.ExposureAn
 			SELECT
 				i.customer_id,
 				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding,
-				EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 AS days_overdue
+				(EXTRACT(EPOCH FROM (? - i.due_at)) / 86400)::int AS days_overdue
 			FROM invoices i
 			LEFT JOIN (
 				SELECT

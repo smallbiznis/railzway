@@ -78,7 +78,7 @@ func New(lc fx.Lifecycle, cfg Config) (*zap.Logger, error) {
 
 	serviceName := strings.TrimSpace(cfg.ServiceName)
 	if serviceName == "" {
-		serviceName = "valora"
+		serviceName = "railzway"
 	}
 	environment := strings.TrimSpace(cfg.Environment)
 	version := strings.TrimSpace(cfg.Version)

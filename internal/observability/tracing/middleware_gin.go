@@ -17,7 +17,7 @@ import (
 
 // GinMiddleware instruments inbound HTTP requests.
 func GinMiddleware() gin.HandlerFunc {
-	tracer := otel.Tracer("valora/http")
+	tracer := otel.Tracer("railzway/http")
 	return func(c *gin.Context) {
 		ctx := ExtractContext(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header))
 

@@ -3,7 +3,7 @@
 **Railzway** is a **deterministic billing computation engine** for modern SaaS and platform products.
 
 ![Release CI](https://github.com/smallbiznis/railzway/actions/workflows/github-release.yml/badge.svg)
-![License](https://img.shields.io/badge/license-Proprietary-red.svg)
+![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)
 ![Release](https://img.shields.io/github/v/release/smallbiznis/railzway)
 ![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)
 
@@ -229,7 +229,26 @@ Grafana dashboards expect the following metrics:
 
 ## License
 
-Railzway is proprietary software. See the `LICENSE` file for details.
+Railzway is Open Source software under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. 
+
+### Dual Licensing
+For companies that require commercial use without the obligations of AGPLv3 (such as keeping modifications private), we offer commercial licenses. Contact [SmallBiznis](mailto:hello@smallbiznis.com) for details.
+
+## Telemetry
+
+Railzway includes an anonymous telemetry system that sends non-sensitive usage statistics (e.g., organization count, version) to SmallBiznis. This helps us understand project adoption and identify potential enterprise leads.
+
+**What we collect:**
+- Anonymous Instance ID
+- Application Version & OS
+- Aggregated counts (total orgs, subscriptions, invoices)
+- **We do NOT collect PII, emails, or financial data.**
+
+**How to Disable:**
+Telemetry is **enabled by default** to help improve the project. To disable it, set the following environment variable to `false`:
+```bash
+CLOUD_METRICS_ENABLED=false
+```
 
 ---
 

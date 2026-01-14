@@ -14,7 +14,10 @@ export default function Topbar() {
     <header className="h-14 border-b border-border-subtle flex items-center justify-between px-6 bg-bg-surface">
       {/* Left */}
       <div className="flex items-center gap-4">
-        <span className="font-semibold text-lg">Railzway</span>
+        <div className="flex items-center gap-2">
+          <img src="/primary.svg" className="size-6" alt="Logo" />
+          <span className="font-semibold text-lg">Railzway</span>
+        </div>
         <span className="text-sm text-text-muted">Org: {orgId}</span>
       </div>
 

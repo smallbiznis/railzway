@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { useOrgStore } from "@/stores/orgStore"
-import { Loader2, CheckCircle2, ChevronRight, XCircle, AlertCircle } from "lucide-react"
+import { Loader2, CheckCircle2, ChevronRight, XCircle, AlertCircle, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -17,23 +17,29 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useMyWork, useResolveAssignment, useReleaseAssignment } from "../hooks/useIA"
+import { useMyWork, useResolveAssignment, useReleaseAssignment, useRecordFollowUp } from "../hooks/useIA"
 import { SLABadge } from "./SLABadge"
 import { ResolveDialog } from "./ResolveDialog"
+import { FollowUpEmailDialog } from "./FollowUpEmailDialog"
+import { toast } from "sonner"
 import { formatCurrency, formatAssignmentAge, formatTimeRemaining } from "../utils/formatting"
 import { cn } from "@/lib/utils"
+
 
 export function MyWorkTab() {
   const org = useOrgStore((s) => s.currentOrg)
   const { data, isLoading, error } = useMyWork()
   const resolveMutation = useResolveAssignment()
   const releaseMutation = useReleaseAssignment()
+  const recordFollowUpMutation = useRecordFollowUp()
 
   const [resolveTarget, setResolveTarget] = useState<{
     type: "invoice" | "customer"
     id: string
     name: string
   } | null>(null)
+
+  const [followUpTarget, setFollowUpTarget] = useState<any | null>(null)
 
   if (isLoading) {
     return (
@@ -67,6 +73,47 @@ export function MyWorkTab() {
       entity_type: type,
       entity_id: id,
       reason: "manual_release",
+    }, {
+      onSuccess: () => {
+        toast.success("Released to Inbox", {
+          description: "Task has been returned to the queue",
+        })
+      }
+    })
+  }
+
+  const handleEscalate = (type: "invoice" | "customer", id: string) => {
+    releaseMutation.mutate({
+      entity_type: type,
+      entity_id: id,
+      reason: "escalated_to_manager",
+    }, {
+      onSuccess: () => {
+        toast.success("Escalated to Manager", {
+          description: "Task has been escalated and released from your queue",
+        })
+      }
+    })
+  }
+
+  const handleFollowUpEmailOpened = (provider: string) => {
+    if (!followUpTarget) return
+
+    recordFollowUpMutation.mutate({
+      assignment_id: followUpTarget.assignment_id,
+      email_provider: provider,
+    }, {
+      onSuccess: () => {
+        toast.success("Follow-up recorded", {
+          description: "Email client opened successfully",
+        })
+        setFollowUpTarget(null)
+      },
+      onError: () => {
+        toast.error("Error", {
+          description: "Failed to record follow-up action",
+        })
+      },
     })
   }
 
@@ -159,6 +206,19 @@ export function MyWorkTab() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {(item.entity_type === "invoice" || item.entity_type === "customer") && (
+                              <DropdownMenuItem
+                                onClick={() => setFollowUpTarget(item)}
+                              >
+                                <Mail className="h-4 w-4 mr-2" />
+                                Send Follow-Up Email
+                                {((item as any).metadata?.follow_up_count || 0) > 0 && (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    ({(item as any).metadata.follow_up_count})
+                                  </span>
+                                )}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="text-amber-600 focus:text-amber-600"
                               onClick={() => handleRelease(item.entity_type, item.entity_id)}
@@ -166,7 +226,10 @@ export function MyWorkTab() {
                               <XCircle className="h-4 w-4 mr-2" />
                               Release to Inbox
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600 focus:text-red-600">
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-600"
+                              onClick={() => handleEscalate(item.entity_type, item.entity_id)}
+                            >
                               <AlertCircle className="h-4 w-4 mr-2" />
                               Escalate to Manager
                             </DropdownMenuItem>
@@ -189,6 +252,21 @@ export function MyWorkTab() {
         entityType={resolveTarget?.type || "invoice"}
         entityName={resolveTarget?.name || ""}
       />
+
+      {followUpTarget && (
+        <FollowUpEmailDialog
+          open={!!followUpTarget}
+          onOpenChange={(open) => !open && setFollowUpTarget(null)}
+          customerName={followUpTarget.customer_name || followUpTarget.entity_name || "Customer"}
+          customerEmail={followUpTarget.customer_email || ""}
+          invoiceNumber={followUpTarget.invoice_number || followUpTarget.entity_name || "N/A"}
+          amount={formatCurrency(followUpTarget.current_amount_due || followUpTarget.amount_due_at_claim || 0, data?.currency || "USD")}
+          daysOverdue={followUpTarget.current_days_overdue || followUpTarget.days_overdue_at_claim || 0}
+          orgName={org?.name || "Our Team"}
+          followUpCount={((followUpTarget as any).metadata?.follow_up_count) || 0}
+          onEmailOpened={handleFollowUpEmailOpened}
+        />
+      )}
     </div>
   )
 }

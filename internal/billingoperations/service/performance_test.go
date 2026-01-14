@@ -18,7 +18,7 @@ import (
 )
 
 func TestCalculatePerformance(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 
 	// Setup schema
 	db.Exec(`CREATE TABLE IF NOT EXISTS billing_operation_assignments (
@@ -140,7 +140,7 @@ func TestCalculatePerformance(t *testing.T) {
 }
 
 func TestAggregateDailyPerformance_Immutability(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 
 	// Setup schema
 	db.Exec(`CREATE TABLE IF NOT EXISTS finops_performance_snapshots (
@@ -161,11 +161,15 @@ func TestAggregateDailyPerformance_Immutability(t *testing.T) {
 	db.Exec(`CREATE TABLE IF NOT EXISTS billing_operation_assignments (
 		id BIGINT PRIMARY KEY,
 		org_id BIGINT,
+		entity_type TEXT,
 		entity_id BIGINT,
 		assigned_to TEXT,
 		assigned_at TIMESTAMP,
+		assignment_expires_at TIMESTAMP,
 		status TEXT,
-		breached_at TIMESTAMP
+		breached_at TIMESTAMP,
+		created_at TIMESTAMP,
+		updated_at TIMESTAMP
 	)`)
 
 	node, _ := snowflake.NewNode(1)
@@ -186,8 +190,8 @@ func TestAggregateDailyPerformance_Immutability(t *testing.T) {
 	userID := "user_immu"
 
 	// Seed assignment to trigger aggregation
-	db.Exec("INSERT INTO billing_operation_assignments (id, org_id, entity_type, entity_id, assigned_to, assigned_at, assignment_expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		node.Generate(), orgID, "invoice", node.Generate(), userID, yesterdayStart.Add(1*time.Hour), yesterdayStart.Add(24*time.Hour), domain.AssignmentStatusAssigned)
+	db.Exec("INSERT INTO billing_operation_assignments (id, org_id, entity_type, entity_id, assigned_to, assigned_at, assignment_expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		node.Generate(), orgID, "invoice", node.Generate(), userID, yesterdayStart.Add(1*time.Hour), yesterdayStart.Add(24*time.Hour), domain.AssignmentStatusAssigned, now, now)
 
 	// 1. First Run
 	// Mock CalculatePerformance internal call?

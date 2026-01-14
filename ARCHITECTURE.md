@@ -2,16 +2,16 @@
 
 ## Overview
 
-Railzway is a **proprietary, industrial-strength billing engine** focused on **billing logic correctness**.
+Railzway is an **open-source, industrial-strength billing engine** focused on **billing logic correctness**.
 
 It is designed to extract billing concerns—usage metering, pricing, rating, subscriptions, and invoice generation—out of application code and into a **dedicated, deterministic engine**.
 
 Railzway is intentionally **not** a payment processor.
 It computes *what should be billed*, not *how money is collected*.
 
-## Licensing & Proprietary Status
+## Licensing & Open Source Status
 
-Railzway is a **Source Available, Proprietary** project. While the source code is public for transparency and auditability, it is **not** Open Source. Commercial use, redistribution, or modification for competing services requires an explicit license from the copyright holders.
+Railzway is an **Open Source** project licensed under the **GNU Affero General Public License v3 (AGPLv3)**. This ensures that any improvements or modifications made to Railzway while offered as a service (SaaS) are contributed back to the community.
 
 This document describes how Railzway is structured, where its boundaries are, and why those boundaries exist.
 

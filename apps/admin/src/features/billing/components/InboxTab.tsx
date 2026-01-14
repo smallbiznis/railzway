@@ -103,7 +103,11 @@ export function InboxTab() {
                           "border",
                           isFailedPayment
                             ? "bg-red-500/10 text-red-600 border-red-500/20"
-                            : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                            : item.risk_category === "high_exposure"
+                              ? "bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
+                              : item.risk_category === "overdue_invoice" || item.risk_category === "overdue"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                : "bg-slate-500/10 text-slate-600 border-slate-500/20"
                         )}
                       >
                         {/* API returns risk_category or category depending on endpoint version/mock */}

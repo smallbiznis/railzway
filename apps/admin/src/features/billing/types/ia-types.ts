@@ -60,6 +60,7 @@ export interface MyWorkItem {
   currency: string
   customer_id?: string
   customer_name?: string
+  customer_email?: string
   invoice_id?: string
   invoice_number?: string
 

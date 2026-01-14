@@ -123,3 +123,26 @@ func (s *Server) GetBillingOperationsTeamView(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// GET /admin/billing-operations/invoices/:id/payments
+func (s *Server) GetBillingOperationsInvoicePayments(c *gin.Context) {
+	if s.billingOperationsSvc == nil {
+		AbortWithError(c, ErrServiceUnavailable)
+		return
+	}
+
+	invoiceID := c.Param("id")
+	if invoiceID == "" {
+		AbortWithError(c, newValidationError("id", "missing_id", "invoice id is required"))
+		return
+	}
+
+	// TODO: Add proper RBAC here (e.g. valid org member) - currently handled by middleware & service
+	resp, err := s.billingOperationsSvc.GetInvoicePayments(c.Request.Context(), invoiceID)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

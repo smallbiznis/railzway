@@ -21,7 +21,7 @@ type HTTPMetrics struct {
 func NewHTTPMetrics(cfg Config, provider metric.MeterProvider) (*HTTPMetrics, error) {
 	name := strings.TrimSpace(cfg.ServiceName)
 	if name == "" {
-		name = "valora"
+		name = "railzway"
 	}
 	meter := provider.Meter(name + "/http")
 

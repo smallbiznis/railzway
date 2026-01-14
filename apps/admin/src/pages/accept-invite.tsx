@@ -170,9 +170,17 @@ export default function AcceptInvitePage() {
                   id="password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (error === "Passwords do not match" || error === "Password must be at least 8 characters") {
+                      setError(null)
+                    }
+                  }}
                   required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Must be at least 8 characters
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -180,9 +188,18 @@ export default function AcceptInvitePage() {
                   id="confirmPassword"
                   type="password"
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value)
+                    if (error === "Passwords do not match") {
+                      setError(null)
+                    }
+                  }}
+                  className={confirmPassword && password !== confirmPassword ? "border-red-500" : ""}
                   required
                 />
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="text-xs text-red-500">Passwords do not match</p>
+                )}
               </div>
               <Button type="submit" disabled={loading} className="w-full">
                 {loading ? "Creating Account..." : "Create Account & Join"}

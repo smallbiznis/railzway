@@ -34,7 +34,7 @@ func (m *mockAuditSvc) List(ctx context.Context, req auditdomain.ListAuditLogReq
 }
 
 func TestAssignmentLifecycle(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, _ := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 
 	// Migrate internal structs - need to specify table names explicitly for SQLite
 	// Create tables manually to match production schema
@@ -51,6 +51,8 @@ func TestAssignmentLifecycle(t *testing.T) {
 		released_by TEXT,
 		release_reason TEXT,
 		last_action_at TIMESTAMP,
+
+		snapshot_metadata TEXT,
 		created_at TIMESTAMP NOT NULL,
 		updated_at TIMESTAMP NOT NULL
 	)`)
@@ -177,6 +179,9 @@ func TestAssignmentLifecycle(t *testing.T) {
 		assert.Equal(t, domain.AssignmentStatusReleased, assignment.Status)
 		assert.True(t, assignment.ReleasedAt.Valid)
 		assert.Equal(t, "user_123", assignment.ReleasedBy.String)
+		if assignment.ReleaseReason.String != "Escalated" {
+			t.Logf("ReleaseReason mismatch. assignment: %+v", assignment)
+		}
 		assert.Equal(t, "Escalated", assignment.ReleaseReason.String)
 	})
 }

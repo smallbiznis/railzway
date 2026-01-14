@@ -29,6 +29,8 @@ jobs:
       packages: write
     with:
       tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      cloud_metrics_endpoint: ${{ secrets.CLOUD_METRICS_ENDPOINT }}
+      cloud_metrics_auth_token: ${{ secrets.CLOUD_METRICS_TOKEN }}
 
   release:
     name: Publish GitHub Release

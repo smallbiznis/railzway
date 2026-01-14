@@ -18,8 +18,11 @@ const (
 
 type Service interface {
 	Create(ctx context.Context, userID snowflake.ID, req CreateOrganizationRequest) (*OrganizationResponse, error)
+	Update(ctx context.Context, userID snowflake.ID, orgID string, req UpdateOrganizationRequest) (*OrganizationResponse, error)
 	GetByID(ctx context.Context, id string) (*OrganizationResponse, error)
 	ListOrganizationsByUser(ctx context.Context, userID snowflake.ID) ([]OrganizationListResponseItem, error)
+	ListMembers(ctx context.Context, orgID string) ([]OrganizationMemberInfo, error)
+	IsMember(ctx context.Context, orgID snowflake.ID, userID snowflake.ID) (bool, error)
 	InviteMembers(ctx context.Context, userID snowflake.ID, orgID string, invites []InviteRequest) error
 	AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error
 	GetInvite(ctx context.Context, inviteID string) (*PublicInviteInfo, error)
@@ -40,6 +43,10 @@ type CreateOrganizationRequest struct {
 	Name         string
 	CountryCode  string
 	TimezoneName string
+}
+
+type UpdateOrganizationRequest struct {
+	Name *string
 }
 
 type InviteRequest struct {

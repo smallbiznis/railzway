@@ -170,6 +170,11 @@ type Assignment struct {
 	TimeSinceAssigned   string     `json:"time_since_assigned"`
 }
 
+type RecordFollowUpRequest struct {
+	AssignmentID  string `json:"assignment_id"`
+	EmailProvider string `json:"email_provider"` // "gmail", "outlook", "default"
+}
+
 const (
 	EntityTypeInvoice  = "invoice"
 	EntityTypeCustomer = "customer"
@@ -267,6 +272,12 @@ type Service interface {
 	GetRecentlyResolved(ctx context.Context, userID string, req RecentlyResolvedRequest) (RecentlyResolvedResponse, error)
 	GetTeamView(ctx context.Context, req TeamViewRequest) (TeamViewResponse, error)
 	GetExposureAnalysis(ctx context.Context, req ExposureAnalysisRequest) (ExposureAnalysisResponse, error)
+
+	// Follow-Up Email (opens user's email client)
+	RecordFollowUp(ctx context.Context, req RecordFollowUpRequest) error
+
+	// Invoice Payment Details
+	GetInvoicePayments(ctx context.Context, invoiceID string) (InvoicePaymentsResponse, error)
 }
 
 var (

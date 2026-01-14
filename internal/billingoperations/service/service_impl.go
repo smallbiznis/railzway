@@ -1262,16 +1262,18 @@ func (s *Service) loadAssignmentForUpdate(
 	entityID snowflake.ID,
 ) (*domain.BillingAssignmentRecord, error) {
 	var row domain.BillingAssignmentRecord
-	err := tx.WithContext(ctx).Raw(
-		`SELECT id, org_id, entity_type, entity_id,
+	query := `SELECT id, org_id, entity_type, entity_id,
 		        assigned_to, assigned_at, assignment_expires_at,
 		        status, released_at, released_by, release_reason, last_action_at,
-				snapshot_metadata
+				snapshot_metadata, created_at, updated_at
 		 FROM billing_operation_assignments
-		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?
-		 FOR UPDATE`,
-		orgID, entityType, entityID,
-	).Scan(&row).Error
+		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?`
+
+	if tx.Dialector.Name() != "sqlite" {
+		query += " FOR UPDATE"
+	}
+
+	err := tx.WithContext(ctx).Raw(query, orgID, entityType, entityID).Scan(&row).Error
 
 	if err != nil {
 		return nil, err

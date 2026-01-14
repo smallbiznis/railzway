@@ -259,6 +259,16 @@ func (s *Service) GetByID(ctx context.Context, id string) (invoicedomain.Invoice
 		return invoicedomain.Invoice{}, gorm.ErrRecordNotFound
 	}
 
+	// Load invoice items
+	var items []invoicedomain.InvoiceItem
+	if err := s.db.WithContext(ctx).
+		Where("invoice_id = ? AND org_id = ?", invoiceID, orgID).
+		Order("created_at ASC").
+		Find(&items).Error; err != nil {
+		return invoicedomain.Invoice{}, err
+	}
+	item.Items = items
+
 	return *item, nil
 }
 

@@ -28,9 +28,8 @@ func main() {
 		// All other domain modules usually imported by specific apps
 		// We can mostly rely on server.Module importing them transitively or explicitly here
 		// but server.Module already imports MOST of them.
-		
-		// server.Module now invokes RegisterRoutes automatically.
 
+		// server.Module now invokes RegisterRoutes automatically.
 
 		// RunHTTP is invoked by server.Module or explicitly?
 		// server.Module has fx.Invoke(RunHTTP).

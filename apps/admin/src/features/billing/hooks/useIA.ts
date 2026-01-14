@@ -144,3 +144,18 @@ export function useReleaseAssignment() {
     },
   })
 }
+
+export function useRecordFollowUp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: { assignment_id: string; email_provider: string }) => {
+      const res = await admin.post("/billing-operations/record-follow-up", data)
+      return res.data
+    },
+    onSuccess: () => {
+      // Invalidate my-work to refresh follow-up counts
+      queryClient.invalidateQueries({ queryKey: ["billing-operations", "my-work"] })
+    },
+  })
+}

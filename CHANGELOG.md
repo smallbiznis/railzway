@@ -13,11 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Additional integration tests planned
 - OpenAPI/Swagger documentation planned
 
-## [1.0.0-rc.1] - 2026-01-14
+## [1.0.0] - 2026-01-15
 
 ### Added
 
-#### Billing Operations - Information Architecture (IA)
+#### Rebranding & Licensing
+- **Official Rebranding**: Project transitioned from Valora to **Railzway**.
+- **License Transition**: Shifted to **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+#### Telemetry & Observability
+- **Anonymous Telemetry (Phone Home)**: Implemented background worker for usage statistics.
+- **Enhanced Metrics**: Added Pulse, Engine Errors, Organization totals, and System Health (Memory) metrics.
+- **Grafana Dashboard**: Included official telemetry dashboard JSON in `docs/grafana`.
+
+#### DevOps & CI/CD
+- **Standardized Docker**: All services updated with build-time version and telemetry injection.
+- **Relocated Dockerfile**: Moved core Dockerfile to `apps/railzway/Dockerfile` for consistency.
+
+#### Billing Operations - Information Architecture (IA) [from rc.1]
 
 **Task-Centric Finance Operations Workspace**
 

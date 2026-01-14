@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { getErrorMessage, isForbiddenError } from "@/lib/api-errors"
+import { InvoicePaymentsTable } from "../components/InvoicePaymentsTable"
 
 type Invoice = {
   id?: string | number
@@ -203,6 +204,16 @@ export default function OrgInvoiceDetailPage() {
 
   const lineItems = useMemo(() => {
     if (!invoice) return []
+
+    // First try to read from items field (new backend response)
+    const items = (invoice as any).items
+    if (Array.isArray(items) && items.length > 0) {
+      return items
+        .map((item) => normalizeLineItem(item))
+        .filter((item): item is InvoiceLineItem => item !== null)
+    }
+
+    // Fallback to metadata for backward compatibility
     const metadata = invoice.metadata ?? invoice.Metadata
     if (!metadata) return []
     const raw = metadata.items ?? metadata.line_items ?? []
@@ -309,9 +320,9 @@ export default function OrgInvoiceDetailPage() {
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
           <Card>
-          <CardHeader>
-            <CardTitle>Recent activity</CardTitle>
-          </CardHeader>
+            <CardHeader>
+              <CardTitle>Recent activity</CardTitle>
+            </CardHeader>
             <CardContent>
               <div className="rounded-lg border border-dashed p-6 text-center text-text-muted text-sm">
                 No recent activity
@@ -446,21 +457,19 @@ export default function OrgInvoiceDetailPage() {
             <CardHeader>
               <CardTitle>Accounting</CardTitle>
             </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 text-sm">
-            <div className="text-text-muted">
-              Use Revenue Recognition to automate accrual accounting for invoices.
-            </div>
-          </CardContent>
-        </Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div className="text-text-muted">
+                Use Revenue Recognition to automate accrual accounting for invoices.
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Payments</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="rounded-lg border border-dashed p-6 text-center text-text-muted text-sm">
-                No payments yet. Payments received on this invoice will appear here.
-              </div>
+              <InvoicePaymentsTable />
             </CardContent>
           </Card>
 
@@ -506,9 +515,9 @@ export default function OrgInvoiceDetailPage() {
           </Card>
 
           <Card>
-          <CardHeader>
-            <CardTitle>Metadata</CardTitle>
-          </CardHeader>
+            <CardHeader>
+              <CardTitle>Metadata</CardTitle>
+            </CardHeader>
             <CardContent>
               {hasMetadata(invoice) ? (
                 <div className="space-y-2 text-sm">
@@ -712,11 +721,11 @@ const normalizeLineItem = (item: unknown): InvoiceLineItem | null => {
   if (!item || typeof item !== "object") return null
   const record = item as Record<string, unknown>
   const description =
-    readField(record, ["description", "name", "title"]) ?? "Line item"
-  const quantity = readNumber(record, ["quantity", "qty"]) ?? 0
+    readField(record, ["Description", "description", "name", "title"]) ?? "Line item"
+  const quantity = readNumber(record, ["Quantity", "quantity", "qty"]) ?? 0
   const unitAmount =
-    readNumber(record, ["unit_price", "unit_amount", "unitAmount"]) ?? 0
-  const amount = readNumber(record, ["amount", "total"]) ?? 0
+    readNumber(record, ["UnitPrice", "unit_price", "unit_amount", "unitAmount"]) ?? 0
+  const amount = readNumber(record, ["Amount", "amount", "total"]) ?? 0
   return { description, quantity, unitAmount, amount }
 }
 

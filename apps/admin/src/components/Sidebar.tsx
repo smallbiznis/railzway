@@ -5,7 +5,10 @@ export default function Sidebar({ orgId }: { orgId: string }) {
 
   return (
     <aside className="w-64 bg-bg-surface text-text-primary">
-      <div className="p-4 font-bold text-xl">Railzway</div>
+      <div className="flex items-center gap-2 p-4">
+        <img src="/primary.svg" className="size-6" alt="Logo" />
+        <div className="font-bold text-xl">Railzway</div>
+      </div>
       <nav className="flex flex-col gap-1 p-2">
         <NavLink to={`${base}/home`}>Dashboard</NavLink>
         <NavLink to={`${base}/products`}>Products</NavLink>

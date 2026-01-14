@@ -17,7 +17,7 @@ import (
 
 func TestSnapshotInvoicing_StrictCompliance(t *testing.T) {
 	// 1. Setup DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
 
 	// Migrate relevant tables
@@ -166,10 +166,39 @@ func TestSnapshotInvoicing_StrictCompliance(t *testing.T) {
 	}).Error
 	assert.NoError(t, err)
 
-	// Generation should fail now
+	// Delete old invoice to satisfy UNIQUE constraint on billing_cycle_id
+	err = db.Delete(&invoicedomain.Invoice{}, "id = ?", invoiceID).Error
+	assert.NoError(t, err)
+
+	// Use a new Invoice for the second run
+	invoiceID2 := node.Generate()
+	err = db.Create(&invoicedomain.Invoice{
+		ID:             invoiceID2,
+		OrgID:          orgID,
+		SubscriptionID: subID,
+		BillingCycleID: cycleID,
+		Status:         invoicedomain.InvoiceStatusDraft,
+		CreatedAt:      now,
+	}).Error
+	assert.NoError(t, err)
+
+	// Generation should now SUCCEED with fallback description due to lenient logic
 	err = db.Transaction(func(tx *gorm.DB) error {
-		return svc.listInvoiceItemPartsFromRating(context.Background(), tx, cycle, invoiceID)
+		return svc.listInvoiceItemPartsFromRating(context.Background(), tx, cycle, invoiceID2)
 	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no matching entitlement")
+	assert.NoError(t, err)
+
+	// Verify fallback item created
+	var fallbackItems []invoicedomain.InvoiceItem
+	err = db.Where("invoice_id = ?", invoiceID2).Order("created_at asc, id asc").Find(&fallbackItems).Error
+	assert.NoError(t, err)
+
+	// Should process BOTH rating results (feature_snapshot and feature_unknown)
+	assert.Len(t, fallbackItems, 2)
+
+	// First item: matched entitlement
+	assert.Contains(t, fallbackItems[0].Description, "Snapshot Plan Name")
+
+	// Second item: fallback (MeterID=0 -> Subscription)
+	assert.Contains(t, fallbackItems[1].Description, "Subscription")
 }

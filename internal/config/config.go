@@ -5,11 +5,18 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
 // Config holds application configuration.
+var (
+	DefaultAppVersion            = "1.0.0"
+	DefaultCloudMetricsEndpoint  = ""
+	DefaultCloudMetricsAuthToken = ""
+)
+
 type Config struct {
 	AppName                     string
 	AppVersion                  string
@@ -23,6 +30,7 @@ type Config struct {
 
 	OTLPEndpoint string
 	StaticDir    string
+	InstanceID   string
 
 	Cloud     CloudConfig
 	Bootstrap BootstrapConfig
@@ -124,8 +132,8 @@ func Load() Config {
 	}
 
 	cfg := Config{
-		AppName:                     getenv("APP_SERVICE", "valora"),
-		AppVersion:                  getenv("APP_VERSION", "0.1.0"),
+		AppName:                     getenv("APP_SERVICE", "railzway"),
+		AppVersion:                  getenv("APP_VERSION", DefaultAppVersion),
 		Mode:                        mode,
 		Environment:                 environment,
 		Port:                        getenv("PORT", "8080"),
@@ -140,9 +148,9 @@ func Load() Config {
 			OrganizationName: getenv("CLOUD_ORGANIZATION_NAME", ""),
 			Metrics: CloudMetricsConfig{
 				Enabled:   getenvBool("CLOUD_METRICS_ENABLED", true),
-				Exporter:  strings.ToLower(getenv("CLOUD_METRICS_EXPORTER", "")),
-				Endpoint:  strings.TrimSpace(getenv("CLOUD_METRICS_ENDPOINT", "")),
-				AuthToken: strings.TrimSpace(getenv("CLOUD_METRICS_AUTH_TOKEN", "")),
+				Exporter:  strings.ToLower(getenv("CLOUD_METRICS_EXPORTER", "prometheus_remote_write")),
+				Endpoint:  strings.TrimSpace(getenv("CLOUD_METRICS_ENDPOINT", DefaultCloudMetricsEndpoint)),
+				AuthToken: strings.TrimSpace(getenv("CLOUD_METRICS_AUTH_TOKEN", DefaultCloudMetricsAuthToken)),
 			},
 		},
 		Bootstrap: BootstrapConfig{
@@ -189,14 +197,14 @@ func Load() Config {
 			SMTPPort:     getenvInt("SMTP_PORT", 1025),
 			SMTPUsername: getenv("SMTP_USERNAME", ""),
 			SMTPPassword: getenv("SMTP_PASSWORD", ""),
-			SMTPFrom:     getenv("SMTP_FROM", "no-reply@valora.test"),
+			SMTPFrom:     getenv("SMTP_FROM", "no-reply@railzway.test"),
 		},
 
 		Logger: LoggerConfig{
 			Level: getenv("LOG_LEVEL", "info"),
 		},
 
-		// Vault settings
+		InstanceID: loadOrCreateInstanceID(),
 	}
 
 	return cfg
@@ -290,6 +298,28 @@ func clampInt(value, min, max int) int {
 		return max
 	}
 	return value
+}
+
+func loadOrCreateInstanceID() string {
+	id := strings.TrimSpace(os.Getenv("RAILZWAY_INSTANCE_ID"))
+	if id != "" {
+		return id
+	}
+
+	filename := ".instance_id"
+	data, err := os.ReadFile(filename)
+	if err == nil {
+		return strings.TrimSpace(string(data))
+	}
+
+	// Generate new ID
+	newID := "inst_" + strings.ReplaceAll(os.Getenv("HOSTNAME"), " ", "")
+	if newID == "inst_" {
+		newID = "inst_anon_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+
+	_ = os.WriteFile(filename, []byte(newID), 0644)
+	return newID
 }
 
 func parseServices(raw string) []string {

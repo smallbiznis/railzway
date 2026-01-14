@@ -882,7 +882,7 @@ func (s *Service) loadCollectedAmount(
 	if err := s.db.WithContext(ctx).Raw(
 		`
 		SELECT COALESCE(
-			SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END),
+			SUM(l.amount),
 			0
 		) AS total
 		FROM ledger_entries le
@@ -892,17 +892,16 @@ func (s *Service) loadCollectedAmount(
 		  AND le.currency = ?
 		  AND le.occurred_at >= ?
 		  AND le.occurred_at <= ?
-		  AND le.source_type IN (?, ?)
-		  AND a.code IN (?, ?)
+		  AND le.source_type = ?
+		  AND a.code = ?
+		  AND l.direction = 'credit'
 		`,
 		orgID,
 		currency,
 		start,
 		end,
-		string(ledgerdomain.SourceTypeBillingCycle),
-		string(ledgerdomain.SourceTypeAdjustment),
-		string(ledgerdomain.AccountCodeRevenueFlat),
-		string(ledgerdomain.AccountCodeRevenueUsage),
+		string(ledgerdomain.SourceTypePayment),
+		string(ledgerdomain.AccountCodeAccountsReceivable),
 	).Scan(&total).Error; err != nil {
 		return 0, err
 	}
