@@ -7,16 +7,13 @@ on:
         description: "Release tag (vX.Y.Z)"
         required: true
         type: string
+    secrets:
       cloud_metrics_endpoint:
         description: "Telemetry endpoint"
         required: false
-        type: string
-        default: ""
       cloud_metrics_auth_token:
         description: "Telemetry auth token"
         required: false
-        type: string
-        default: ""
 
 jobs:
   build-push:
@@ -95,8 +92,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           build-args: |
             VERSION=${{ steps.version.outputs.tag }}
-            CLOUD_METRICS_ENDPOINT=${{ inputs.cloud_metrics_endpoint }}
-            CLOUD_METRICS_AUTH_TOKEN=${{ inputs.cloud_metrics_auth_token }}
+            CLOUD_METRICS_ENDPOINT=${{ secrets.cloud_metrics_endpoint }}
+            CLOUD_METRICS_AUTH_TOKEN=${{ secrets.cloud_metrics_auth_token }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.version.outputs.tag }}
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
