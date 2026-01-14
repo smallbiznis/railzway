@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	authdomain "github.com/smallbiznis/railzway/internal/auth/domain"
 	organizationdomain "github.com/smallbiznis/railzway/internal/organization/domain"
 )
 
@@ -111,4 +112,93 @@ func (s *Server) AcceptOrganizationInvite(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) GetPublicInviteInfo(c *gin.Context) {
+	inviteID := strings.TrimSpace(c.Param("invite_id"))
+	if inviteID == "" {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	info, err := s.organizationSvc.GetInvite(c.Request.Context(), inviteID)
+	if err != nil {
+		if err == organizationdomain.ErrInvalidOrganization {
+			AbortWithError(c, ErrNotFound)
+			return
+		}
+		AbortWithError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, info)
+}
+
+type completeInviteRequest struct {
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+}
+
+func (s *Server) CompleteInvite(c *gin.Context) {
+	inviteID := strings.TrimSpace(c.Param("invite_id"))
+	if inviteID == "" {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	var req completeInviteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	// 1. Get Invite details to verify existence and get email
+	info, err := s.organizationSvc.GetInvite(c.Request.Context(), inviteID)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	// 2. Create User (if password provided)
+	// We assume if they call CompleteInvite, they need to create a user.
+	// If they already have a user, they should have logged in and used the standard AcceptInvite.
+	createUserReq := authdomain.CreateUserRequest{
+		Email:       info.Email,
+		Password:    req.Password,
+		DisplayName: req.Name,
+		Username:    req.Username,
+	}
+
+	user, err := s.authsvc.CreateUser(c.Request.Context(), createUserReq)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	// 3. Accept Invite using the new UserID
+	if err := s.organizationSvc.AcceptInvite(c.Request.Context(), user.ID, inviteID); err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	// 4. Create Session for the new user (Auto-login)
+	session, err := s.authsvc.Login(c.Request.Context(), authdomain.LoginRequest{
+		Email:     info.Email,
+		Password:  req.Password,
+		UserAgent: c.Request.UserAgent(),
+		IPAddress: c.ClientIP(),
+	})
+	if err != nil {
+		// This shouldn't happen if CreateUser and AcceptInvite succeeded
+		AbortWithError(c, err)
+		return
+	}
+
+	if session.Session != nil && session.RawToken != "" {
+		s.sessions.Set(c, session.RawToken, session.ExpiresAt)
+		s.enrichSessionFromToken(c, session.Session, session.RawToken)
+	}
+
+	c.JSON(http.StatusOK, session.Session)
 }

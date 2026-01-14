@@ -18,7 +18,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o /app/railzway ./cmd/railzway
+RUN go build -o /app/railzway ./apps/railzway
 
 # =========================
 # RUNTIME

@@ -18,6 +18,7 @@ type AuthState = {
   mustChangePassword: boolean
   login: (payload: { email: string; password: string }) => Promise<void>
   signup: (payload: { email: string; password: string; displayName?: string; orgName?: string }) => Promise<void>
+  completeInvite: (inviteId: string, payload: { password: string; name: string; username?: string }) => Promise<void>
   logout: () => Promise<void>
   setMustChangePassword: (value: boolean) => void
 }
@@ -132,6 +133,20 @@ export const useAuthStore = create<AuthState>()(
           const user = buildUser(res.data)
           if (!user) {
             throw new Error("invalid_signup_response")
+          }
+          const mustChangePassword = resolveMustChangePassword(res.data)
+          set({ user, isAuthenticated: true, mustChangePassword })
+        } catch (err) {
+          set({ user: null, isAuthenticated: false, mustChangePassword: false })
+          throw err
+        }
+      },
+      completeInvite: async (inviteId: string, payload: { password: string; name: string; username?: string }) => {
+        try {
+          const res = await auth.post(`/invites/${inviteId}/complete`, payload)
+          const user = buildUser(res.data)
+          if (!user) {
+            throw new Error("invalid_invite_response")
           }
           const mustChangePassword = resolveMustChangePassword(res.data)
           set({ user, isAuthenticated: true, mustChangePassword })

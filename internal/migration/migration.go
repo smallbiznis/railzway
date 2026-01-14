@@ -11,7 +11,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-// This migration package ensures Valora OSS is fully usable
+// This migration package ensures Railzway is fully usable
 // out of the box for local and self-hosted environments.
 // All core billing tables are created automatically on startup.
 func RunMigrations(db *sql.DB) error {

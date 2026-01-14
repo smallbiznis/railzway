@@ -35,17 +35,23 @@ func NewBillingConfigHolder() (*BillingConfigHolder, error) {
 	v := viper.New()
 
 	v.SetConfigName("billing")
-	v.SetConfigType("yaml")
+	v.SetConfigType("yml")
 	v.AddConfigPath(".")
-	v.AddConfigPath("/etc/valora")
+	v.AddConfigPath("/etc/railzway")
 
 	// env hanya untuk path override (optional)
-	v.SetEnvPrefix("VALORA")
+	v.SetEnvPrefix("RAILZWAY")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, err
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, err
+		}
+		// if config file not found, use defaults
+		defaults := DefaultBillingConfig()
+		v.SetDefault("billing.agingBuckets", defaults.AgingBuckets)
+		v.SetDefault("billing.riskLevels", defaults.RiskLevels)
 	}
 
 	var cfg BillingConfig

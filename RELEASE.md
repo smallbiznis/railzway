@@ -1,6 +1,6 @@
-# Release Strategy (Valora OSS)
+# Release Strategy (Railzway)
 
-Valora OSS releases are tag-driven, human-curated, and reproducible.
+Railzway releases are tag-driven, human-curated, and reproducible.
 This policy mirrors Grafana OSS: trust the tag, trust the release.
 
 ## Versioning
@@ -21,7 +21,7 @@ We use Semantic Versioning: `vMAJOR.MINOR.PATCH`.
 
 1) Merge changes into `main`
 2) Create an annotated tag:
-   `git tag -a v0.1.0 -m "Valora OSS v0.1.0"`
+   `git tag -a v0.1.0 -m "Railzway v0.1.0"`
 3) Push the tag:
    `git push origin v0.1.0`
 
@@ -41,7 +41,7 @@ Rules:
 
 On tag push:
 - GitHub Release is created
-- Title: `Valora OSS vX.Y.Z`
+- Title: `Railzway vX.Y.Z`
 - Body: release notes from `CHANGELOG.md`
 - Include Docker image references:
   - `ghcr.io/<org>/railzway:vX.Y.Z` (Monolith)

@@ -6,7 +6,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 )
 
-// Valora OSS official tax codes (v1).
+// Railzway official tax codes (v1).
 // These codes are ENGINE-CONSTANTS.
 // Do NOT rename or repurpose once used in invoices.
 const (

@@ -325,6 +325,12 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:owner", ObjectAPIKey, ActionAPIKeyRevoke},
 		{"role:owner", ObjectAuditLog, ActionAuditLogView},
 		{"role:owner", ObjectPaymentProvider, ActionPaymentProviderManage},
+		
+		{"role:finops", ObjectBillingOperations, ActionBillingOperationsView},
+		{"role:finops", ObjectBillingOperations, ActionBillingOperationsAct},
+		{"role:finops", ObjectBillingDashboard, ActionBillingDashboardView},
+		{"role:finops", ObjectBillingOverview, ActionBillingOverviewView},
+		{"role:finops", ObjectInvoice, "view"},
 
 		{"role:system", ObjectSubscription, ActionSubscriptionEnd},
 		{"role:system", ObjectBillingCycle, ActionBillingCycleOpen},

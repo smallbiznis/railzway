@@ -266,6 +266,7 @@ type Service interface {
 	GetMyWork(ctx context.Context, userID string, req MyWorkRequest) (MyWorkResponse, error)
 	GetRecentlyResolved(ctx context.Context, userID string, req RecentlyResolvedRequest) (RecentlyResolvedResponse, error)
 	GetTeamView(ctx context.Context, req TeamViewRequest) (TeamViewResponse, error)
+	GetExposureAnalysis(ctx context.Context, req ExposureAnalysisRequest) (ExposureAnalysisResponse, error)
 }
 
 var (

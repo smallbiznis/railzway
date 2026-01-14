@@ -122,6 +122,7 @@ var Module = fx.Module("http.server",
 	subscription.Module,
 	usage.Module,
 	fx.Provide(NewServer),
+	fx.Invoke(RegisterRoutes),
 	fx.Invoke(RunHTTP),
 )
 
@@ -146,6 +147,14 @@ func NewEngine(obsCfg observability.Config, httpMetrics *obsmetrics.HTTPMetrics)
 
 func registerGin(obsCfg observability.Config, httpMetrics *obsmetrics.HTTPMetrics) *gin.Engine {
 	return NewEngine(obsCfg, httpMetrics)
+}
+
+func RegisterRoutes(s *Server) {
+	s.RegisterAuthRoutes()
+	s.RegisterAPIRoutes()
+	s.RegisterAdminRoutes()
+	s.RegisterUIRoutes()
+	s.RegisterFallback()
 }
 
 func RunHTTP(lc fx.Lifecycle, r *gin.Engine, cfg config.Config) {
@@ -339,6 +348,10 @@ func (s *Server) RegisterAuthRoutes() {
 	// Public invite acceptance (requires auth but not org context)
 	auth.POST("/invites/:invite_id/accept", s.WebAuthRequired(), s.AcceptOrganizationInvite)
 
+	// Public invite info (no auth required)
+	auth.GET("/invites/:invite_id", s.GetPublicInviteInfo)
+	auth.POST("/invites/:invite_id/complete", s.CompleteInvite)
+
 }
 
 func (s *Server) RegisterAPIRoutes() {
@@ -411,7 +424,7 @@ func (s *Server) RegisterAdminRoutes() {
 	admin.Use(s.OrgContext())
 
 	// Home / Dashboard
-	admin.GET("/home", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetHomeDashboard)
+	admin.GET("/home", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetHomeDashboard)
 
 	admin.GET("/meters", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListMeters)
 	admin.POST("/meters", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateMeter)
@@ -476,42 +489,43 @@ func (s *Server) RegisterAdminRoutes() {
 	admin.POST("/subscriptions/:id/cancel", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionCancel), s.CancelSubscription)
 
 	// -------- Invoices --------
-	admin.GET("/invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListInvoices)
-	admin.GET("/invoices/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetInvoiceByID)
-	admin.GET("/invoices/:id/render", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.RenderInvoice)
+	admin.GET("/invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.ListInvoices)
+	admin.GET("/invoices/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetInvoiceByID)
+	admin.GET("/invoices/:id/render", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.RenderInvoice)
 
 	// -------- Billing Dashboard --------
-	admin.GET("/billing/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCustomers)
-	admin.GET("/billing/cycles", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCycles)
-	admin.GET("/billing/activity", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingActivity)
-	admin.GET("/billing/operations", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperations)
-	admin.POST("/billing/operations/actions", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.PostBillingOperationsAction)
-	admin.POST("/billing/operations/assignments", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.PostBillingOperationsAssignment)
-	admin.DELETE("/billing/operations/assignments", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.ReleaseBillingOperationsAssignment)
-	admin.GET("/billing/operations/overdue-invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsOverdueInvoices)
-	admin.GET("/billing/operations/outstanding-customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsOutstandingCustomers)
-	admin.GET("/billing/operations/payment-issues", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsPaymentIssues)
-	admin.GET("/billing/overview/mrr", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRR)
-	admin.GET("/billing/overview/mrr-movement", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRRMovement)
-	admin.GET("/billing/overview/revenue", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewRevenue)
-	admin.GET("/billing/overview/outstanding", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewOutstandingBalance)
-	admin.GET("/billing/overview/collection-rate", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewCollectionRate)
-	admin.GET("/billing/overview/subscribers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewSubscribers)
+	admin.GET("/billing/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCustomers)
+	admin.GET("/billing/cycles", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingCycles)
+	admin.GET("/billing/activity", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingDashboard, authorization.ActionBillingDashboardView), s.ListBillingActivity)
+	admin.GET("/billing/operations", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperations)
+	admin.POST("/billing/operations/actions", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.PostBillingOperationsAction)
+	admin.POST("/billing/operations/assignments", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.PostBillingOperationsAssignment)
+	admin.DELETE("/billing/operations/assignments", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsAct), s.ReleaseBillingOperationsAssignment)
+	admin.GET("/billing/operations/overdue-invoices", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsOverdueInvoices)
+	admin.GET("/billing/operations/outstanding-customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsOutstandingCustomers)
+	admin.GET("/billing/operations/payment-issues", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOperations, authorization.ActionBillingOperationsView), s.GetBillingOperationsPaymentIssues)
+	admin.GET("/billing/overview/mrr", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRR)
+	admin.GET("/billing/overview/mrr-movement", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewMRRMovement)
+	admin.GET("/billing/overview/revenue", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewRevenue)
+	admin.GET("/billing/overview/outstanding", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewOutstandingBalance)
+	admin.GET("/billing/overview/collection-rate", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewCollectionRate)
+	admin.GET("/billing/overview/subscribers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.authorizeOrgAction(authorization.ObjectBillingOverview, authorization.ActionBillingOverviewView), s.GetBillingOverviewSubscribers)
 
 	// -------- FinOps Performance --------
-	admin.GET("/finops/performance/me", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsPerformanceMe)
-	admin.GET("/finops/performance/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetBillingOperationsPerformanceTeam)
+	admin.GET("/finops/performance/me", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetBillingOperationsPerformanceMe)
+	admin.GET("/finops/performance/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetBillingOperationsPerformanceTeam)
+	admin.GET("/finops/exposure-analysis", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetExposureAnalysis)
 
 	// -------- Billing Operations IA (Task-Centric Views) --------
-	admin.GET("/billing-operations/inbox", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsInbox)
-	admin.GET("/billing-operations/my-work", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsMyWork)
-	admin.GET("/billing-operations/recently-resolved", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember), s.GetBillingOperationsRecentlyResolved)
-	admin.GET("/billing-operations/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetBillingOperationsTeamView)
+	admin.GET("/billing-operations/inbox", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetBillingOperationsInbox)
+	admin.GET("/billing-operations/my-work", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetBillingOperationsMyWork)
+	admin.GET("/billing-operations/recently-resolved", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetBillingOperationsRecentlyResolved)
+	admin.GET("/billing-operations/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetBillingOperationsTeamView)
 
 	// -------- Billing Operations Actions --------
-	admin.POST("/billing-operations/claim", s.RequireRole(organizationdomain.RoleMember), s.PostBillingOperationsAssignment)
-	admin.POST("/billing-operations/release", s.RequireRole(organizationdomain.RoleMember), s.ReleaseBillingOperationsAssignment)
-	admin.POST("/billing-operations/resolve", s.RequireRole(organizationdomain.RoleMember), s.ResolveBillingOperationsAssignment)
+	admin.POST("/billing-operations/claim", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.PostBillingOperationsAssignment)
+	admin.POST("/billing-operations/release", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.ReleaseBillingOperationsAssignment)
+	admin.POST("/billing-operations/resolve", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.ResolveBillingOperationsAssignment)
 
 	admin.POST("/internal/rebuild-billing-snapshots", s.RequireRole(organizationdomain.RoleOwner), s.RebuildBillingSnapshots)
 
@@ -529,9 +543,9 @@ func (s *Server) RegisterAdminRoutes() {
 	admin.PATCH("/payment-providers/:provider", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectPaymentProvider, authorization.ActionPaymentProviderManage), s.UpdatePaymentProviderStatus)
 
 	// -------- Customers --------
-	admin.GET("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.ListCustomers)
+	admin.GET("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.ListCustomers)
 	admin.POST("/customers", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.CreateCustomer)
-	admin.GET("/customers/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.GetCustomerByID)
+	admin.GET("/customers/:id", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetCustomerByID)
 
 	admin.GET("/audit-logs", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAuditLog, authorization.ActionAuditLogView), s.ListAuditLogs)
 	admin.GET("/api-keys/scopes", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin), s.authorizeOrgAction(authorization.ObjectAPIKey, authorization.ActionAPIKeyView), s.ListAPIKeyScopes)

@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
+import { useOrgStore } from "@/stores/orgStore"
 import { Loader2, CheckCircle2, ChevronRight, XCircle, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +24,7 @@ import { formatCurrency, formatAssignmentAge, formatTimeRemaining } from "../uti
 import { cn } from "@/lib/utils"
 
 export function MyWorkTab() {
+  const org = useOrgStore((s) => s.currentOrg)
   const { data, isLoading, error } = useMyWork()
   const resolveMutation = useResolveAssignment()
   const releaseMutation = useReleaseAssignment()
@@ -97,12 +100,17 @@ export function MyWorkTab() {
             ) : (
               items.map((item) => {
                 const timeRemaining = formatTimeRemaining(item.assignment_expires_at)
-                
+
                 return (
                   <TableRow key={item.assignment_id} className="group">
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-medium">{item.entity_name}</span>
+                        <Link
+                          to={`/orgs/${org?.id}/${item.entity_type}s/${item.entity_id}`}
+                          className="font-medium hover:underline hover:text-primary transition-colors"
+                        >
+                          {item.entity_name}
+                        </Link>
                         <span className="text-[10px] text-muted-foreground uppercase font-mono tracking-wider">
                           {item.entity_type}
                         </span>
@@ -123,8 +131,8 @@ export function MyWorkTab() {
                       {formatAssignmentAge(item.claimed_at)}
                     </TableCell>
                     <TableCell>
-                      <SLABadge 
-                        status={item.sla_status} 
+                      <SLABadge
+                        status={item.sla_status}
                         minutesRemaining={timeRemaining.minutes}
                       />
                     </TableCell>
@@ -151,7 +159,7 @@ export function MyWorkTab() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               className="text-amber-600 focus:text-amber-600"
                               onClick={() => handleRelease(item.entity_type, item.entity_id)}
                             >

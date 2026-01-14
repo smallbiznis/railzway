@@ -13,6 +13,7 @@ type Organization struct {
 	ID           snowflake.ID      `gorm:"primaryKey" json:"id"`
 	Name         string            `gorm:"type:text;not null" json:"name"`
 	Slug         string            `gorm:"type:text;not null;uniqueIndex:ux_organizations_slug" json:"slug"`
+	SupportEmail string            `gorm:"type:text;column:support_email" json:"support_email"`
 	IsDefault    bool              `gorm:"column:is_default" json:"is_default"`
 	CountryCode  string            `gorm:"column:country_code"`
 	TimezoneName string            `gorm:"column:timezone_name"`

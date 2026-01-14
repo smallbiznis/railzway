@@ -1,10 +1,10 @@
-# Valora k6 Test Suite
+# Railzway k6 Test Suite
 
-This suite validates Valora OSS architecture invariants: hot-path ingest, idempotency, async boundaries, and admin read scaling.
+This suite validates Railzway architecture invariants: hot-path ingest, idempotency, async boundaries, and admin read scaling.
 
 ## Prerequisites
 - k6 installed locally
-- Valora API reachable
+- Railzway API reachable
 - Valid API key and seeded billing data (customer, meter, subscription)
 
 ## Environment

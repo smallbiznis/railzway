@@ -111,7 +111,7 @@ const DEFAULT_STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_K
   | undefined
 
 const sampleInvoice: Invoice = {
-  orgName: 'Valora',
+  orgName: 'Railzway',
   invoiceNumber: 'INV-2026-00492',
   issueDate: '1 February 2026',
   dueDate: '7 February 2026',

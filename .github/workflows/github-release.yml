@@ -136,7 +136,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
-          name: Valora OSS ${{ steps.resolve.outputs.tag }}
+          name: ${{ steps.resolve.outputs.tag }}
           body_path: release_notes.md
           files: ${{ steps.archive.outputs.file }}
           fail_on_unmatched_files: true

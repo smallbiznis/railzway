@@ -304,3 +304,25 @@ func (s *Server) GetBillingOperationsPerformanceTeam(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// GET /finops/exposure-analysis
+func (s *Server) GetExposureAnalysis(c *gin.Context) {
+	if s.billingOperationsSvc == nil {
+		AbortWithError(c, ErrServiceUnavailable)
+		return
+	}
+
+	var req billingoperationsdomain.ExposureAnalysisRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		AbortWithError(c, invalidRequestError())
+		return
+	}
+
+	resp, err := s.billingOperationsSvc.GetExposureAnalysis(c.Request.Context(), req)
+	if err != nil {
+		AbortWithError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

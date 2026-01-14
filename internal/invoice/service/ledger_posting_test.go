@@ -24,7 +24,7 @@ type mockTaxResolver struct {
 }
 
 func (m *mockTaxResolver) ResolveForInvoice(ctx context.Context, orgID, customerID snowflake.ID) (*taxdomain.TaxDefinition, error) {
-	args := m.Called(ctx, orgID, customerID)
+	args := m.Mock(ctx, orgID, customerID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -36,7 +36,7 @@ type mockRenderer struct {
 }
 
 func (m *mockRenderer) RenderHTML(input render.RenderInput) (string, error) {
-	args := m.Called(input)
+	args := m.Mock(input)
 	return args.String(0), args.Error(1)
 }
 
@@ -45,7 +45,7 @@ type mockPublicTokenSvc struct {
 }
 
 func (m *mockPublicTokenSvc) EnsureForInvoice(ctx context.Context, invoice invoicedomain.Invoice) (publicinvoicedomain.PublicInvoiceToken, error) {
-	args := m.Called(ctx, invoice)
+	args := m.Mock(ctx, invoice)
 	return args.Get(0).(publicinvoicedomain.PublicInvoiceToken), args.Error(1)
 }
 
@@ -54,7 +54,7 @@ type mockLedgerSvc struct {
 }
 
 func (m *mockLedgerSvc) CreateEntry(ctx context.Context, orgID snowflake.ID, sourceType string, sourceID snowflake.ID, currency string, occurredAt time.Time, lines []ledgerdomain.LedgerEntryLine) error {
-	args := m.Called(ctx, orgID, sourceType, sourceID, currency, occurredAt, lines)
+	args := m.Mock(ctx, orgID, sourceType, sourceID, currency, occurredAt, lines)
 	return args.Error(0)
 }
 

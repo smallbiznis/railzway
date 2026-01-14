@@ -19,7 +19,7 @@ const (
 	argonSaltLen        = 16
 )
 
-// Hash returns the Argon2id hash used by Valora OSS authentication.
+// Hash returns the Argon2id hash used by Railzway authentication.
 func Hash(password string) (string, error) {
 	salt := make([]byte, argonSaltLen)
 	if _, err := rand.Read(salt); err != nil {

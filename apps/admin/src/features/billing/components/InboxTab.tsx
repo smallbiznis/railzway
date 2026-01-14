@@ -1,5 +1,6 @@
 import { Loader2, Inbox } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -15,7 +16,7 @@ import { formatCurrency } from "../utils/formatting"
 import { cn } from "@/lib/utils"
 
 export function InboxTab() {
-  const { data, isLoading, error } = useInbox()
+  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInbox()
   const claimMutation = useClaimAssignment()
 
   const handleClaim = (entityType: string, entityId: string) => {
@@ -23,6 +24,17 @@ export function InboxTab() {
       entity_type: entityType as "invoice" | "customer",
       entity_id: entityId,
       assignment_ttl_minutes: 120, // 2 hours
+    }, {
+      onSuccess: () => {
+        toast.success("Assignment Claimed", {
+          description: "You have successfully claimed this item. It has been moved to 'My Work'.",
+        })
+      },
+      onError: (error) => {
+        toast.error("Failed to claim assignment", {
+          description: error instanceof Error ? error.message : "An unexpected error occurred",
+        })
+      }
     })
   }
 
@@ -42,9 +54,17 @@ export function InboxTab() {
     )
   }
 
-  const items = data?.items || []
-  const invoices = items.filter(item => item.category === "overdue_invoice" || item.category === "high_exposure")
-  const paymentIssues = items.filter(item => item.category === "failed_payment")
+  // Flatten all pages
+  const items = data?.pages.flatMap((page) => page.items) || []
+  // Map API response fields to expected logic or adjust filters
+  // API has: entity_type, risk_category, etc.
+
+  const invoices = items.filter(item =>
+    item.risk_category === "high_exposure" ||
+    item.risk_category === "overdue_invoice" ||
+    (item.entity_type === "invoice" && (item.amount_due ?? 0) > 0)
+  )
+  const paymentIssues = items.filter(item => item.category === "failed_payment" || item.risk_category === "failed_payment")
 
   const renderSection = (title: string, sectionItems: typeof items) => {
     if (sectionItems.length === 0) return null
@@ -70,12 +90,12 @@ export function InboxTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sectionItems.map((item) => {
+              {sectionItems.map((item, index) => {
                 const isClaiming = claimMutation.isPending
-                const isFailedPayment = item.category === "failed_payment"
+                const isFailedPayment = item.category === "failed_payment" || item.risk_category === "failed_payment"
 
                 return (
-                  <TableRow key={`${item.entity_type}-${item.entity_id}`} className="group">
+                  <TableRow key={`${item.entity_type}-${item.entity_id}-${index}`} className="group">
                     <TableCell>
                       <Badge
                         variant="secondary"
@@ -86,18 +106,19 @@ export function InboxTab() {
                             : "bg-amber-500/10 text-amber-600 border-amber-500/20"
                         )}
                       >
-                        {item.category.replace(/_/g, " ")}
+                        {/* API returns risk_category or category depending on endpoint version/mock */}
+                        {(item.risk_category || item.category || "Unknown").replace(/_/g, " ")}
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {item.entity_name}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {item.customer_name || "N/A"}
+                      {item.customer_name || item.entity_name || "N/A"}
                     </TableCell>
                     <TableCell className="font-mono text-xs tabular-nums">
                       {item.amount_due !== undefined
-                        ? formatCurrency(item.amount_due, item.currency || data?.currency)
+                        ? formatCurrency(item.amount_due, item.currency || data?.pages[0]?.currency || "USD")
                         : "N/A"}
                     </TableCell>
                     <TableCell>
@@ -161,6 +182,25 @@ export function InboxTab() {
         <>
           {renderSection("Invoices", invoices)}
           {renderSection("Payment Issues", paymentIssues)}
+
+          {hasNextPage && (
+            <div className="flex justify-center pt-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Load More"
+                )}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

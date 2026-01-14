@@ -11,6 +11,8 @@ import { MyWorkTab } from "../components/MyWorkTab"
 import { RecentlyResolvedTab } from "../components/RecentlyResolvedTab"
 import { TeamViewTab } from "../components/TeamViewTab"
 import { PerformanceDashboard } from "../components/PerformanceDashboard"
+import { BillingAnalyticsHeader } from "../components/BillingAnalyticsHeader"
+import { ExposureAnalysisTab } from "../components/ExposureAnalysisTab"
 
 export default function OrgBillingOperationsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -52,6 +54,8 @@ export default function OrgBillingOperationsPage() {
         </div>
       </header>
 
+      <BillingAnalyticsHeader />
+
       {/* Main IA Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <div className="border-b">
@@ -82,6 +86,14 @@ export default function OrgBillingOperationsPage() {
                 Team View
               </TabsTrigger>
             )}
+            {isManager && (
+              <TabsTrigger
+                value="exposure"
+                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 py-2 border-b-2 border-transparent"
+              >
+                Exposure Analysis
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -99,9 +111,14 @@ export default function OrgBillingOperationsPage() {
             <TeamViewTab />
           </TabsContent>
         )}
+        {isManager && (
+          <TabsContent value="exposure" className="mt-0">
+            <ExposureAnalysisTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       <PerformanceDashboard open={showPerformance} onOpenChange={setShowPerformance} />
-    </div>
+    </div >
   )
 }

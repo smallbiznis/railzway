@@ -1,6 +1,6 @@
-# Contributing to Valora OSS
+# Contributing to Railzway
 
-Thank you for your interest in contributing to Valora!
+Thank you for your interest in contributing to Railzway!
 To maintain a high-quality codebase and a stable release pipeline, we follow a strict **Feature Branch Workflow**.
 
 ## 🚀 Branching Strategy

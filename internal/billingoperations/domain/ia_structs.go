@@ -66,16 +66,18 @@ type RecentlyResolvedRequest struct {
 }
 
 type ResolvedItem struct {
-	AssignmentID string    `json:"assignment_id"`
-	EntityType   string    `json:"entity_type"`
-	EntityID     string    `json:"entity_id"`
-	EntityName   string    `json:"entity_name"`
-	Status       string    `json:"status"` // "resolved" | "released" | "escalated"
-	ResolvedAt   time.Time `json:"resolved_at"`
-	ResolvedBy   string    `json:"resolved_by"`
-	Reason       string    `json:"reason,omitempty"`
-	ClaimedAt    time.Time `json:"claimed_at"`
-	Duration     string    `json:"duration"` // "3h 45m"
+	AssignmentID     string    `json:"assignment_id"`
+	EntityType       string    `json:"entity_type"`
+	EntityID         string    `json:"entity_id"`
+	EntityName       string    `json:"entity_name"`
+	Status           string    `json:"status"` // "resolved" | "released" | "escalated"
+	ResolvedAt       time.Time `json:"resolved_at"`
+	ResolvedBy       string    `json:"resolved_by"`
+	Reason           string    `json:"reason,omitempty"`
+	ClaimedAt        time.Time `json:"claimed_at"`
+	Duration         string    `json:"duration"` // "3h 45m"
+	AmountDueAtClaim int64     `json:"amount_due_at_claim"`
+	Currency         string    `json:"currency"`
 }
 
 type RecentlyResolvedResponse struct {
@@ -94,7 +96,39 @@ type TeamMemberWorkload struct {
 	EscalationCount    int    `json:"escalation_count"`
 }
 
+type TeamSummary struct {
+	TotalActiveAssignments int    `json:"total_active_assignments"`
+	TotalExposure          int64  `json:"total_exposure"`
+	AvgAssignmentAge       string `json:"avg_assignment_age"`
+	EscalationCount        int    `json:"escalation_count"`
+}
+
 type TeamViewResponse struct {
 	Members  []TeamMemberWorkload `json:"members"`
+	Summary  TeamSummary          `json:"summary"`
 	Currency string               `json:"currency"`
+}
+
+// Exposure Analysis View
+
+type ExposureAnalysisRequest struct{}
+
+type ExposureBucket struct {
+	Bucket string `json:"bucket"` // "0-30", "31-60", "61-90", "90+"
+	Amount int64  `json:"amount"`
+	Count  int    `json:"count"`
+}
+
+type ExposureCategory struct {
+	Category string `json:"category"` // "overdue", "high_exposure", "failed_payment"
+	Amount   int64  `json:"amount"`
+	Count    int    `json:"count"`
+}
+
+type ExposureAnalysisResponse struct {
+	TotalExposure   int64              `json:"total_exposure"`
+	Currency        string             `json:"currency"`
+	ByRiskCategory  []ExposureCategory `json:"by_risk_category"`
+	ByAgingBucket   []ExposureBucket   `json:"by_aging_bucket"`
+	TopHighExposure []InboxItem        `json:"top_high_exposure"` // Reuse InboxItem for list
 }

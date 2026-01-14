@@ -66,7 +66,7 @@ func (s *Service) GetInbox(ctx context.Context, req domain.InboxRequest) (domain
 			LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = i.id AND ipt.revoked_at IS NULL
 			LEFT JOIN billing_operation_assignments boa 
 				ON boa.org_id = ? AND boa.entity_type = 'invoice' AND boa.entity_id = i.id 
-				AND boa.status IN ('claimed', 'in_progress')
+				AND boa.status IN ('assigned', 'in_progress')
 			WHERE i.org_id = ?
 				AND i.status = 'FINALIZED'
 				AND i.voided_at IS NULL
@@ -147,7 +147,7 @@ func (s *Service) GetInbox(ctx context.Context, req domain.InboxRequest) (domain
 			) AND ipt.revoked_at IS NULL
 			LEFT JOIN billing_operation_assignments boa 
 				ON boa.org_id = ? AND boa.entity_type = 'customer' AND boa.entity_id = c.id 
-				AND boa.status IN ('claimed', 'in_progress')
+				AND boa.status IN ('assigned', 'in_progress')
 			WHERE c.org_id = ?
 				AND t.outstanding >= 100000  -- High exposure threshold
 				AND boa.id IS NULL  -- No active assignment
@@ -335,7 +335,7 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 		) AND ipt_cust.revoked_at IS NULL
 		WHERE boa.org_id = ?
 			AND boa.assigned_to = ?
-			AND boa.status IN ('claimed', 'in_progress')
+			AND boa.status IN ('assigned', 'in_progress')
 		ORDER BY boa.assigned_at ASC
 		LIMIT ?`
 
@@ -465,6 +465,11 @@ func (s *Service) GetRecentlyResolved(ctx context.Context, userID string, req do
 	now := s.clock.Now().UTC()
 	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
 
+	currency, err := s.loadOrgCurrency(ctx, orgID)
+	if err != nil {
+		return domain.RecentlyResolvedResponse{}, err
+	}
+
 	query := `
 		SELECT
 			boa.id::text AS assignment_id,
@@ -523,6 +528,11 @@ func (s *Service) GetRecentlyResolved(ctx context.Context, userID string, req do
 			entityName = name
 		}
 
+		amountDueAtClaim := int64(0)
+		if amt, ok := snapshot["amount_due"].(float64); ok {
+			amountDueAtClaim = int64(amt)
+		}
+
 		// Calculate duration
 		duration := row.ResolvedAt.Sub(row.AssignedAt)
 		hours := int(duration.Hours())
@@ -535,16 +545,18 @@ func (s *Service) GetRecentlyResolved(ctx context.Context, userID string, req do
 		}
 
 		items = append(items, domain.ResolvedItem{
-			AssignmentID: row.AssignmentID,
-			EntityType:   row.EntityType,
-			EntityID:     row.EntityID,
-			EntityName:   entityName,
-			Status:       row.Status,
-			ResolvedAt:   row.ResolvedAt.UTC(),
-			ResolvedBy:   row.ResolvedBy.String,
-			Reason:       row.ReleaseReason.String,
-			ClaimedAt:    row.AssignedAt.UTC(),
-			Duration:     durationStr,
+			AssignmentID:     row.AssignmentID,
+			EntityType:       row.EntityType,
+			EntityID:         row.EntityID,
+			EntityName:       entityName,
+			Status:           row.Status,
+			ResolvedAt:       row.ResolvedAt.UTC(),
+			ResolvedBy:       row.ResolvedBy.String,
+			Reason:           row.ReleaseReason.String,
+			ClaimedAt:        row.AssignedAt.UTC(),
+			Duration:         durationStr,
+			AmountDueAtClaim: amountDueAtClaim,
+			Currency:         currency,
 		})
 	}
 
@@ -578,14 +590,14 @@ func (s *Service) GetTeamView(ctx context.Context, req domain.TeamViewRequest) (
 			SUM(
 				CASE
 					WHEN boa.snapshot_metadata->>'amount_due' IS NOT NULL 
-						THEN (boa.snapshot_metadata->>'amount_due')::bigint
+						THEN (boa.snapshot_metadata->>'amount_due')::numeric::bigint
 					ELSE 0
 				END
 			) AS total_exposure_owned,
 			SUM(CASE WHEN boa.status = 'escalated' THEN 1 ELSE 0 END) AS escalation_count
 		FROM billing_operation_assignments boa
 		WHERE boa.org_id = ?
-			AND boa.status IN ('claimed', 'in_progress', 'escalated')
+			AND boa.status IN ('assigned', 'in_progress', 'escalated')
 		GROUP BY boa.assigned_to
 		ORDER BY boa.assigned_to ASC`
 
@@ -629,5 +641,163 @@ func (s *Service) GetTeamView(ctx context.Context, req domain.TeamViewRequest) (
 	return domain.TeamViewResponse{
 		Members:  members,
 		Currency: currency,
+	}, nil
+}
+
+// GetExposureAnalysis returns aggregated financial metrics for FinOps planning
+func (s *Service) GetExposureAnalysis(ctx context.Context, req domain.ExposureAnalysisRequest) (domain.ExposureAnalysisResponse, error) {
+	orgID, ok := orgcontext.OrgIDFromContext(ctx)
+	if !ok || orgID == 0 {
+		return domain.ExposureAnalysisResponse{}, domain.ErrInvalidOrganization
+	}
+
+	currency, err := s.loadOrgCurrency(ctx, orgID)
+	if err != nil {
+		return domain.ExposureAnalysisResponse{}, err
+	}
+
+	now := s.clock.Now().UTC()
+
+	// 1. Calculate Total Exposure and Aging Buckets
+	// We aggregate all finalized, non-voided, non-paid invoices
+	query := `
+		SELECT
+			COALESCE(SUM(outstanding), 0) AS total_exposure,
+			COALESCE(SUM(CASE WHEN days_overdue <= 0 THEN outstanding ELSE 0 END), 0) AS current_amount,
+			COALESCE(SUM(CASE WHEN days_overdue > 0 AND days_overdue <= 30 THEN outstanding ELSE 0 END), 0) AS bucket_0_30,
+			COALESCE(SUM(CASE WHEN days_overdue > 30 AND days_overdue <= 60 THEN outstanding ELSE 0 END), 0) AS bucket_31_60,
+			COALESCE(SUM(CASE WHEN days_overdue > 60 AND days_overdue <= 90 THEN outstanding ELSE 0 END), 0) AS bucket_61_90,
+			COALESCE(SUM(CASE WHEN days_overdue > 90 THEN outstanding ELSE 0 END), 0) AS bucket_90_plus,
+			COUNT(CASE WHEN days_overdue > 0 THEN 1 END) AS overdue_count
+		FROM (
+			SELECT
+				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding,
+				EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 AS days_overdue
+			FROM invoices i
+			LEFT JOIN (
+				SELECT
+					(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
+					SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
+				FROM ledger_entries le
+				JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
+				JOIN ledger_accounts a ON a.id = l.account_id
+				JOIN payment_events pe ON pe.id = le.source_id
+				WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
+				GROUP BY 1
+			) s ON s.invoice_id_text = i.id::text
+			WHERE i.org_id = ?
+				AND i.status = 'FINALIZED'
+				AND i.voided_at IS NULL
+				AND i.paid_at IS NULL
+				AND i.currency = ?
+				AND i.due_at IS NOT NULL
+		) inv
+		WHERE outstanding > 0`
+
+	var stats struct {
+		TotalExposure int64
+		CurrentAmount int64
+		Bucket0To30   int64
+		Bucket31To60  int64
+		Bucket61To90  int64
+		Bucket90Plus  int64
+		OverdueCount  int
+	}
+
+	if err := s.db.WithContext(ctx).Raw(
+		query,
+		now,
+		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
+		orgID, currency,
+	).Scan(&stats).Error; err != nil {
+		return domain.ExposureAnalysisResponse{}, err
+	}
+
+	// 2. Identify High Exposure Customers (Top 5)
+	topCustomersQuery := `
+		SELECT
+			c.name AS entity_name,
+			SUM(outstanding) AS amount_due,
+			(SUM(outstanding) / 10000)::int AS risk_score,
+			MAX(days_overdue) AS days_overdue
+		FROM (
+			SELECT
+				i.customer_id,
+				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding,
+				EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 AS days_overdue
+			FROM invoices i
+			LEFT JOIN (
+				SELECT
+					(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
+					SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
+				FROM ledger_entries le
+				JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
+				JOIN ledger_accounts a ON a.id = l.account_id
+				JOIN payment_events pe ON pe.id = le.source_id
+				WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
+				GROUP BY 1
+			) s ON s.invoice_id_text = i.id::text
+			WHERE i.org_id = ? AND i.status = 'FINALIZED' AND i.voided_at IS NULL AND i.currency = ?
+		) inv
+		JOIN customers c ON c.id = inv.customer_id
+		WHERE outstanding > 0
+		GROUP BY c.id, c.name
+		ORDER BY amount_due DESC
+		LIMIT 5`
+
+	type topCustRow struct {
+		EntityName  string `gorm:"column:entity_name"`
+		AmountDue   int64  `gorm:"column:amount_due"`
+		RiskScore   int    `gorm:"column:risk_score"`
+		DaysOverdue int    `gorm:"column:days_overdue"`
+	}
+
+	var topRows []topCustRow
+	if err := s.db.WithContext(ctx).Raw(
+		topCustomersQuery,
+		now,
+		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
+		orgID, currency,
+	).Scan(&topRows).Error; err != nil {
+		return domain.ExposureAnalysisResponse{}, err
+	}
+
+	topItems := make([]domain.InboxItem, 0, len(topRows))
+	for _, r := range topRows {
+		topItems = append(topItems, domain.InboxItem{
+			EntityType:   "customer",
+			EntityName:   r.EntityName,
+			AmountDue:    r.AmountDue,
+			RiskScore:    r.RiskScore,
+			DaysOverdue:  r.DaysOverdue,
+			Currency:     currency,
+			RiskCategory: "high_exposure",
+		})
+	}
+
+	// 3. Construct Response
+	aging := []domain.ExposureBucket{
+		{Bucket: "Current", Amount: stats.CurrentAmount, Count: 0},
+		{Bucket: "1-30 Days", Amount: stats.Bucket0To30, Count: 0},
+		{Bucket: "31-60 Days", Amount: stats.Bucket31To60, Count: 0},
+		{Bucket: "61-90 Days", Amount: stats.Bucket61To90, Count: 0},
+		{Bucket: "90+ Days", Amount: stats.Bucket90Plus, Count: 0},
+	}
+
+	// For Risk Category, we simplify:
+	// "Overdue" -> Sum of all buckets > 0
+	// "High Exposure" -> Sum of top 5 customers (simplified) or sum of all > 100k
+	// "Failed Payment" -> We could query, but for now let's stick to Overdue vs Current
+	riskCats := []domain.ExposureCategory{
+		{Category: "Overdue", Amount: stats.Bucket0To30 + stats.Bucket31To60 + stats.Bucket61To90 + stats.Bucket90Plus, Count: stats.OverdueCount},
+		{Category: "Current", Amount: stats.CurrentAmount, Count: 0}, // Count not easily available from agg
+	}
+
+	return domain.ExposureAnalysisResponse{
+		TotalExposure:   stats.TotalExposure,
+		Currency:        currency,
+		ByRiskCategory:  riskCats,
+		ByAgingBucket:   aging,
+		TopHighExposure: topItems,
 	}, nil
 }

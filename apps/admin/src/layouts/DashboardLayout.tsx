@@ -11,6 +11,7 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar"
+import { Toaster } from "@/components/ui/sonner"
 import { useOrgStore } from "@/stores/orgStore"
 
 export default function DashboardLayout() {
@@ -85,6 +86,7 @@ export default function DashboardLayout() {
           </div>
         </SidebarInset>
       </SidebarProvider>
+      <Toaster />
       {/* <WorkbenchDock /> */}
     </>
   )

@@ -227,7 +227,10 @@ func (s *service) InviteMembers(ctx context.Context, userID snowflake.ID, orgID 
 	// Send emails
 	for _, invite := range rows {
 		go func(inv domain.OrganizationInvite) {
-			if err := s.email.SendTemplate(context.Background(), []string{inv.Email}, "invite_member", map[string]interface{}{
+			msg := email.EmailMessage{
+				To: []string{inv.Email},
+			}
+			if err := s.email.SendTemplate(context.Background(), msg, "invite_member", map[string]interface{}{
 				"org_name":    org.Name,
 				"invite_link": "http://localhost:8080/invite/" + inv.ID.String(),
 				"role":        inv.Role,
@@ -238,6 +241,40 @@ func (s *service) InviteMembers(ctx context.Context, userID snowflake.ID, orgID 
 	}
 
 	return nil
+}
+
+func (s *service) GetInvite(ctx context.Context, inviteID string) (*domain.PublicInviteInfo, error) {
+	rawInviteID := strings.TrimSpace(inviteID)
+	if rawInviteID == "" {
+		return nil, domain.ErrInvalidOrganization
+	}
+	parsedInviteID, err := snowflake.ParseString(rawInviteID)
+	if err != nil {
+		return nil, err
+	}
+
+	invite, err := s.repo.GetInvite(ctx, parsedInviteID)
+	if err != nil {
+		return nil, err
+	}
+	if invite == nil {
+		return nil, domain.ErrInvalidOrganization
+	}
+
+	org, err := s.getOrganization(ctx, invite.OrgID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.PublicInviteInfo{
+		ID:        invite.ID.String(),
+		OrgID:     invite.OrgID.String(),
+		OrgName:   org.Name,
+		Email:     invite.Email,
+		Role:      invite.Role,
+		Status:    invite.Status,
+		InvitedBy: invite.InvitedBy.String(),
+	}, nil
 }
 
 func (s *service) AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error {

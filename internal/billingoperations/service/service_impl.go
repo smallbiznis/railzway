@@ -1263,10 +1263,13 @@ func (s *Service) loadAssignmentForUpdate(
 ) (*domain.BillingAssignmentRecord, error) {
 	var row domain.BillingAssignmentRecord
 	err := tx.WithContext(ctx).Raw(
-		`SELECT id, assigned_to, assigned_at, assignment_expires_at,
-		        status, released_at, released_by, release_reason, last_action_at
+		`SELECT id, org_id, entity_type, entity_id,
+		        assigned_to, assigned_at, assignment_expires_at,
+		        status, released_at, released_by, release_reason, last_action_at,
+				snapshot_metadata
 		 FROM billing_operation_assignments
-		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?`,
+		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?
+		 FOR UPDATE`,
 		orgID, entityType, entityID,
 	).Scan(&row).Error
 

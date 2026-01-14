@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"time"
@@ -1273,23 +1274,53 @@ func formatMoney(amount int64, currency string) string {
 // sendInvoiceNotification generates PDF and sends email
 func (s *Service) sendInvoiceNotification(ctx context.Context, invoice *invoicedomain.Invoice, tokenHash string) error {
 	// 1. Load Org and Customer for details
-	// TODO: Fetch real org/customer details. Using placeholders for MVP.
+	// Fetch Org
+	type Org struct {
+		Name         string
+		SupportEmail string
+	}
+	var org Org
+	if err := s.db.WithContext(ctx).Table("organizations").Select("name, support_email").Where("id = ?", invoice.OrgID).Scan(&org).Error; err != nil {
+		s.log.Error("failed to fetch organization for notification", zap.Error(err))
+		// Fallback to defaults if DB fail (unlikely inside transaction, but safe)
+		org.Name = "Railzway Billing"     // Generic fallback
+		org.SupportEmail = "support@railzway.com"
+	}
+
+	// Fetch Customer
+	type Customer struct {
+		Email string
+	}
+	var cust Customer
+	if err := s.db.WithContext(ctx).Table("customers").Select("email").Where("id = ? AND org_id = ?", invoice.CustomerID, invoice.OrgID).Scan(&cust).Error; err != nil {
+		s.log.Error("failed to fetch customer for notification", zap.Error(err))
+	}
+	
+	// Default support email if empty in DB
+	if org.SupportEmail == "" {
+		org.SupportEmail = "support@railzway.com" 
+	}
 
 	// 2. Generate PDF (Proof of concept)
 	pdfData := pdf.InvoiceData{
 		InvoiceNumber: invoice.ID.String(),
 		IssueDate:     invoice.IssuedAt.Format("January 2, 2006"),
 		DueDate:       invoice.DueAt.Format("January 2, 2006"),
-		TotalDue:      fmt.Sprintf("$%.2f", float64(invoice.TotalAmount)/100.0),
+		TotalDue:      fmt.Sprintf("$%.2f", float64(invoice.TotalAmount)/100.0), // TODO: Currency formatting
 		Total:         fmt.Sprintf("$%.2f", float64(invoice.TotalAmount)/100.0),
+		OrgName:       org.Name,
 		// Populate other fields as needed
-		OrgName: "Small Biznis, LLC",
 	}
 
-	_, err := s.pdfProvider.GenerateInvoice(ctx, pdfData)
+	pdfReader, err := s.pdfProvider.GenerateInvoice(ctx, pdfData)
+	var pdfBytes []byte
 	if err != nil {
 		s.log.Error("failed to generate invoice PDF", zap.Error(err))
-		// We log but don't fail the whole notification flow if email can still go out (though email needs PDF usually)
+	} else if pdfReader != nil {
+		pdfBytes, err = io.ReadAll(pdfReader)
+		if err != nil {
+			s.log.Error("failed to read PDF content", zap.Error(err))
+		}
 	}
 
 	// 3. Send Email
@@ -1301,23 +1332,43 @@ func (s *Service) sendInvoiceNotification(ctx context.Context, invoice *invoiced
 		InvoiceNumber   string
 		OrgContactEmail string
 	}{
-		OrgName:         "Small Biznis, LLC",
-		Total:           pdfData.Total,
+		OrgName:         org.Name,
+		Total:           pdfData.Total, // Reuse formatted total strings
 		DueDate:         pdfData.DueDate,
-		PaymentLink:     fmt.Sprintf("http://localhost:5173/%s/%s", invoice.OrgID, tokenHash),
+		PaymentLink:     fmt.Sprintf("http://localhost:5173/%s/%s", invoice.OrgID, tokenHash), // TODO: BaseURL from config
 		InvoiceNumber:   invoice.ID.String(),
-		OrgContactEmail: "support@smallbiznis.com",
+		OrgContactEmail: org.SupportEmail,
 	}
 
-	// TODO: Get real customer email from invoice.CustomerContactEmail or similar
-	to := []string{"taufiktriantono4@gmail.com"}
+	to := []string{cust.Email}
+	if cust.Email == "" {
+		// Fallback for dev/demo if customer email is missing
+		s.log.Warn("customer email missing, using fallback", zap.String("invoice_id", invoice.ID.String()))
+		to = []string{"taufiktriantono4@gmail.com"} 
+	}
 
-	err = s.emailProvider.SendTemplate(ctx, to, "invoice_new", emailData)
+	msg := email.EmailMessage{
+		To:         to,
+		SenderName: org.Name,
+		ReplyTo:    org.SupportEmail,
+		Subject:    fmt.Sprintf("New invoice from %s. #%s", org.Name, invoice.InvoiceNumber),
+	}
+
+	if len(pdfBytes) > 0 {
+		msg.Attachments = []email.Attachment{
+			{
+				Filename: fmt.Sprintf("invoice-%s.pdf", invoice.InvoiceNumber),
+				Content:  pdfBytes,
+			},
+		}
+	}
+
+	err = s.emailProvider.SendTemplate(ctx, msg, "invoice_new", emailData)
 	if err != nil {
 		s.log.Error("failed to send invoice email", zap.Error(err))
 		return err
 	}
 
-	s.log.Info("invoice notification sent", zap.String("invoice_id", invoice.ID.String()))
+	s.log.Info("invoice notification sent", zap.String("invoice_id", invoice.ID.String()), zap.String("to", to[0]), zap.Bool("has_pdf", len(pdfBytes) > 0))
 	return nil
 }

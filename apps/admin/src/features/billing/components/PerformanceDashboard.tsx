@@ -72,7 +72,7 @@ export function PerformanceDashboard({
   useEffect(() => {
     if (open) {
       setLoading(true)
-      admin.get("/finops/performance/me")
+      admin.get("/finops/performance/me", { params: { period_type: "daily" } })
         .then(res => {
           const apiData = res.data
           if (apiData?.snapshots && apiData.snapshots.length > 0) {

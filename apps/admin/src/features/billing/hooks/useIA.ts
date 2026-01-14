@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { admin } from "@/api/client"
 import type {
   InboxResponse,
@@ -10,19 +10,22 @@ import type {
   ResolveAssignmentRequest,
   ResolveAssignmentResponse,
   ReleaseAssignmentRequest,
+  PerformanceResponse,
+  PerformanceData,
+  ExposureAnalysisResponse,
 } from "../types/ia-types"
 
-// ===== Query Hooks =====
-
-export function useInbox(limit = 50) {
-  return useQuery({
+export function useInbox(limit = 25) {
+  return useInfiniteQuery({
     queryKey: ["billing-operations", "inbox", limit],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = undefined as string | undefined }) => {
       const res = await admin.get<InboxResponse>("/billing-operations/inbox", {
-        params: { limit },
+        params: { limit, cursor: pageParam },
       })
       return res.data
     },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
   })
 }
 
@@ -55,6 +58,36 @@ export function useTeamView() {
     queryKey: ["billing-operations", "team-view"],
     queryFn: async () => {
       const res = await admin.get<TeamViewResponse>("/billing-operations/team")
+      return res.data
+    },
+  })
+}
+
+
+export function useFinOpsPerformance(periodType = "daily") {
+  return useQuery({
+    queryKey: ["finops", "performance", "me", periodType],
+    queryFn: async () => {
+      const res = await admin.get<PerformanceResponse>("/finops/performance/me", {
+        params: { period_type: periodType },
+      })
+      const apiData = res.data
+      if (apiData?.snapshots && apiData.snapshots.length > 0) {
+        return {
+          current: apiData.snapshots[0],
+          history: apiData.snapshots,
+        } as PerformanceData
+      }
+      return null
+    },
+  })
+}
+
+export function useExposureAnalysis() {
+  return useQuery({
+    queryKey: ["finops", "exposure-analysis"],
+    queryFn: async () => {
+      const res = await admin.get<ExposureAnalysisResponse>("/finops/exposure-analysis")
       return res.data
     },
   })

@@ -433,6 +433,7 @@ func startEnv() (*testEnv, error) {
 		}),
 		fx.Provide(server.NewEngine),
 		fx.Provide(server.NewServer),
+		fx.Invoke(server.RegisterRoutes),
 		fx.Populate(&srv, &dbConn, &cfg, &log, &genID, &ratingSvc, &invoiceSvc, &ledgerSvc, &subSvc, &auditSvc, &authzSvc, &snapWorker, &schedulerSv),
 	)
 

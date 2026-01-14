@@ -22,7 +22,18 @@ type Service interface {
 	ListOrganizationsByUser(ctx context.Context, userID snowflake.ID) ([]OrganizationListResponseItem, error)
 	InviteMembers(ctx context.Context, userID snowflake.ID, orgID string, invites []InviteRequest) error
 	AcceptInvite(ctx context.Context, userID snowflake.ID, inviteID string) error
+	GetInvite(ctx context.Context, inviteID string) (*PublicInviteInfo, error)
 	SetBillingPreferences(ctx context.Context, userID snowflake.ID, orgID string, req BillingPreferencesRequest) error
+}
+
+type PublicInviteInfo struct {
+	ID        string `json:"id"`
+	OrgID     string `json:"org_id"`
+	OrgName   string `json:"org_name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	InvitedBy string `json:"invited_by"`
 }
 
 type CreateOrganizationRequest struct {

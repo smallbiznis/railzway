@@ -491,7 +491,7 @@ func TestE2E_HybridPricing_FlatAndUsage(t *testing.T) {
 		"price_id":          usagePriceID,
 		"meter_id":          usageMeterID,
 		"currency":          "USD",
-		"unit_amount_cents": 150,
+		"unit_amount_cents": 1500,
 	})
 
 	subs := createManyCustomersAndSubscriptionsParallel(t, client, orgID, 10000, flatPriceID, usagePriceID, 30)
