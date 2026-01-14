@@ -26,7 +26,7 @@ type Config struct {
 func LoadConfig(cfg config.Config) Config {
 	serviceName := strings.TrimSpace(cfg.AppName)
 	if serviceName == "" {
-		serviceName = "valora"
+		serviceName = "railzway"
 	}
 	environment := getenv("DEPLOYMENT_ENV", cfg.Environment)
 	version := getenv("SERVICE_VERSION", cfg.AppVersion)

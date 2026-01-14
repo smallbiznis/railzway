@@ -44,7 +44,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	serviceName := strings.TrimSpace(cfg.ServiceName)
 	if serviceName == "" {
-		serviceName = "valora"
+		serviceName = "railzway"
 	}
 	environment := strings.TrimSpace(cfg.Environment)
 	if environment == "" {
@@ -58,7 +58,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	usageSnapshotLag := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name: "valora_usage_snapshot_lag_seconds",
+			Name: "railzway_usage_snapshot_lag_seconds",
 			Help: "Lag between usage recorded_at and snapshot time to measure billing SLA.",
 			Buckets: []float64{
 				60,     // 1m
@@ -77,7 +77,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	usageSnapshotBacklog := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name:        "valora_usage_snapshot_backlog_total",
+			Name:        "railzway_usage_snapshot_backlog_total",
 			Help:        "Number of usage events pending snapshot by status.",
 			ConstLabels: constLabels,
 		},
@@ -86,7 +86,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	usageSnapshotProcessed := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name:        "valora_usage_snapshot_processed_total",
+			Name:        "railzway_usage_snapshot_processed_total",
 			Help:        "Total usage snapshot records processed.",
 			ConstLabels: constLabels,
 		},
@@ -95,7 +95,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	usageSnapshotBacklogAll := prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name:        "valora_usage_snapshot_backlog_all_total",
+			Name:        "railzway_usage_snapshot_backlog_all_total",
 			Help:        "Total number of usage events pending snapshot.",
 			ConstLabels: constLabels,
 		},
@@ -103,7 +103,7 @@ func newSnapshotMetrics(registerer prometheus.Registerer, cfg Config) *SnapshotM
 
 	usageSnapshotBacklogOldest := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name:        "valora_usage_snapshot_backlog_oldest_seconds",
+			Name:        "railzway_usage_snapshot_backlog_oldest_seconds",
 			Help:        "Age of the oldest pending usage snapshot event.",
 			ConstLabels: constLabels,
 		},

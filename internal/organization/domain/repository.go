@@ -15,11 +15,22 @@ type OrganizationListItem struct {
 	CreatedAt time.Time
 }
 
+type OrganizationMemberInfo struct {
+	UserID      snowflake.ID `json:"user_id"`
+	Email       string       `json:"email"`
+	DisplayName string       `json:"display_name"`
+	Role        string       `json:"role"`
+	Avatar      string       `json:"avatar"`
+	CreatedAt   time.Time    `json:"created_at"`
+}
+
 type Repository interface {
 	WithTx(tx *gorm.DB) Repository
 	CreateOrganization(ctx context.Context, org Organization) error
+	Update(ctx context.Context, org Organization) error
 	AddMember(ctx context.Context, member OrganizationMember) error
 	ListOrganizationsByUser(ctx context.Context, userID snowflake.ID) ([]OrganizationListItem, error)
+	ListMembers(ctx context.Context, orgID snowflake.ID) ([]OrganizationMemberInfo, error)
 	IsMember(ctx context.Context, orgID snowflake.ID, userID snowflake.ID) (bool, error)
 	CreateInvites(ctx context.Context, invites []OrganizationInvite) error
 	GetInvite(ctx context.Context, inviteID snowflake.ID) (*OrganizationInvite, error)

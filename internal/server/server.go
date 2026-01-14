@@ -341,6 +341,7 @@ func (s *Server) RegisterAuthRoutes() {
 		user.GET("/orgs", s.ListUserOrgs)
 		user.POST("/using/:orgId", s.UseOrg)
 		user.POST("/orgs", s.CreateOrganization)
+		user.PATCH("/orgs/:id", s.UpdateOrganization)
 		user.POST("/orgs/:id/invites", s.InviteOrganizationMembers)
 		user.POST("/orgs/:id/billing-preferences", s.SetOrganizationBillingPreferences)
 	}
@@ -522,6 +523,8 @@ func (s *Server) RegisterAdminRoutes() {
 	admin.GET("/billing-operations/recently-resolved", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.GetBillingOperationsRecentlyResolved)
 	admin.GET("/billing-operations/team", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetBillingOperationsTeamView)
 	admin.GET("/billing-operations/invoices/:id/payments", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleFinOps), s.GetBillingOperationsInvoicePayments)
+
+	admin.GET("/organizations/:id/members", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.ListOrganizationMembers)
 
 	// -------- Billing Operations Actions --------
 	admin.POST("/billing-operations/claim", s.RequireRole(organizationdomain.RoleOwner, organizationdomain.RoleAdmin, organizationdomain.RoleMember, organizationdomain.RoleFinOps), s.PostBillingOperationsAssignment)

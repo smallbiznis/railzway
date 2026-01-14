@@ -22,16 +22,11 @@ func (r *repository) WithTx(tx *gorm.DB) domain.Repository {
 }
 
 func (r *repository) CreateOrganization(ctx context.Context, org domain.Organization) error {
-	return r.db.WithContext(ctx).Exec(
-		`INSERT INTO organizations (id, name, slug, country_code, timezone_name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		org.ID,
-		org.Name,
-		org.Slug,
-		org.CountryCode,
-		org.TimezoneName,
-		org.CreatedAt,
-	).Error
+	return r.db.WithContext(ctx).Create(&org).Error
+}
+
+func (r *repository) Update(ctx context.Context, org domain.Organization) error {
+	return r.db.WithContext(ctx).Model(&org).Updates(org).Error
 }
 
 func (r *repository) AddMember(ctx context.Context, member domain.OrganizationMember) error {
@@ -60,6 +55,20 @@ func (r *repository) ListOrganizationsByUser(ctx context.Context, userID snowfla
 		return nil, err
 	}
 
+	return items, nil
+}
+
+func (r *repository) ListMembers(ctx context.Context, orgID snowflake.ID) ([]domain.OrganizationMemberInfo, error) {
+	var items []domain.OrganizationMemberInfo
+	err := r.db.WithContext(ctx).
+		Table("organization_members").
+		Select("organization_members.user_id, users.email, users.display_name, organization_members.role, organization_members.created_at").
+		Joins("JOIN users ON users.id = organization_members.user_id").
+		Where("organization_members.org_id = ?", orgID).
+		Scan(&items).Error
+	if err != nil {
+		return nil, err
+	}
 	return items, nil
 }
 

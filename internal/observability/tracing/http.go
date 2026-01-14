@@ -22,7 +22,7 @@ func WrapHTTPClient(client *http.Client) *http.Client {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	clone.Transport = &transport{base: base, tracer: otel.Tracer("valora/http")}
+	clone.Transport = &transport{base: base, tracer: otel.Tracer("railzway/http")}
 	return &clone
 }
 

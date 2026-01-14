@@ -15,6 +15,7 @@ import (
 	"github.com/smallbiznis/railzway/internal/billingdashboard/rollup"
 	billingopsdomain "github.com/smallbiznis/railzway/internal/billingoperations/domain"
 	"github.com/smallbiznis/railzway/internal/clock"
+	"github.com/smallbiznis/railzway/internal/cloudmetrics"
 	invoicedomain "github.com/smallbiznis/railzway/internal/invoice/domain"
 	ledgerdomain "github.com/smallbiznis/railzway/internal/ledger/domain"
 	obsmetrics "github.com/smallbiznis/railzway/internal/observability/metrics"
@@ -43,7 +44,8 @@ type Params struct {
 	RollupSvc            *rollup.Service `optional:"true"`
 	GenID                *snowflake.Node
 	Clock                clock.Clock
-	Config               Config `optional:"true"`
+	Config               Config                     `optional:"true"`
+	CloudMetrics         *cloudmetrics.CloudMetrics `optional:"true"`
 }
 
 type Scheduler struct {
@@ -60,6 +62,7 @@ type Scheduler struct {
 	authzSvc             authorization.Service
 	billingOperationsSvc billingopsdomain.Service
 	rollupSvc            *rollup.Service
+	cloudMetrics         *cloudmetrics.CloudMetrics
 }
 
 type auditEvent struct {
@@ -91,6 +94,7 @@ func New(p Params) (*Scheduler, error) {
 		authzSvc:             p.AuthzSvc,
 		billingOperationsSvc: p.BillingOperationsSvc,
 		rollupSvc:            p.RollupSvc,
+		cloudMetrics:         p.CloudMetrics,
 	}, nil
 }
 
@@ -118,7 +122,11 @@ func (s *Scheduler) runJob(
 	schedMetrics.IncJobRun(name)
 
 	err := fn(ctx)
-	schedMetrics.ObserveJobDuration(name, time.Since(start))
+	duration := time.Since(start)
+	schedMetrics.ObserveJobDuration(name, duration)
+	if s.cloudMetrics != nil {
+		go s.cloudMetrics.SetSchedulerJobDuration(name, duration)
+	}
 	if owner {
 		if err != nil && run != nil && run.errorCount == 0 {
 			run.IncError()
@@ -398,6 +406,9 @@ func (s *Scheduler) RatingJob(ctx context.Context) error {
 					zap.String("cycle_id", idString(cycle.ID)),
 					zap.String("subscription_id", idString(cycle.SubscriptionID)),
 				)
+				if s.cloudMetrics != nil {
+					go s.cloudMetrics.IncEngineError(cycle.OrgID.String(), "rating")
+				}
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageRating, err)
 				s.emitAuditEvent(cycleCtx, auditEvent{
 					OrgID:          cycle.OrgID,
@@ -590,6 +601,9 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 					zap.String("cycle_id", idString(cycle.ID)),
 					zap.String("subscription_id", idString(cycle.SubscriptionID)),
 				)
+				if s.cloudMetrics != nil {
+					go s.cloudMetrics.IncEngineError(cycle.OrgID.String(), "invoice_generation")
+				}
 				_ = s.recordCycleErrorWithMetrics(ctx, cycle.ID, obsmetrics.CycleStageInvoice, err)
 				continue
 			}
@@ -599,6 +613,9 @@ func (s *Scheduler) InvoiceJob(ctx context.Context) error {
 			}
 
 			s.logInvoiceGenerated(ctx, cycle, invoice.ID)
+			if s.cloudMetrics != nil {
+				go s.cloudMetrics.IncInvoiceGenerated(cycle.OrgID.String())
+			}
 
 			if err := s.markCycleInvoiced(ctx, cycle.ID, now); err != nil {
 				jobErr = errors.Join(jobErr, err)

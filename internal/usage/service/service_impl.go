@@ -135,6 +135,10 @@ func (s *Service) Ingest(
 		recordedAt = now
 	}
 
+	if s.metrics != nil && now.Sub(recordedAt) > 24*time.Hour {
+		go s.metrics.IncUsageLateEvent(orgID.String(), meterCode)
+	}
+
 	// Entitlement Check: Validate that this usage is allowed.
 	meterID, err := snowflake.ParseString(meter.ID)
 	if err != nil {

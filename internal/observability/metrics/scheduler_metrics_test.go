@@ -62,7 +62,7 @@ func TestClassifySchedulerJobReason(t *testing.T) {
 func TestAddBatchProcessed(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := newSchedulerMetrics(registry, Config{
-		ServiceName: "valora",
+		ServiceName: "railzway",
 		Environment: "test",
 	})
 

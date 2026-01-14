@@ -1,7 +1,4 @@
 import * as React from "react"
-import {
-  IconInnerShadowTop,
-} from "@tabler/icons-react"
 import { NavLink, useLocation, useParams } from "react-router-dom"
 
 import { NavMain } from "@/components/nav-main"
@@ -131,7 +128,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <NavLink to={`${orgBasePath}/home`}>
-                <IconInnerShadowTop className="!size-5" />
+                <img src="/primary.svg" className="size-6" alt="Logo" />
                 <span className="text-base font-semibold">Railzway</span>
               </NavLink>
             </SidebarMenuButton>

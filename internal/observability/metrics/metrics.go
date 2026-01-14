@@ -77,27 +77,27 @@ func NewProvider(lc fx.Lifecycle, cfg Config, log *zap.Logger) (metric.MeterProv
 func New(cfg Config, provider metric.MeterProvider) (*Metrics, error) {
 	name := strings.TrimSpace(cfg.ServiceName)
 	if name == "" {
-		name = "valora"
+		name = "railzway"
 	}
 	meter := provider.Meter(name)
 
-	usageIngest, err := meter.Int64Counter("valora_usage_ingest_total")
+	usageIngest, err := meter.Int64Counter("railzway_usage_ingest_total")
 	if err != nil {
 		return nil, err
 	}
-	paymentEvents, err := meter.Int64Counter("valora_payment_events_total")
+	paymentEvents, err := meter.Int64Counter("railzway_payment_events_total")
 	if err != nil {
 		return nil, err
 	}
-	ledgerEntries, err := meter.Int64Counter("valora_ledger_entries_total")
+	ledgerEntries, err := meter.Int64Counter("railzway_ledger_entries_total")
 	if err != nil {
 		return nil, err
 	}
-	rateLimitAllowed, err := meter.Int64Counter("valora_rate_limit_allowed_total")
+	rateLimitAllowed, err := meter.Int64Counter("railzway_rate_limit_allowed_total")
 	if err != nil {
 		return nil, err
 	}
-	rateLimitDenied, err := meter.Int64Counter("valora_rate_limit_denied_total")
+	rateLimitDenied, err := meter.Int64Counter("railzway_rate_limit_denied_total")
 	if err != nil {
 		return nil, err
 	}

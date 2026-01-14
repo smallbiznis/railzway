@@ -113,7 +113,7 @@ func newSchedulerMetrics(registerer prometheus.Registerer, cfg Config) *Schedule
 
 	serviceName := strings.TrimSpace(cfg.ServiceName)
 	if serviceName == "" {
-		serviceName = "valora"
+		serviceName = "railzway"
 	}
 	environment := strings.TrimSpace(cfg.Environment)
 	if environment == "" {
@@ -125,38 +125,38 @@ func newSchedulerMetrics(registerer prometheus.Registerer, cfg Config) *Schedule
 	}
 
 	jobRuns := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        "valora_scheduler_job_runs_total",
+		Name:        "railzway_scheduler_job_runs_total",
 		Help:        "Scheduler job runs by name.",
 		ConstLabels: constLabels,
 	}, []string{"job"})
 	jobDurationV2 := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:        "valora_scheduler_job_duration_seconds",
+		Name:        "railzway_scheduler_job_duration_seconds",
 		Help:        "Scheduler job latency to protect billing batch freshness and SLOs.",
 		Buckets:     []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120, 300, 600, 1800},
 		ConstLabels: constLabels,
 	}, []string{"job"})
 	jobTimeoutsV2 := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        "valora_scheduler_job_timeouts_total",
+		Name:        "railzway_scheduler_job_timeouts_total",
 		Help:        "Scheduler job timeouts that threaten billing batch SLAs.",
 		ConstLabels: constLabels,
 	}, []string{"job"})
 	jobErrorsV2 := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        "valora_scheduler_job_errors_total",
+		Name:        "railzway_scheduler_job_errors_total",
 		Help:        "Scheduler job errors by low-cardinality reason.",
 		ConstLabels: constLabels,
 	}, []string{"job", "reason"})
 	batchProcessedV2 := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        "valora_scheduler_batch_processed_total",
+		Name:        "railzway_scheduler_batch_processed_total",
 		Help:        "Scheduler batch items processed to gauge billing throughput.",
 		ConstLabels: constLabels,
 	}, []string{"job", "resource"})
 	batchDeferred := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        "valora_scheduler_batch_deferred_total",
+		Name:        "railzway_scheduler_batch_deferred_total",
 		Help:        "Scheduler batch deferrals by low-cardinality reason.",
 		ConstLabels: constLabels,
 	}, []string{"job", "reason"})
 	runLoopLag := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:        "valora_scheduler_runloop_lag_seconds",
+		Name:        "railzway_scheduler_runloop_lag_seconds",
 		Help:        "Scheduler run loop lag beyond the configured interval.",
 		Buckets:     []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
 		ConstLabels: constLabels,

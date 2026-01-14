@@ -29,7 +29,7 @@ const (
 	defaultPushTimeout            = 5 * time.Second
 )
 
-// Pusher sends Cloud accounting metrics from OSS to Valora Cloud.
+// Pusher sends Cloud accounting metrics from OSS to Railzway Cloud.
 // Implementations must not start background goroutines or expose /metrics.
 type Pusher interface {
 	Push(ctx context.Context, registry *prometheus.Registry) error
@@ -40,9 +40,15 @@ func NewPusher(cfg config.Config, logger *zap.Logger) Pusher {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	if !cfg.IsCloud() || !cfg.Cloud.Metrics.Enabled {
+
+	if !cfg.Cloud.Metrics.Enabled {
+		logger.Info("cloud metrics telemetry is disabled by configuration")
 		return nil
 	}
+
+	logger.Info("initializing cloud metrics telemetry pusher",
+		zap.String("exporter", cfg.Cloud.Metrics.Exporter),
+		zap.String("endpoint", cfg.Cloud.Metrics.Endpoint))
 
 	exporter := strings.ToLower(strings.TrimSpace(cfg.Cloud.Metrics.Exporter))
 	endpoint := strings.TrimSpace(cfg.Cloud.Metrics.Endpoint)
@@ -63,7 +69,7 @@ func NewPusher(cfg config.Config, logger *zap.Logger) Pusher {
 			logger.Warn("cloud metrics disabled", zap.Error(fmt.Errorf("invalid cloud.metrics.endpoint: %w", err)))
 			return nil
 		}
-		return NewRemoteWritePusher(endpoint, authToken)
+		return NewRemoteWritePusher(endpoint, authToken, logger)
 	case exporterPrometheusPushgateway:
 		return NewPushgatewayPusher(endpoint, cfg.AppName, map[string]string{
 			"environment": strings.TrimSpace(cfg.Environment),
@@ -79,16 +85,21 @@ type RemoteWritePusher struct {
 	endpoint   string
 	authToken  string
 	httpClient *http.Client
+	logger     *zap.Logger
 }
 
 // NewRemoteWritePusher returns a pusher for Prometheus remote_write.
-func NewRemoteWritePusher(endpoint, authToken string) *RemoteWritePusher {
+func NewRemoteWritePusher(endpoint, authToken string, logger *zap.Logger) *RemoteWritePusher {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &RemoteWritePusher{
 		endpoint:  endpoint,
 		authToken: strings.TrimSpace(authToken),
 		httpClient: obstracing.WrapHTTPClient(&http.Client{
 			Timeout: defaultPushTimeout,
 		}),
+		logger: logger,
 	}
 }
 
@@ -98,16 +109,19 @@ func (p *RemoteWritePusher) Push(ctx context.Context, registry *prometheus.Regis
 		return nil
 	}
 
+	p.logger.Info("attempting to push cloud metrics")
 	families, err := registry.Gather()
 	if err != nil {
 		return err
 	}
 	if len(families) == 0 {
+		p.logger.Info("no metrics found to push, skipping")
 		return nil
 	}
 
 	series := buildRemoteWriteSeries(families, time.Now().UnixMilli())
 	if len(series) == 0 {
+		p.logger.Info("no relevant metrics (counters/gauges) to push, skipping")
 		return nil
 	}
 
@@ -126,17 +140,26 @@ func (p *RemoteWritePusher) Push(ctx context.Context, registry *prometheus.Regis
 	httpReq.Header.Set("Content-Encoding", "snappy")
 	httpReq.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 	if p.authToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.authToken)
+		if strings.Contains(p.authToken, ":") {
+			parts := strings.SplitN(p.authToken, ":", 2)
+			httpReq.SetBasicAuth(parts[0], parts[1])
+		} else {
+			httpReq.Header.Set("Authorization", "Bearer "+p.authToken)
+		}
 	}
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
+		p.logger.Error("failed to push cloud metrics", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("remote write returned %s", resp.Status)
+		err := fmt.Errorf("remote write returned %s", resp.Status)
+		p.logger.Error("failed to push cloud metrics", zap.Error(err), zap.Int("status_code", resp.StatusCode))
+		return err
 	}
+	p.logger.Info("cloud metrics pushed successfully")
 	return nil
 }
 

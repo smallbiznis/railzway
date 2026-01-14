@@ -23,10 +23,6 @@ type PaymentDetail = {
   status: string
 }
 
-type InvoicePaymentsResponse = {
-  payments: PaymentDetail[]
-}
-
 export function InvoicePaymentsTable() {
   const { invoiceId } = useParams()
   const [payments, setPayments] = useState<PaymentDetail[]>([])
