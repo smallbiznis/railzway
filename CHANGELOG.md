@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Additional integration tests planned
 - OpenAPI/Swagger documentation planned
 
+## [1.0.1] - 2026-01-15
+
+### Fixed
+- **GitHub Actions**: Fixed "Unrecognized named-value: 'secrets'" error in Docker and GitHub release workflows by correctly passing secrets to reusable workflows.
+
 ## [1.0.0] - 2026-01-15
 
 ### Added
