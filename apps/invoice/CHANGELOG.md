@@ -1,5 +1,11 @@
 # @railzway/invoice
 
+## 1.1.4
+
+### Patch Changes
+
+- 091d42e: fix: resolve TypeScript errors and incorrect Adyen CSS path in frontend build
+
 ## 1.1.3
 
 ### Patch Changes
