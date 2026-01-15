@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import AdyenCheckout from '@adyen/adyen-web'
-import '@adyen/adyen-web/dist/adyen.css'
+import { AdyenCheckout as AdyenWeb } from '@adyen/adyen-web'
+import '@adyen/adyen-web/styles/adyen.css'
 
 type AdyenCheckoutProps = {
   sessionId: string
@@ -34,27 +34,27 @@ export function AdyenCheckout({
             id: sessionId,
             sessionData: sessionData,
           },
-          onPaymentCompleted: (result: any, component: any) => {
+          onPaymentCompleted: (result: any) => {
             if (['Authorised', 'Received', 'Pending'].includes(result.resultCode)) {
               onSuccess()
             } else {
               onFailure(new Error(result.resultCode || 'Payment failed'))
             }
           },
-          onError: (error: any, component: any) => {
+          onError: (error: any) => {
             console.error(error)
             onFailure(error)
           },
         }
 
-        const checkout = await AdyenCheckout(configuration)
+        const checkout = await AdyenWeb(configuration as any)
         checkoutRef.current = checkout
 
-        // Create 'dropin' component
-        const dropin = checkout.create('dropin', {
-          // Drop-in specific config if needed
-          showPayButton: true,
-        }).mount(containerRef.current)
+          // Create 'dropin' component
+          ; (checkout as any).create('dropin', {
+            // Drop-in specific config if needed
+            showPayButton: true,
+          }).mount(containerRef.current)
 
       } catch (error) {
         console.error('Adyen init error', error)

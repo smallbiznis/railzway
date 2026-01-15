@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import DropIn from 'braintree-web-drop-in-react'
 
 type BraintreeCheckoutProps = {
@@ -23,8 +23,7 @@ export function BraintreeCheckout({
       onSuccess(nonce)
     } catch (error) {
       console.error(error)
-      // If user just closed without paying, or validation error
-      // Don't necessarily trigger global failure unless it's a real error
+      onFailure(error)
     } finally {
       setIsProcessing(false)
     }
