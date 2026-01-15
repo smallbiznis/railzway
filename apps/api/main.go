@@ -1,3 +1,22 @@
+// @title           Railzway API
+// @version         1.0
+// @description     Railzway Billing & Operations API
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   API Support
+// @contact.email  support@railzway.com
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      localhost:8080
+// @BasePath  /api
+// @Schemes 	http https
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+
 package main
 
 import (

@@ -11,6 +11,15 @@ import (
 	"github.com/smallbiznis/railzway/pkg/db/pagination"
 )
 
+// @Summary      Create Subscription
+// @Description  Create a new subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        request body subscriptiondomain.CreateSubscriptionRequest true "Create Subscription Request"
+// @Success      200  {object}  subscriptiondomain.Subscription
+// @Router       /subscriptions [post]
 func (s *Server) CreateSubscription(c *gin.Context) {
 	var req subscriptiondomain.CreateSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,6 +55,16 @@ type replaceSubscriptionItemsRequest struct {
 	Items []subscriptiondomain.CreateSubscriptionItemRequest `json:"items"`
 }
 
+// @Summary      Replace Subscription Items
+// @Description  Replace items in a subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id       path      string                           true  "Subscription ID"
+// @Param        request  body      replaceSubscriptionItemsRequest  true  "Replace Subscription Items Request"
+// @Success      200  {object}  subscriptiondomain.Subscription
+// @Router       /subscriptions/{id}/items [put]
 func (s *Server) ReplaceSubscriptionItems(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if _, err := snowflake.ParseString(id); err != nil {
@@ -78,6 +97,20 @@ func (s *Server) ReplaceSubscriptionItems(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      List Subscriptions
+// @Description  List available subscriptions
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        status        query     string  false  "Status"
+// @Param        customer_id   query     string  false  "Customer ID"
+// @Param        created_from  query     string  false  "Created From"
+// @Param        created_to    query     string  false  "Created To"
+// @Param        page_token    query     string  false  "Page Token"
+// @Param        page_size     query     int     false  "Page Size"
+// @Success      200  {object}  []subscriptiondomain.Subscription
+// @Router       /subscriptions [get]
 func (s *Server) ListSubscriptions(c *gin.Context) {
 	var query struct {
 		pagination.Pagination
@@ -119,6 +152,15 @@ func (s *Server) ListSubscriptions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp.Subscriptions, "page_info": resp.PageInfo})
 }
 
+// @Summary      Get Subscription
+// @Description  Get subscription by ID
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Subscription ID"
+// @Success      200  {object}  subscriptiondomain.Subscription
+// @Router       /subscriptions/{id} [get]
 func (s *Server) GetSubscriptionByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if _, err := snowflake.ParseString(id); err != nil {
@@ -135,6 +177,15 @@ func (s *Server) GetSubscriptionByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": item})
 }
 
+// @Summary      Cancel Subscription
+// @Description  Cancel a subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Subscription ID"
+// @Success      204
+// @Router       /subscriptions/{id}/cancel [post]
 func (s *Server) CancelSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
@@ -143,6 +194,15 @@ func (s *Server) CancelSubscription(c *gin.Context) {
 	)
 }
 
+// @Summary      Activate Subscription
+// @Description  Activate a subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Subscription ID"
+// @Success      204
+// @Router       /subscriptions/{id}/activate [post]
 func (s *Server) ActivateSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
@@ -151,6 +211,15 @@ func (s *Server) ActivateSubscription(c *gin.Context) {
 	)
 }
 
+// @Summary      Pause Subscription
+// @Description  Pause a subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Subscription ID"
+// @Success      204
+// @Router       /subscriptions/{id}/pause [post]
 func (s *Server) PauseSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,
@@ -159,6 +228,15 @@ func (s *Server) PauseSubscription(c *gin.Context) {
 	)
 }
 
+// @Summary      Resume Subscription
+// @Description  Resume a subscription
+// @Tags         subscriptions
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Subscription ID"
+// @Success      204
+// @Router       /subscriptions/{id}/resume [post]
 func (s *Server) ResumeSubscription(c *gin.Context) {
 	s.transitionSubscription(
 		c,

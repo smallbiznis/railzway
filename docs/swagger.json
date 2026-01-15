@@ -1,0 +1,294 @@
+{
+    "schemes": [
+        "http",
+        "https"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Railzway Billing \u0026 Operations API",
+        "title": "Railzway API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "email": "support@railzway.com"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api",
+    "paths": {
+        "/meters": {
+            "get": {
+                "description": "List meters",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meters"
+                ],
+                "summary": "List Meters",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Code",
+                        "name": "code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Active",
+                        "name": "active",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort By",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Order By",
+                        "name": "order_by",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new meter",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meters"
+                ],
+                "summary": "Create Meter",
+                "parameters": [
+                    {
+                        "description": "Create Meter Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_server.createMeterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter"
+                        }
+                    }
+                }
+            }
+        },
+        "/meters/{id}": {
+            "get": {
+                "description": "Get meter by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meters"
+                ],
+                "summary": "Get Meter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete meter",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meters"
+                ],
+                "summary": "Delete Meter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "patch": {
+                "description": "Update meter",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meters"
+                ],
+                "summary": "Update Meter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Meter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update Meter Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_server.updateMeterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "github_com_smallbiznis_railzway_internal_meter_domain.Meter": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "aggregation": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_server.createMeterRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "aggregation_type": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_server.updateMeterRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "aggregation_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

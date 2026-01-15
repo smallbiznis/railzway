@@ -10,6 +10,27 @@ import (
 	invoicedomain "github.com/smallbiznis/railzway/internal/invoice/domain"
 )
 
+// @Summary      List Invoices
+// @Description  List available invoices
+// @Tags         invoices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        status           query     string  false  "Status"
+// @Param        invoice_number   query     string  false  "Invoice Number"
+// @Param        customer_id      query     string  false  "Customer ID"
+// @Param        created_from     query     string  false  "Created From"
+// @Param        created_to       query     string  false  "Created To"
+// @Param        due_from         query     string  false  "Due From"
+// @Param        due_to           query     string  false  "Due To"
+// @Param        finalized_from   query     string  false  "Finalized From"
+// @Param        finalized_to     query     string  false  "Finalized To"
+// @Param        total_min        query     int     false  "Total Min"
+// @Param        total_max        query     int     false  "Total Max"
+// @Param        page_token       query     string  false  "Page Token"
+// @Param        page_size        query     int     false  "Page Size"
+// @Success      200  {object}  []invoicedomain.Invoice
+// @Router       /invoices [get]
 func (s *Server) ListInvoices(c *gin.Context) {
 	var query struct {
 		Status        string `form:"status"`
@@ -118,6 +139,15 @@ func (s *Server) ListInvoices(c *gin.Context) {
 	})
 }
 
+// @Summary      Get Invoice
+// @Description  Get invoice by ID
+// @Tags         invoices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Invoice ID"
+// @Success      200  {object}  invoicedomain.Invoice
+// @Router       /invoices/{id} [get]
 func (s *Server) GetInvoiceByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if _, err := snowflake.ParseString(id); err != nil {
@@ -134,6 +164,15 @@ func (s *Server) GetInvoiceByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": item})
 }
 
+// @Summary      Render Invoice
+// @Description  Render invoice PDF/HTML
+// @Tags         invoices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Invoice ID"
+// @Success      200  {object}  invoicedomain.InvoiceRender
+// @Router       /invoices/{id}/render [get]
 func (s *Server) RenderInvoice(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if _, err := snowflake.ParseString(id); err != nil {

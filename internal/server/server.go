@@ -358,59 +358,58 @@ func (s *Server) RegisterAuthRoutes() {
 func (s *Server) RegisterAPIRoutes() {
 	api := s.engine.Group("/api")
 
-	api.GET("/countries", s.ListCountries)
-	api.GET("/timezones", s.ListTimezones)
-	api.GET("/currencies", s.ListCurrencies)
+	api.GET("/countries", s.APIKeyRequired(), s.ListCountries)
+	api.GET("/timezones", s.APIKeyRequired(), s.ListTimezones)
+	api.GET("/currencies", s.APIKeyRequired(), s.ListCurrencies)
 
 	// -------- Meters --------
-	api.GET("/meters", s.APIKeyRequired(), s.ListMeters)
-	api.GET("/meters/:id", s.APIKeyRequired(), s.GetMeterByID)
+	api.GET("/meters", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterView), s.ListMeters)
+	api.GET("/meters/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterView), s.GetMeterByID)
 
 	// -------- Product --------
-	api.GET("/products", s.APIKeyRequired(), s.ListProducts)
-	api.POST("/products", s.APIKeyRequired(), s.CreateProduct)
-	api.GET("/products/:id", s.APIKeyRequired(), s.GetProductByID)
+	api.GET("/products", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductView), s.ListProducts)
+	api.GET("/products/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductView), s.GetProductByID)
 
 	// -------- Pricing --------
-	api.GET("/pricings", s.APIKeyRequired(), s.ListPricings)
-	api.GET("/pricings/:id", s.APIKeyRequired(), s.GetPricingByID)
+	api.GET("/pricings", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.ListPricings)
+	api.GET("/pricings/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.GetPricingByID)
 
 	// -------- Prices --------
-	api.GET("/prices", s.APIKeyRequired(), s.ListPrices)
-	api.GET("/prices/:id", s.APIKeyRequired(), s.GetPriceByID)
+	api.GET("/prices", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.ListPrices)
+	api.GET("/prices/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.GetPriceByID)
 
 	// -------- Price Amounts --------
-	api.GET("/price_amounts", s.APIKeyRequired(), s.ListPriceAmounts)
-	api.GET("/price_amounts/:id", s.APIKeyRequired(), s.GetPriceAmountByID)
+	api.GET("/price_amounts", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceAmount, authorization.ActionPriceAmountView), s.ListPriceAmounts)
+	api.GET("/price_amounts/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceAmount, authorization.ActionPriceAmountView), s.GetPriceAmountByID)
 
 	// -------- Tiers ---------
-	api.GET("/price_tiers", s.APIKeyRequired(), s.ListPriceTiers)
-	api.GET("/price_tiers/:id", s.APIKeyRequired(), s.GetPriceTierByID)
+	api.GET("/price_tiers", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceTier, authorization.ActionPriceTierView), s.ListPriceTiers)
+	api.GET("/price_tiers/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceTier, authorization.ActionPriceTierView), s.GetPriceTierByID)
 
 	// -------- Subscriptions --------
 	// Shared handlers, different gates: API keys use scopes, admin uses RBAC.
-	api.GET("/subscriptions", s.APIKeyRequired(), s.ListSubscriptions)
-	api.POST("/subscriptions", s.APIKeyRequired(), s.CreateSubscription)
-	api.GET("/subscriptions/:id", s.APIKeyRequired(), s.GetSubscriptionByID)
-	api.PUT("/subscriptions/:id/items", s.APIKeyRequired(), s.ReplaceSubscriptionItems)
+	api.GET("/subscriptions", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionView), s.ListSubscriptions)
+	api.POST("/subscriptions", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionCreate), s.CreateSubscription)
+	api.GET("/subscriptions/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionView), s.GetSubscriptionByID)
+	api.PUT("/subscriptions/:id/items", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionUpdate), s.ReplaceSubscriptionItems)
 	api.POST("/subscriptions/:id/activate", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionActivate), s.ActivateSubscription)
 	api.POST("/subscriptions/:id/pause", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionPause), s.PauseSubscription)
 	api.POST("/subscriptions/:id/resume", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionResume), s.ResumeSubscription)
 	api.POST("/subscriptions/:id/cancel", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectSubscription, authorization.ActionSubscriptionCancel), s.CancelSubscription)
 
 	// -------- Invoices --------
-	api.GET("/invoices", s.APIKeyRequired(), s.ListInvoices)
-	api.GET("/invoices/:id", s.APIKeyRequired(), s.GetInvoiceByID)
+	api.GET("/invoices", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectInvoice, authorization.ActionInvoiceView), s.ListInvoices)
+	api.GET("/invoices/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectInvoice, authorization.ActionInvoiceView), s.GetInvoiceByID)
 
 	// -------- Customers --------
-	api.GET("/customers", s.APIKeyRequired(), s.ListCustomers)
-	api.POST("/customers", s.APIKeyRequired(), s.CreateCustomer)
+	api.GET("/customers", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectCustomer, authorization.ActionCustomerView), s.ListCustomers)
+	api.POST("/customers", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectCustomer, authorization.ActionCustomerCreate), s.CreateCustomer)
 	api.GET("/customers/:id", s.APIKeyRequired(), s.GetCustomerByID)
 
 	// -------- Payment Webhooks --------
 	api.POST("/payments/webhooks/:provider", s.HandlePaymentWebhook)
 
-	api.POST("/usage", s.APIKeyRequired(), s.UsageIngestRateLimit(), s.IngestUsage)
+	api.POST("/usage", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectUsage, authorization.ActionUsageIngest), s.UsageIngestRateLimit(), s.IngestUsage)
 
 	if s.cfg.Environment != "production" {
 		api.POST("/test/cleanup", s.TestCleanup)

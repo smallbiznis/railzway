@@ -1,0 +1,195 @@
+basePath: /api
+definitions:
+  github_com_smallbiznis_railzway_internal_meter_domain.Meter:
+    properties:
+      active:
+        type: boolean
+      aggregation:
+        type: string
+      code:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      organization_id:
+        type: integer
+      unit:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_server.createMeterRequest:
+    properties:
+      active:
+        type: boolean
+      aggregation_type:
+        type: string
+      code:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      unit:
+        type: string
+    type: object
+  internal_server.updateMeterRequest:
+    properties:
+      active:
+        type: boolean
+      aggregation_type:
+        type: string
+      name:
+        type: string
+      unit:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@railzway.com
+    name: API Support
+  description: Railzway Billing & Operations API
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Railzway API
+  version: "1.0"
+paths:
+  /meters:
+    get:
+      consumes:
+      - application/json
+      description: List meters
+      parameters:
+      - description: Name
+        in: query
+        name: name
+        type: string
+      - description: Code
+        in: query
+        name: code
+        type: string
+      - description: Active
+        in: query
+        name: active
+        type: boolean
+      - description: Sort By
+        in: query
+        name: sort_by
+        type: string
+      - description: Order By
+        in: query
+        name: order_by
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter'
+            type: array
+      summary: List Meters
+      tags:
+      - meters
+    post:
+      consumes:
+      - application/json
+      description: Create a new meter
+      parameters:
+      - description: Create Meter Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_server.createMeterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter'
+      summary: Create Meter
+      tags:
+      - meters
+  /meters/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete meter
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+      summary: Delete Meter
+      tags:
+      - meters
+    get:
+      consumes:
+      - application/json
+      description: Get meter by ID
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter'
+      summary: Get Meter
+      tags:
+      - meters
+    patch:
+      consumes:
+      - application/json
+      description: Update meter
+      parameters:
+      - description: Meter ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update Meter Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_server.updateMeterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_smallbiznis_railzway_internal_meter_domain.Meter'
+      summary: Update Meter
+      tags:
+      - meters
+schemes:
+- http
+- https
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

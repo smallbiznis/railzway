@@ -1,0 +1,43 @@
+name: Generate Swagger Docs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  swagger:
+    name: Build Swagger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install Swag CLI
+        run: go install github.com/swaggo/swag/cmd/swag@latest
+
+      - name: Generate Swagger Docs
+        run: swag init -g apps/api/main.go --output docs --parseDependency --parseInternal
+
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs(swagger): update api documentation"
+          file_pattern: docs/*
