@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     is_default BOOLEAN DEFAULT FALSE,
     country_code TEXT,
     timezone_name TEXT,
+    support_email TEXT,
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -20,6 +20,12 @@ import (
 var modelText string
 
 const (
+	ObjectProduct           = "product"
+	ObjectPrice             = "price"
+	ObjectPriceAmount       = "price_amount"
+	ObjectPriceTier         = "price_tier"
+	ObjectMeter             = "meter"
+	ObjectCustomer          = "customer"
 	ObjectSubscription      = "subscription"
 	ObjectBillingCycle      = "billing_cycle"
 	ObjectInvoice           = "invoice"
@@ -29,6 +35,7 @@ const (
 	ObjectAPIKey            = "api_key"
 	ObjectAuditLog          = "audit_log"
 	ObjectPaymentProvider   = "payment_provider"
+	ObjectUsage             = "usage"
 )
 
 const (
@@ -60,6 +67,53 @@ const (
 	ActionAuditLogView = "audit_log.view"
 
 	ActionPaymentProviderManage = "payment_provider.manage"
+
+	ActionProductView   = "product.view"
+	ActionProductCreate = "product.create"
+	ActionProductUpdate = "product.update"
+	ActionProductDelete = "product.delete"
+
+	ActionPriceView   = "price.view"
+	ActionPriceCreate = "price.create"
+	ActionPriceUpdate = "price.update"
+	ActionPriceDelete = "price.delete"
+
+	ActionPriceAmountView   = "price_amount.view"
+	ActionPriceAmountCreate = "price_amount.create"
+	ActionPriceAmountUpdate = "price_amount.update"
+	ActionPriceAmountDelete = "price_amount.delete"
+
+	ActionPriceTierView   = "price_tier.view"
+	ActionPriceTierCreate = "price_tier.create"
+	ActionPriceTierUpdate = "price_tier.update"
+	ActionPriceTierDelete = "price_tier.delete"
+
+	ActionMeterView   = "meter.view"
+	ActionMeterCreate = "meter.create"
+	ActionMeterUpdate = "meter.update"
+	ActionMeterDelete = "meter.delete"
+
+	ActionCustomerView   = "customer.view"
+	ActionCustomerCreate = "customer.create"
+	ActionCustomerUpdate = "customer.update"
+	ActionCustomerDelete = "customer.delete"
+
+	ActionSubscriptionView   = "subscription.view"
+	ActionSubscriptionCreate = "subscription.create"
+	ActionSubscriptionUpdate = "subscription.update"
+	ActionSubscriptionDelete = "subscription.delete"
+
+	ActionBillingCycleView   = "billing_cycle.view"
+	ActionBillingCycleCreate = "billing_cycle.create"
+	ActionBillingCycleUpdate = "billing_cycle.update"
+	ActionBillingCycleDelete = "billing_cycle.delete"
+
+	ActionInvoiceView   = "invoice.view"
+	ActionInvoiceCreate = "invoice.create"
+	ActionInvoiceUpdate = "invoice.update"
+	ActionInvoiceDelete = "invoice.delete"
+
+	ActionUsageIngest = "usage.ingest"
 )
 
 type Params struct {
@@ -325,7 +379,7 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:owner", ObjectAPIKey, ActionAPIKeyRevoke},
 		{"role:owner", ObjectAuditLog, ActionAuditLogView},
 		{"role:owner", ObjectPaymentProvider, ActionPaymentProviderManage},
-		
+
 		{"role:finops", ObjectBillingOperations, ActionBillingOperationsView},
 		{"role:finops", ObjectBillingOperations, ActionBillingOperationsAct},
 		{"role:finops", ObjectBillingDashboard, ActionBillingDashboardView},
