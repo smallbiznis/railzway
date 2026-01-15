@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
+import {
+  Activity,
+  Calendar,
+  CheckCircle,
+  Clock,
+  CreditCard,
+  Pause,
+  Play,
+  User,
+  XCircle,
+} from "lucide-react"
 
 import { admin } from "@/api/client"
 import { ForbiddenState } from "@/components/forbidden-state"
@@ -24,7 +35,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Separator } from "@/components/ui/separator"
 import { getErrorMessage, isForbiddenError } from "@/lib/api-errors"
+import { cn } from "@/lib/utils"
 
 type Subscription = {
   id?: string | number
@@ -119,17 +132,124 @@ const formatStatus = (value?: string) => {
 const statusVariant = (value?: string) => {
   switch (value?.toUpperCase()) {
     case "ACTIVE":
-      return "secondary"
+      return "secondary" // Green-ish usually in shadcn themes if configured, or secondary default
     case "PAUSED":
       return "outline"
     case "CANCELED":
     case "ENDED":
-      return "outline"
+      return "destructive"
     case "DRAFT":
-      return "outline"
+      return "secondary"
     default:
       return "outline"
   }
+}
+
+// Helper Components
+function StatusStepper({ currentStatus }: { currentStatus: string }) {
+  const currentUpper = currentStatus.toUpperCase()
+  const currentIndex = statusOrder.indexOf(currentUpper)
+
+  return (
+    <div className="flex w-full overflow-x-auto pb-2">
+      <div className="flex min-w-max items-center">
+        {statusOrder.map((status, index) => {
+          const isCompleted = index < currentIndex
+          const isCurrent = index === currentIndex
+          // const isUpcoming = index > currentIndex
+
+          return (
+            <div key={status} className="flex items-center">
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors",
+                    isCompleted
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : isCurrent
+                        ? "border-primary text-primary"
+                        : "border-muted text-muted-foreground"
+                  )}
+                >
+                  {isCompleted ? <CheckCircle className="h-4 w-4" /> : index + 1}
+                </div>
+                <span
+                  className={cn(
+                    "text-xs font-medium uppercase",
+                    isCurrent ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  {formatStatus(status)}
+                </span>
+              </div>
+              {index < statusOrder.length - 1 && (
+                <div
+                  className={cn(
+                    "mx-4 h-[2px] w-12 sm:w-20",
+                    index < currentIndex ? "bg-primary" : "bg-muted"
+                  )}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DetailItem({
+  icon: Icon,
+  label,
+  value,
+  children,
+}: {
+  icon: React.ElementType
+  label: string
+  value?: string | React.ReactNode
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-md border p-3 shadow-sm">
+      <div className="rounded-md bg-muted p-2">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        {children ? (
+          children
+        ) : (
+          <span className="text-sm font-semibold text-foreground">{value || "-"}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function VerticalTimeline({ items }: { items: { label: string; value: string }[] }) {
+  if (items.length === 0) {
+    return <div className="text-sm text-text-muted">No lifecycle events yet.</div>
+  }
+
+  // Sort items by date descending (newest first)
+  // Assuming the `value` is a date string that can be parsed
+  const sortedItems = [...items].sort((a, b) => {
+    return new Date(b.value).getTime() - new Date(a.value).getTime()
+  })
+
+  return (
+    <div className="relative space-y-0 pl-4 before:absolute before:left-[5px] before:top-2 before:h-[calc(100%-16px)] before:w-[2px] before:bg-muted">
+      {sortedItems.map((item) => (
+        <div key={item.label} className="relative pb-6 last:pb-0">
+          <div className="absolute left-[-15px] top-1 h-3 w-3 rounded-full border-2 border-background bg-primary ring-2 ring-background" />
+          <div className="flex flex-col gap-1 pl-2">
+            <span className="text-xs font-medium text-muted-foreground">{item.label}</span>
+            <span className="text-sm font-semibold">{formatDateTime(item.value)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function OrgSubscriptionDetailPage() {
@@ -259,7 +379,7 @@ export default function OrgSubscriptionDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-6xl space-y-8">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -274,116 +394,124 @@ export default function OrgSubscriptionDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold">Subscription {subscriptionId}</h1>
-            <Badge variant={statusVariant(subscriptionStatus)}>
-              {formatStatus(subscriptionStatus)}
-            </Badge>
+      <div className="space-y-6">
+        {/* Header Section */}
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="space-y-1">
+            <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
+              Subscription
+              <Badge variant={statusVariant(subscriptionStatus)} className="ml-2 text-sm">
+                {formatStatus(subscriptionStatus)}
+              </Badge>
+            </h1>
+            <p className="text-muted-foreground">
+              Manage subscription details and lifecycle for {customerName}.
+            </p>
           </div>
-          <p className="text-text-muted text-sm">
-            Customer{" "}
-            {customerId ? (
-              <Link className="text-accent-primary hover:underline" to={`/orgs/${orgId}/customers/${customerId}`}>
-                {customerName}
-              </Link>
-            ) : (
-              customerName
+          <div className="flex gap-2">
+            {availableActions.includes("activate") && (
+              <Button onClick={() => setAction("activate")} className="gap-2">
+                <Play className="h-4 w-4" /> Activate
+              </Button>
             )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {availableActions.includes("activate") && (
-            <Button onClick={() => setAction("activate")}>Activate</Button>
-          )}
-          {availableActions.includes("pause") && (
-            <Button variant="outline" onClick={() => setAction("pause")}>
-              Pause
-            </Button>
-          )}
-          {availableActions.includes("resume") && (
-            <Button onClick={() => setAction("resume")}>Resume</Button>
-          )}
-          {availableActions.includes("cancel") && (
-            <Button variant="outline" onClick={() => setAction("cancel")}>
-              Cancel
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>State machine</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            {statusOrder.map((status) => (
-              <div key={status} className="flex items-center gap-2">
-                <Badge
-                  variant={status === subscriptionStatus.toUpperCase() ? "secondary" : "outline"}
-                >
-                  {formatStatus(status)}
-                </Badge>
-                {status !== statusOrder[statusOrder.length - 1] && (
-                  <span className="text-text-muted">→</span>
-                )}
-              </div>
-            ))}
+            {availableActions.includes("pause") && (
+              <Button variant="outline" onClick={() => setAction("pause")} className="gap-2">
+                <Pause className="h-4 w-4" /> Pause
+              </Button>
+            )}
+            {availableActions.includes("resume") && (
+              <Button onClick={() => setAction("resume")} className="gap-2">
+                <Play className="h-4 w-4" /> Resume
+              </Button>
+            )}
+            {availableActions.includes("cancel") && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setAction("cancel")}
+                className="gap-2"
+              >
+                <XCircle className="h-4 w-4" /> Cancel
+              </Button>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <Card>
+        <Separator />
+
+        {/* Status Stepper */}
+        <Card className="bg-muted/30">
           <CardHeader>
-            <CardTitle>Subscription details</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base font-medium text-muted-foreground">
+              <Activity className="h-4 w-4" /> Subscription Lifecycle
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <div className="text-text-muted">Customer</div>
-              <div className="font-medium">{customerName}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Collection mode</div>
-              <div className="font-medium">{collectionMode}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Billing cycle</div>
-              <div className="font-medium">{billingCycleType}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Start date</div>
-              <div className="font-medium">{formatDateTime(startAt)}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Created</div>
-              <div className="font-medium">{formatDateTime(createdAt)}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Last updated</div>
-              <div className="font-medium">{formatDateTime(updatedAt)}</div>
-            </div>
+          <CardContent>
+            <StatusStepper currentStatus={subscriptionStatus} />
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Lifecycle timeline</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {timeline.length === 0 && (
-              <div className="text-text-muted">No lifecycle events yet.</div>
-            )}
-            {timeline.map((event) => (
-              <div key={event.label} className="flex items-center justify-between">
-                <span className="text-text-muted">{event.label}</span>
-                <span className="font-medium">{formatDateTime(event.value)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Main Details - Spans 2 columns */}
+          <div className="space-y-6 lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Subscription Details</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <DetailItem icon={User} label="Customer">
+                  {customerId ? (
+                    <Link
+                      className="text-sm font-semibold text-primary hover:underline"
+                      to={`/orgs/${orgId}/customers/${customerId}`}
+                    >
+                      {customerName}
+                    </Link>
+                  ) : (
+                    <span className="text-sm font-semibold">{customerName}</span>
+                  )}
+                </DetailItem>
+                <DetailItem
+                  icon={CreditCard}
+                  label="Collection Mode"
+                  value={collectionMode}
+                />
+                <DetailItem
+                  icon={Clock}
+                  label="Billing Cycle"
+                  value={billingCycleType}
+                />
+                <DetailItem
+                  icon={Calendar}
+                  label="Start Date"
+                  value={formatDateTime(startAt)}
+                />
+                <DetailItem
+                  icon={Calendar}
+                  label="Created At"
+                  value={formatDateTime(createdAt)}
+                />
+                <DetailItem
+                  icon={Calendar}
+                  label="Last Updated"
+                  value={formatDateTime(updatedAt)}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sidebar / Timeline - Spans 1 column */}
+          <div className="space-y-6">
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle>Lifecycle Timeline</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <VerticalTimeline items={timeline} />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
 
       <AlertDialog

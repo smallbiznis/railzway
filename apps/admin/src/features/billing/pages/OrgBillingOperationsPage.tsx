@@ -27,7 +27,7 @@ export default function OrgBillingOperationsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-8">
+    <div className="mx-auto w-full max-w-6xl space-y-8 py-8">
       {/* Page Header */}
       <header className="flex items-center justify-between">
         <div className="space-y-1">
