@@ -41,6 +41,8 @@ Railzway is a **billing computation engine**, not an all-in-one billing platform
 
 - **Subscription Management**Trialing, active, past_due, and canceled states with explicit lifecycle transitions
 - **Usage Metering**Idempotent ingestion, deterministic aggregation, late and out-of-order handling
+- **Smart Rate Limiting**
+  Quota visibility, transparent limits, and informative error responses
 - **Pricing Models**Flat-rate, tiered usage, and hybrid (base + usage) pricing with time-bound windows
 - **Invoicing**Deterministic line-item generation, proration, and invoice state management
 - **Multi-Tenancy**Organization-scoped isolation and authorization

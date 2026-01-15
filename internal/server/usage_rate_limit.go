@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smallbiznis/railzway/internal/observability/logger"
 	obsmetrics "github.com/smallbiznis/railzway/internal/observability/metrics"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
+	"github.com/smallbiznis/railzway/internal/ratelimit"
 	"go.uber.org/zap"
 )
 
@@ -41,25 +43,25 @@ func (s *Server) UsageIngestRateLimit() gin.HandlerFunc {
 		endpoint := normalizeRateLimitEndpoint(c)
 		ctx := c.Request.Context()
 
-		allowed, err := s.usageLimiter.AllowOrg(ctx, orgID.String())
+		allowedRes, err := s.usageLimiter.AllowOrg(ctx, orgID.String())
 		if err != nil {
 			logger.FromContext(ctx).Warn("usage ingest org rate limit check failed", zap.Error(err))
 			AbortWithError(c, ErrServiceUnavailable)
 			return
 		}
-		if !allowed {
-			denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonOrgRate, s.obsMetrics)
+		if !allowedRes.Allowed {
+			denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonOrgRate, s.obsMetrics, allowedRes)
 			return
 		}
 
-		allowed, err = s.usageLimiter.AllowEndpoint(ctx, orgID.String())
+		allowedRes, err = s.usageLimiter.AllowEndpoint(ctx, orgID.String())
 		if err != nil {
 			logger.FromContext(ctx).Warn("usage ingest endpoint rate limit check failed", zap.Error(err))
 			AbortWithError(c, ErrServiceUnavailable)
 			return
 		}
-		if !allowed {
-			denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonEndpointRate, s.obsMetrics)
+		if !allowedRes.Allowed {
+			denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonEndpointRate, s.obsMetrics, allowedRes)
 			return
 		}
 
@@ -70,16 +72,16 @@ func (s *Server) UsageIngestRateLimit() gin.HandlerFunc {
 			return
 		}
 
-		var lockToken string
 		if customerID != "" && meterCode != "" {
-			lockToken, allowed, err = s.usageLimiter.TryLockCustomerMeter(ctx, orgID.String(), customerID, meterCode)
+			lockToken, allowed, err := s.usageLimiter.TryLockCustomerMeter(ctx, orgID.String(), customerID, meterCode)
 			if err != nil {
 				logger.FromContext(ctx).Warn("usage ingest concurrency lock failed", zap.Error(err))
 				AbortWithError(c, ErrServiceUnavailable)
 				return
 			}
 			if !allowed {
-				denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonCustomerMeterConcurrency, s.obsMetrics)
+				// Concurrency limit doesn't return detailed stats yet, so we use nil or a dummy result
+				denyUsageIngestRateLimit(c, endpoint, orgID.String(), rateLimitReasonCustomerMeterConcurrency, s.obsMetrics, nil)
 				return
 			}
 			defer func() {
@@ -94,7 +96,17 @@ func (s *Server) UsageIngestRateLimit() gin.HandlerFunc {
 	}
 }
 
-func denyUsageIngestRateLimit(c *gin.Context, endpoint, orgID, reason string, metrics *obsmetrics.Metrics) {
+type usageLimitErrorResponse struct {
+	Error           string `json:"error"`
+	Resource        string `json:"resource"`
+	Current         int    `json:"current"`
+	Limit           int    `json:"limit"`
+	Period          string `json:"period"`
+	NextReset       string `json:"next_reset"`
+	UpgradeRequired bool   `json:"upgrade_required"`
+}
+
+func denyUsageIngestRateLimit(c *gin.Context, endpoint, orgID, reason string, metrics *obsmetrics.Metrics, result *ratelimit.RateLimitResult) {
 	ctx := c.Request.Context()
 	log := logger.FromContext(ctx)
 	log.Warn("usage ingest rate limit exceeded",
@@ -105,6 +117,21 @@ func denyUsageIngestRateLimit(c *gin.Context, endpoint, orgID, reason string, me
 
 	c.Header("Retry-After", "1")
 	c.Header("X-Rate-Limited-Reason", reason)
+
+	if result != nil {
+		c.JSON(http.StatusTooManyRequests, usageLimitErrorResponse{
+			Error:           "usage_limit_reached",
+			Resource:        "usage_ingest",
+			Current:         result.Limit - result.Remaining,
+			Limit:           result.Limit,
+			Period:          "monthly", // Hardcoded for matching behavior as per requirement
+			NextReset:       result.ResetTime.Format("2006-01-01"),
+			UpgradeRequired: true,
+		})
+		c.Abort()
+		return
+	}
+
 	AbortWithError(c, ErrRateLimited)
 }
 

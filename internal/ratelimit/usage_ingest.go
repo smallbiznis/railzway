@@ -69,16 +69,16 @@ func (l *UsageIngestLimiter) Enabled() bool {
 	return l != nil && l.enabled
 }
 
-func (l *UsageIngestLimiter) AllowOrg(ctx context.Context, orgID string) (bool, error) {
+func (l *UsageIngestLimiter) AllowOrg(ctx context.Context, orgID string) (*RateLimitResult, error) {
 	if !l.Enabled() {
-		return true, nil
+		return &RateLimitResult{Allowed: true}, nil
 	}
 	return l.bucket.Allow(ctx, fmt.Sprintf(keyUsageIngestOrg, strings.TrimSpace(orgID)), l.orgRate, l.orgBurst)
 }
 
-func (l *UsageIngestLimiter) AllowEndpoint(ctx context.Context, orgID string) (bool, error) {
+func (l *UsageIngestLimiter) AllowEndpoint(ctx context.Context, orgID string) (*RateLimitResult, error) {
 	if !l.Enabled() {
-		return true, nil
+		return &RateLimitResult{Allowed: true}, nil
 	}
 	return l.bucket.Allow(ctx, fmt.Sprintf(keyUsageIngestEndpoint, strings.TrimSpace(orgID)), l.endpointRate, l.endpointBurst)
 }
