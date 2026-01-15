@@ -64,16 +64,16 @@ export default function OrgInvoicesPage() {
   const totalMax = searchParams.get("total_max") ?? ""
   const hasFilters = Boolean(
     statusFilter !== "ALL" ||
-      invoiceNumberFilter ||
-      customerIdFilter ||
-      createdFrom ||
-      createdTo ||
-      dueFrom ||
-      dueTo ||
-      finalizedFrom ||
-      finalizedTo ||
-      totalMin ||
-      totalMax
+    invoiceNumberFilter ||
+    customerIdFilter ||
+    createdFrom ||
+    createdTo ||
+    dueFrom ||
+    dueTo ||
+    finalizedFrom ||
+    finalizedTo ||
+    totalMin ||
+    totalMax
   )
   const hasAdvancedDateFilters = Boolean(dueFrom || dueTo || finalizedFrom || finalizedTo)
 
@@ -92,7 +92,6 @@ export default function OrgInvoicesPage() {
           finalized_to: finalizedTo || undefined,
           total_min: totalMin || undefined,
           total_max: totalMax || undefined,
-          cursor: cursor || undefined,
           page_token: cursor || undefined,
           page_size: PAGE_SIZE,
         },
@@ -511,90 +510,90 @@ export default function OrgInvoicesPage() {
           <div className="rounded-lg border">
             <Table className="min-w-[920px]">
               <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-bg-surface">
-              <TableRow>
-                <TableHead>Total</TableHead>
-                <TableHead>Invoice number</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Due</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
+                <TableRow>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Invoice number</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Due</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
               </TableHeader>
               <TableBody>
-              {invoices.map((invoice) => {
-                const invoiceId = readField(invoice, ["id", "ID"]) ?? "-"
-                const invoiceNumber = getInvoiceNumber(invoice)
-                const status = deriveStatus(invoice)
-                const statusLabel = formatStatus(status)
-                const customerId =
-                  readField(invoice, ["customer_id", "CustomerID"]) ?? ""
-                const customer = customersById.get(customerId)
-                const customerName =
-                  readField(customer, ["name", "Name"]) ??
-                  (customerId ? `Customer ${customerId}` : "-")
-                const customerEmail =
-                  readField(customer, ["email", "Email"]) ?? "-"
-                const amount = readNumber(invoice, [
-                  "subtotal_amount",
-                  "SubtotalAmount",
-                  "total_amount",
-                  "TotalAmount",
-                ])
-                const currency = readField(invoice, ["currency", "Currency"]) ?? "USD"
-                const dueDate = readField(invoice, ["due_at", "DueAt"])
-                const createdAt = readField(invoice, ["created_at", "CreatedAt"])
+                {invoices.map((invoice) => {
+                  const invoiceId = readField(invoice, ["id", "ID"]) ?? "-"
+                  const invoiceNumber = getInvoiceNumber(invoice)
+                  const status = deriveStatus(invoice)
+                  const statusLabel = formatStatus(status)
+                  const customerId =
+                    readField(invoice, ["customer_id", "CustomerID"]) ?? ""
+                  const customer = customersById.get(customerId)
+                  const customerName =
+                    readField(customer, ["name", "Name"]) ??
+                    (customerId ? `Customer ${customerId}` : "-")
+                  const customerEmail =
+                    readField(customer, ["email", "Email"]) ?? "-"
+                  const amount = readNumber(invoice, [
+                    "subtotal_amount",
+                    "SubtotalAmount",
+                    "total_amount",
+                    "TotalAmount",
+                  ])
+                  const currency = readField(invoice, ["currency", "Currency"]) ?? "USD"
+                  const dueDate = readField(invoice, ["due_at", "DueAt"])
+                  const createdAt = readField(invoice, ["created_at", "CreatedAt"])
 
-                return (
-                  <TableRow key={invoiceId}>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <div className="font-medium">
-                          {formatCurrency(amount, currency)}
+                  return (
+                    <TableRow key={invoiceId}>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <div className="font-medium">
+                            {formatCurrency(amount, currency)}
+                          </div>
+                          <Badge variant={statusVariant(status)}>{statusLabel}</Badge>
                         </div>
-                        <Badge variant={statusVariant(status)}>{statusLabel}</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {orgId ? (
+                          <Link
+                            to={`/orgs/${orgId}/invoices/${invoiceId}`}
+                            className="hover:text-accent-primary"
+                          >
+                            {invoiceNumber}
+                          </Link>
+                        ) : (
+                          invoiceNumber
+                        )}
+                      </TableCell>
+                      <TableCell>{customerName}</TableCell>
+                      <TableCell className="text-text-muted">
+                        {customerEmail}
+                      </TableCell>
+                      <TableCell>{formatDateTime(dueDate)}</TableCell>
+                      <TableCell>{formatDateTime(createdAt)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Open invoice actions"
+                        >
+                          ...
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+                {isLoadingMore && (
+                  <TableRow>
+                    <TableCell colSpan={7}>
+                      <div className="text-text-muted flex items-center gap-2 text-sm">
+                        <Spinner className="size-4" />
+                        Loading invoices...
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">
-                      {orgId ? (
-                        <Link
-                          to={`/orgs/${orgId}/invoices/${invoiceId}`}
-                          className="hover:text-accent-primary"
-                        >
-                          {invoiceNumber}
-                        </Link>
-                      ) : (
-                        invoiceNumber
-                      )}
-                    </TableCell>
-                    <TableCell>{customerName}</TableCell>
-                    <TableCell className="text-text-muted">
-                      {customerEmail}
-                    </TableCell>
-                    <TableCell>{formatDateTime(dueDate)}</TableCell>
-                    <TableCell>{formatDateTime(createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Open invoice actions"
-                      >
-                        ...
-                      </Button>
-                    </TableCell>
                   </TableRow>
-                )
-              })}
-              {isLoadingMore && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <div className="text-text-muted flex items-center gap-2 text-sm">
-                      <Spinner className="size-4" />
-                      Loading invoices...
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
+                )}
               </TableBody>
             </Table>
           </div>
