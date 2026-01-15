@@ -1,5 +1,11 @@
 # @railzway/invoice
 
+## 1.1.2
+
+### Patch Changes
+
+- dc4c195: fix: update stale sub-lockfile and remove redundant platform in Dockerfile
+
 ## 1.1.1
 
 ### Patch Changes
