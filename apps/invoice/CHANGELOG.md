@@ -1,5 +1,11 @@
 # @railzway/invoice
 
+## 1.1.3
+
+### Patch Changes
+
+- e9a13e9: fix: synchronize apps/invoice/pnpm-lock.yaml with package.json to resolve Docker build error
+
 ## 1.1.2
 
 ### Patch Changes
