@@ -1,4 +1,4 @@
-package service
+package repository
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +25,7 @@ func (r *FinOpsSnapshotRepository) FindByUser(ctx context.Context, orgID snowfla
 		return nil, domain.ErrInvalidOrganization
 	}
 
-	var rows []finopsSnapshotRow
+	var rows []domain.FinOpsSnapshotRow
 	if err := r.db.WithContext(ctx).Table("finops_performance_snapshots").
 		Where("org_id = ? AND user_id = ? AND period_type = ? AND period_start >= ? AND period_start < ?",
 			orgID, userID, periodType, start, end).
@@ -45,7 +44,7 @@ func (r *FinOpsSnapshotRepository) FindByUserWithLimit(ctx context.Context, orgI
 		return nil, domain.ErrInvalidOrganization
 	}
 
-	var rows []finopsSnapshotRow
+	var rows []domain.FinOpsSnapshotRow
 	query := r.db.WithContext(ctx).Table("finops_performance_snapshots").
 		Where("org_id = ? AND user_id = ? AND period_type = ? AND period_start >= ? AND period_start < ?",
 			orgID, userID, periodType, start, end).
@@ -69,7 +68,7 @@ func (r *FinOpsSnapshotRepository) FindByOrg(ctx context.Context, orgID snowflak
 		return nil, domain.ErrInvalidOrganization
 	}
 
-	var rows []finopsSnapshotRow
+	var rows []domain.FinOpsSnapshotRow
 	if err := r.db.WithContext(ctx).Table("finops_performance_snapshots").
 		Where("org_id = ? AND period_type = ? AND period_start >= ? AND period_start < ?",
 			orgID, periodType, start, end).
@@ -81,19 +80,7 @@ func (r *FinOpsSnapshotRepository) FindByOrg(ctx context.Context, orgID snowflak
 	return mapRowsToSnapshots(rows), nil
 }
 
-// Internal row structure to match DB schema (handling generic JSONB)
-type finopsSnapshotRow struct {
-	OrgID          snowflake.ID   `gorm:"column:org_id"`
-	UserID         string         `gorm:"column:user_id"`
-	PeriodType     string         `gorm:"column:period_type"`
-	PeriodStart    time.Time      `gorm:"column:period_start"`
-	PeriodEnd      time.Time      `gorm:"column:period_end"`
-	ScoringVersion string         `gorm:"column:scoring_version"`
-	Metrics        datatypes.JSON `gorm:"column:metrics"`
-	Scores         datatypes.JSON `gorm:"column:scores"`
-}
-
-func mapRowsToSnapshots(rows []finopsSnapshotRow) []domain.FinOpsScoreSnapshot {
+func mapRowsToSnapshots(rows []domain.FinOpsSnapshotRow) []domain.FinOpsScoreSnapshot {
 	snapshots := make([]domain.FinOpsScoreSnapshot, len(rows))
 	for i, r := range rows {
 		// We rely on domain JSON Unmarshal or manual if needed.

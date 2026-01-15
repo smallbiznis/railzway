@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/glebarez/sqlite"
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
+	"github.com/smallbiznis/railzway/internal/billingoperations/repository"
 	"github.com/smallbiznis/railzway/internal/clock"
 	"github.com/smallbiznis/railzway/internal/config"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
@@ -46,11 +47,13 @@ func TestCalculatePerformance(t *testing.T) {
 	)`)
 
 	node, _ := snowflake.NewNode(1)
+	repo := repository.NewRepository(db)
 	svc := &Service{
 		db:    db,
 		log:   zap.NewNop(),
 		clock: clock.SystemClock{},
 		genID: node,
+		repo:  repo,
 	}
 
 	orgID := node.Generate()
@@ -173,12 +176,14 @@ func TestAggregateDailyPerformance_Immutability(t *testing.T) {
 	)`)
 
 	node, _ := snowflake.NewNode(1)
+	repo := repository.NewRepository(db)
 	svc := &Service{
 		db:         db,
 		log:        zap.NewNop(),
 		clock:      clock.SystemClock{},
 		genID:      node,
 		billingCfg: &config.BillingConfigHolder{},
+		repo:       repo,
 	}
 
 	// Mock clock/time - Aggregate uses "Yesterday" relative to Now

@@ -219,34 +219,6 @@ const (
 	CriticalCategoryFailedPayment  = "failed_payment"
 )
 
-type PerformanceMetrics struct {
-	AvgResponseMS   int64   `json:"avg_response_ms"`
-	CompletionRatio float64 `json:"completion_ratio"`
-	EscalationRate  float64 `json:"escalation_rate"`
-	ExposureHandled int64   `json:"exposure_handled"`
-	TotalAssigned   int     `json:"total_assigned"`
-	TotalResolved   int     `json:"total_resolved"`
-	TotalEscalated  int     `json:"total_escalated"`
-}
-
-type PerformanceScores struct {
-	Responsiveness int `json:"responsiveness"`
-	Completion     int `json:"completion"`
-	Effectiveness  int `json:"effectiveness"` // Exposure Handled score
-	Risk           int `json:"risk"`          // Low Escalation score
-	Total          int `json:"total"`
-}
-
-type FinOpsScoreSnapshot struct {
-	OrgID          string             `json:"org_id"`
-	UserID         string             `json:"user_id"`
-	PeriodType     string             `json:"period_type"`
-	PeriodStart    time.Time          `json:"period_start"`
-	PeriodEnd      time.Time          `json:"period_end"`
-	ScoringVersion string             `json:"scoring_version"`
-	Metrics        PerformanceMetrics `json:"metrics"`
-	Scores         PerformanceScores  `json:"scores"`
-}
 
 type Service interface {
 	ListOverdueInvoices(ctx context.Context, limit int) (OverdueInvoicesResponse, error)

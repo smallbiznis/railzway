@@ -17,12 +17,11 @@ import (
 	auditdomain "github.com/smallbiznis/railzway/internal/audit/domain"
 	auditcontext "github.com/smallbiznis/railzway/internal/auditcontext"
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
+	"github.com/smallbiznis/railzway/internal/billingoperations/repository" // Import repository
 	"github.com/smallbiznis/railzway/internal/clock"
 	"github.com/smallbiznis/railzway/internal/config"
 
-	ledgerdomain "github.com/smallbiznis/railzway/internal/ledger/domain"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
-	paymentdomain "github.com/smallbiznis/railzway/internal/payment/domain"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
@@ -43,6 +42,7 @@ type Params struct {
 }
 
 type Service struct {
+	repo     domain.Repository // Inject Repository
 	db       *gorm.DB
 	log      *zap.Logger
 	clock    clock.Clock
@@ -51,10 +51,11 @@ type Service struct {
 	encKey   []byte
 
 	billingCfg   *config.BillingConfigHolder
-	snapshotRepo *FinOpsSnapshotRepository
 }
 
 func NewService(p Params) domain.Service {
+	repo := repository.NewRepository(p.DB)
+
 	secret := strings.TrimSpace(p.Cfg.PaymentProviderConfigSecret)
 	var key []byte
 	if secret != "" {
@@ -63,15 +64,14 @@ func NewService(p Params) domain.Service {
 	}
 
 	return &Service{
-		db:       p.DB,
-		log:      p.Log.Named("billingoperations.service"),
-		clock:    p.Clock,
-		genID:    p.GenID,
-		auditSvc: p.AuditSvc,
-		encKey:   key,
-
+		repo:         repo,
+		db:           p.DB,
+		log:          p.Log.Named("billingoperations.service"),
+		clock:        p.Clock,
+		genID:        p.GenID,
+		auditSvc:     p.AuditSvc,
+		encKey:       key,
 		billingCfg:   p.BillingConfig,
-		snapshotRepo: NewFinOpsSnapshotRepository(p.DB),
 	}
 }
 
@@ -84,13 +84,13 @@ func (s *Service) ListOverdueInvoices(ctx context.Context, limit int) (domain.Ov
 		limit = 25
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.OverdueInvoicesResponse{}, err
 	}
 
 	now := s.clock.Now().UTC()
-	rows, err := s.listOverdueInvoices(ctx, orgID, currency, now, limit)
+	rows, err := s.repo.ListOverdueInvoices(ctx, orgID, currency, now, limit)
 	if err != nil {
 		return domain.OverdueInvoicesResponse{}, err
 	}
@@ -178,13 +178,13 @@ func (s *Service) ListOutstandingCustomers(ctx context.Context, limit int) (doma
 		limit = 25
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.OutstandingCustomersResponse{}, err
 	}
 
 	now := s.clock.Now().UTC()
-	rows, err := s.listOutstandingCustomers(ctx, orgID, currency, now, limit)
+	rows, err := s.repo.ListOutstandingCustomers(ctx, orgID, currency, now, limit)
 	if err != nil {
 		return domain.OutstandingCustomersResponse{}, err
 	}
@@ -295,7 +295,7 @@ func (s *Service) ListPaymentIssues(ctx context.Context, limit int) (domain.Paym
 	}
 
 	now := s.clock.Now().UTC()
-	rows, err := s.listPaymentIssues(ctx, orgID, now, limit)
+	rows, err := s.repo.ListPaymentIssues(ctx, orgID, now, limit)
 	if err != nil {
 		return domain.PaymentIssuesResponse{}, err
 	}
@@ -373,30 +373,30 @@ func (s *Service) GetOperations(ctx context.Context, limit int) (domain.BillingO
 		limit = 25
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
 
 	now := s.clock.Now().UTC()
-	summary, err := s.loadActionSummary(ctx, orgID, currency, now)
+	summary, err := s.repo.LoadActionSummary(ctx, orgID, currency, now)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
 
-	overdueRows, err := s.listOverdueInvoices(ctx, orgID, currency, now, limit)
+	overdueRows, err := s.repo.ListOverdueInvoices(ctx, orgID, currency, now, limit)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
-	failedRows, err := s.listFailedPaymentActions(ctx, orgID, currency, now, limit)
+	failedRows, err := s.repo.ListFailedPaymentActions(ctx, orgID, currency, now, limit)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
-	queueRows, err := s.listCollectionQueue(ctx, orgID, currency, now, limit)
+	queueRows, err := s.repo.ListCollectionQueue(ctx, orgID, currency, now, limit)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
-	paymentRows, err := s.listPaymentIssues(ctx, orgID, now, limit)
+	paymentRows, err := s.repo.ListPaymentIssues(ctx, orgID, now, limit)
 	if err != nil {
 		return domain.BillingOperationsResponse{}, err
 	}
@@ -781,7 +781,7 @@ func (s *Service) RecordAction(ctx context.Context, req domain.RecordActionReque
 	bucket := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	actionID := s.genID.Generate()
 
-	beforeSnapshot, err := s.loadEntitySnapshot(ctx, orgID, entityType, entityID, now)
+	beforeSnapshot, err := s.repo.LoadEntitySnapshot(ctx, orgID, entityType, entityID)
 	if err != nil {
 		return domain.RecordActionResponse{}, err
 	}
@@ -804,7 +804,7 @@ func (s *Service) RecordAction(ctx context.Context, req domain.RecordActionReque
 
 	actorType, actorID := auditcontext.ActorFromContext(ctx)
 
-	inserted, err := s.insertBillingAction(ctx, domain.BillingActionRecord{
+	inserted, err := s.repo.InsertBillingAction(ctx, domain.BillingActionRecord{
 		ID:             actionID,
 		OrgID:          orgID,
 		EntityType:     entityType,
@@ -827,12 +827,12 @@ func (s *Service) RecordAction(ctx context.Context, req domain.RecordActionReque
 		actionStatus = domain.ActionStatusDuplicate
 		resolvedActionID = ""
 		if idempotencyKey != "" {
-			existing, err := s.findActionByIdempotencyKey(ctx, orgID, idempotencyKey)
+			existing, err := s.repo.FindActionByIdempotencyKey(ctx, orgID, idempotencyKey)
 			if err == nil && existing != nil {
 				resolvedActionID = existing.ID.String()
 			}
 		} else {
-			existing, err := s.findActionByBucket(ctx, orgID, entityType, entityID, actionType, bucket)
+			existing, err := s.repo.FindActionByBucket(ctx, orgID, entityType, entityID, actionType, bucket)
 			if err == nil && existing != nil {
 				resolvedActionID = existing.ID.String()
 			}
@@ -846,15 +846,11 @@ func (s *Service) RecordAction(ctx context.Context, req domain.RecordActionReque
 		// Better to do it inline transactionally if we want strong consistency,
 		// but RecordAction isn't transactional with insertBillingAction right now.
 		// Let's do a quick update.
-		if err := s.db.WithContext(ctx).Exec(
-			`UPDATE billing_operation_assignments
-			 SET status = ?, last_action_at = ?, updated_at = ?
-			 WHERE org_id = ? AND entity_type = ? AND entity_id = ? 
-			   AND status = ?`,
-			domain.AssignmentStatusInProgress, now, now,
-			orgID, entityType, entityID,
-			domain.AssignmentStatusAssigned,
-		).Error; err != nil {
+		if err := s.repo.UpdateAssignmentStatus(
+			ctx, orgID, entityType, entityID,
+			domain.AssignmentStatusAssigned, domain.AssignmentStatusInProgress,
+			now,
+		); err != nil {
 			s.log.Warn("failed to update assignment status on action", zap.Error(err))
 		}
 	}
@@ -926,9 +922,10 @@ func (s *Service) ClaimAssignment(
 
 	var result *domain.AssignmentResponse
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		repoTx := s.repo.WithTx(tx)
 
-		existing, err := s.loadAssignmentForUpdate(
-			ctx, tx, orgID, entityType, entityID,
+		existing, err := repoTx.LoadAssignmentForUpdate(
+			ctx, orgID, entityType, entityID,
 		)
 		if err != nil {
 			return err
@@ -944,7 +941,7 @@ func (s *Service) ClaimAssignment(
 			record.AssignmentExpiresAt = expiresAt
 			record.UpdatedAt = now
 
-			if err := s.upsertAssignmentTx(ctx, tx, record); err != nil {
+			if err := repoTx.UpsertAssignment(ctx, record); err != nil {
 				return err
 			}
 
@@ -965,7 +962,7 @@ func (s *Service) ClaimAssignment(
 
 		// ✅ claim / insert new
 		// Capture entity snapshot for task stability
-		snapshot, err := s.loadEntitySnapshot(ctx, orgID, entityType, entityID, now)
+		snapshot, err := s.repo.LoadEntitySnapshot(ctx, orgID, req.EntityType, entityID)
 		if err != nil {
 			s.log.Warn("failed to load entity snapshot", zap.Error(err))
 			snapshot = make(map[string]interface{})
@@ -991,7 +988,7 @@ func (s *Service) ClaimAssignment(
 			UpdatedAt:           now,
 		}
 
-		if err := s.upsertAssignmentTx(ctx, tx, record); err != nil {
+		if err := repoTx.UpsertAssignment(ctx, record); err != nil {
 			return err
 		}
 
@@ -1011,7 +1008,7 @@ func (s *Service) ClaimAssignment(
 		actionID := s.genID.Generate()
 		bucket := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
-		if _, err := s.insertBillingAction(ctx, domain.BillingActionRecord{
+		if _, err := repoTx.InsertBillingAction(ctx, domain.BillingActionRecord{
 			ID:           actionID,
 			OrgID:        orgID,
 			EntityType:   entityType,
@@ -1085,7 +1082,9 @@ func (s *Service) ReleaseAssignment(ctx context.Context, req domain.ReleaseAssig
 	now := s.clock.Now().UTC()
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existing, err := s.loadAssignmentForUpdate(ctx, tx, orgID, entityType, entityID)
+		repoTx := s.repo.WithTx(tx)
+
+		existing, err := repoTx.LoadAssignmentForUpdate(ctx, orgID, entityType, entityID)
 		if err != nil {
 			return err
 		}
@@ -1101,7 +1100,7 @@ func (s *Service) ReleaseAssignment(ctx context.Context, req domain.ReleaseAssig
 		existing.ResolvedBy = sql.NullString{String: releasedBy, Valid: true}
 		existing.UpdatedAt = now
 
-		if err := s.upsertAssignmentTx(ctx, tx, *existing); err != nil {
+		if err := repoTx.UpsertAssignment(ctx, *existing); err != nil {
 			return err
 		}
 
@@ -1109,9 +1108,13 @@ func (s *Service) ReleaseAssignment(ctx context.Context, req domain.ReleaseAssig
 		actionID := s.genID.Generate()
 		bucket := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
-		snapshot, _ := s.loadEntitySnapshot(ctx, orgID, entityType, entityID, now)
+		snapshot, err := s.repo.LoadEntitySnapshot(ctx, orgID, entityType, entityID)
+		if err != nil {
+			s.log.Warn("failed to load entity snapshot", zap.Error(err))
+			snapshot = make(map[string]interface{})
+		}
 
-		if _, err := s.insertBillingAction(ctx, domain.BillingActionRecord{
+		if _, err := repoTx.InsertBillingAction(ctx, domain.BillingActionRecord{
 			ID:           actionID,
 			OrgID:        orgID,
 			EntityType:   entityType,
@@ -1183,7 +1186,9 @@ func (s *Service) ResolveAssignment(ctx context.Context, req domain.ResolveAssig
 	now := s.clock.Now().UTC()
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existing, err := s.loadAssignmentForUpdate(ctx, tx, orgID, entityType, entityID)
+		repoTx := s.repo.WithTx(tx)
+
+		existing, err := repoTx.LoadAssignmentForUpdate(ctx, orgID, entityType, entityID)
 		if err != nil {
 			return err
 		}
@@ -1201,7 +1206,7 @@ func (s *Service) ResolveAssignment(ctx context.Context, req domain.ResolveAssig
 		existing.ReleaseReason = sql.NullString{String: req.Resolution, Valid: true}
 		existing.UpdatedAt = now
 
-		if err := tx.Save(existing).Error; err != nil {
+		if err := repoTx.UpsertAssignment(ctx, *existing); err != nil {
 			return err
 		}
 
@@ -1209,7 +1214,7 @@ func (s *Service) ResolveAssignment(ctx context.Context, req domain.ResolveAssig
 		actionID := s.genID.Generate()
 		bucket := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
-		if _, err := s.insertBillingAction(ctx, domain.BillingActionRecord{
+		if _, err := repoTx.InsertBillingAction(ctx, domain.BillingActionRecord{
 			ID:           actionID,
 			OrgID:        orgID,
 			EntityType:   entityType,
@@ -1254,35 +1259,6 @@ func (s *Service) ResolveAssignment(ctx context.Context, req domain.ResolveAssig
 	return nil
 }
 
-func (s *Service) loadAssignmentForUpdate(
-	ctx context.Context,
-	tx *gorm.DB,
-	orgID snowflake.ID,
-	entityType string,
-	entityID snowflake.ID,
-) (*domain.BillingAssignmentRecord, error) {
-	var row domain.BillingAssignmentRecord
-	query := `SELECT id, org_id, entity_type, entity_id,
-		        assigned_to, assigned_at, assignment_expires_at,
-		        status, released_at, released_by, release_reason, last_action_at,
-				snapshot_metadata, created_at, updated_at
-		 FROM billing_operation_assignments
-		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?`
-
-	if tx.Dialector.Name() != "sqlite" {
-		query += " FOR UPDATE"
-	}
-
-	err := tx.WithContext(ctx).Raw(query, orgID, entityType, entityID).Scan(&row).Error
-
-	if err != nil {
-		return nil, err
-	}
-	if row.AssignedTo == "" {
-		return nil, nil
-	}
-	return &row, nil
-}
 
 func timePtr(t sql.NullTime) *time.Time {
 	if t.Valid {
@@ -1290,6 +1266,43 @@ func timePtr(t sql.NullTime) *time.Time {
 		return &val
 	}
 	return nil
+}
+
+func parseSnowflakeID(id string) (snowflake.ID, error) {
+	return snowflake.ParseString(id)
+}
+
+func normalizeIdempotencyKey(key string) string {
+	return strings.TrimSpace(key)
+}
+
+func buildAuditAction(actionType string) string {
+	return "billing_operations.action." + strings.ToLower(actionType)
+}
+
+func computeAgingBucket(days int) string {
+	switch {
+	case days <= 30:
+		return "0-30"
+	case days <= 60:
+		return "31-60"
+	case days <= 90:
+		return "61-90"
+	default:
+		return "90+"
+	}
+}
+
+func computeRiskLevel(amount int64, days int) string {
+	// Simple heuristic
+	score := int(amount/10000) + days
+	if score > 100 {
+		return "high"
+	}
+	if score > 50 {
+		return "medium"
+	}
+	return "low"
 }
 
 func (s *Service) EvaluateSLAs(ctx context.Context) error {
@@ -1301,9 +1314,8 @@ func (s *Service) EvaluateSLAs(ctx context.Context) error {
 
 	var records []domain.BillingAssignmentRecord
 	// Find active assignments that are NOT already escalated
-	if err := s.db.WithContext(ctx).Where("status IN ? AND breached_at IS NULL",
-		[]string{domain.AssignmentStatusAssigned, domain.AssignmentStatusInProgress}).
-		Find(&records).Error; err != nil {
+	records, err := s.repo.ListActiveAssignments(ctx)
+	if err != nil {
 		return err
 	}
 
@@ -1330,17 +1342,10 @@ func (s *Service) EvaluateSLAs(ctx context.Context) error {
 		if isBreached {
 			// Escalate in transaction
 			err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				repoTx := s.repo.WithTx(tx)
+
 				// 1. Update Assignment
-				if err := tx.Model(&domain.BillingAssignmentRecord{}).
-					Where("id = ?", rec.ID).
-					Updates(map[string]interface{}{
-						"status":       domain.AssignmentStatusEscalated,
-						"breached_at":  now,
-						"breach_level": breachType,
-						"resolved_at":  now,
-						"resolved_by":  "system",
-						"updated_at":   now,
-					}).Error; err != nil {
+				if err := repoTx.EscalateAssignment(ctx, rec.OrgID, rec.EntityType, rec.EntityID, breachType, now); err != nil {
 					return err
 				}
 
@@ -1359,7 +1364,7 @@ func (s *Service) EvaluateSLAs(ctx context.Context) error {
 					metadata["minutes_since_assigned"] = int(now.Sub(rec.AssignedAt).Minutes())
 				}
 
-				return tx.Create(&domain.BillingActionRecord{
+				_, err := repoTx.InsertBillingAction(ctx, domain.BillingActionRecord{
 					ID:           actionID,
 					OrgID:        rec.OrgID,
 					EntityType:   rec.EntityType,
@@ -1370,7 +1375,8 @@ func (s *Service) EvaluateSLAs(ctx context.Context) error {
 					ActorType:    "system",
 					ActorID:      "sla_monitor",
 					CreatedAt:    now,
-				}).Error
+				})
+				return err
 			})
 
 			if err != nil {
@@ -1395,639 +1401,6 @@ func (s *Service) EvaluateSLAs(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-type overdueInvoiceRow struct {
-	InvoiceID           snowflake.ID   `gorm:"column:invoice_id"`
-	InvoiceNumber       string         `gorm:"column:invoice_number"`
-	CustomerID          snowflake.ID   `gorm:"column:customer_id"`
-	CustomerName        string         `gorm:"column:customer_name"`
-	AmountDue           int64          `gorm:"column:amount_due"`
-	DueAt               time.Time      `gorm:"column:due_at"`
-	AssignedTo          sql.NullString `gorm:"column:assigned_to"`
-	AssignedAt          sql.NullTime   `gorm:"column:assigned_at"`
-	AssignmentExpiresAt sql.NullTime   `gorm:"column:assignment_expires_at"`
-	Status              sql.NullString `gorm:"column:assignment_status"`
-	ReleasedAt          sql.NullTime   `gorm:"column:assignment_released_at"`
-	ReleasedBy          sql.NullString `gorm:"column:assignment_released_by"`
-	ReleaseReason       sql.NullString `gorm:"column:assignment_release_reason"`
-	LastActionAt        sql.NullTime   `gorm:"column:assignment_last_action_at"`
-	BreachedAt          sql.NullTime   `gorm:"column:assignment_breached_at"`
-	BreachLevel         sql.NullString `gorm:"column:assignment_breach_level"`
-	TokenHash           sql.NullString `gorm:"column:token_hash"`
-}
-
-type outstandingCustomerRow struct {
-	CustomerID                 snowflake.ID   `gorm:"column:customer_id"`
-	CustomerName               string         `gorm:"column:customer_name"`
-	Outstanding                int64          `gorm:"column:outstanding"`
-	OldestOverdueInvoiceID     sql.NullString `gorm:"column:oldest_overdue_invoice_id"`
-	OldestOverdueInvoiceNumber sql.NullString `gorm:"column:oldest_overdue_invoice_number"`
-	OldestOverdueAt            sql.NullTime   `gorm:"column:oldest_overdue_at"`
-	LastPaymentAt              sql.NullTime   `gorm:"column:last_payment_at"`
-	AssignedTo                 sql.NullString `gorm:"column:assigned_to"`
-	AssignedAt                 sql.NullTime   `gorm:"column:assigned_at"`
-	AssignmentExpiresAt        sql.NullTime   `gorm:"column:assignment_expires_at"`
-	Status                     sql.NullString `gorm:"column:assignment_status"`
-	ReleasedAt                 sql.NullTime   `gorm:"column:assignment_released_at"`
-	ReleasedBy                 sql.NullString `gorm:"column:assignment_released_by"`
-	ReleaseReason              sql.NullString `gorm:"column:assignment_release_reason"`
-	LastActionAt               sql.NullTime   `gorm:"column:assignment_last_action_at"`
-	BreachedAt                 sql.NullTime   `gorm:"column:assignment_breached_at"`
-	BreachLevel                sql.NullString `gorm:"column:assignment_breach_level"`
-	TokenHash                  sql.NullString `gorm:"column:token_hash"`
-}
-
-type paymentIssueRow struct {
-	CustomerID          snowflake.ID   `gorm:"column:customer_id"`
-	CustomerName        string         `gorm:"column:customer_name"`
-	IssueType           string         `gorm:"column:issue_type"`
-	LastAttempt         sql.NullTime   `gorm:"column:last_attempt"`
-	AssignedTo          sql.NullString `gorm:"column:assigned_to"`
-	AssignedAt          sql.NullTime   `gorm:"column:assigned_at"`
-	AssignmentExpiresAt sql.NullTime   `gorm:"column:assignment_expires_at"`
-	Status              sql.NullString `gorm:"column:assignment_status"`
-	ReleasedAt          sql.NullTime   `gorm:"column:assignment_released_at"`
-	ReleasedBy          sql.NullString `gorm:"column:assignment_released_by"`
-	ReleaseReason       sql.NullString `gorm:"column:assignment_release_reason"`
-	LastActionAt        sql.NullTime   `gorm:"column:assignment_last_action_at"`
-	BreachedAt          sql.NullTime   `gorm:"column:assignment_breached_at"`
-	BreachLevel         sql.NullString `gorm:"column:assignment_breach_level"`
-	TokenHash           sql.NullString `gorm:"column:token_hash"`
-}
-
-type collectionQueueRow struct {
-	CustomerID            snowflake.ID   `gorm:"column:customer_id"`
-	CustomerName          string         `gorm:"column:customer_name"`
-	Outstanding           int64          `gorm:"column:outstanding"`
-	OldestUnpaidInvoiceID sql.NullString `gorm:"column:oldest_unpaid_invoice_id"`
-	OldestUnpaidInvoice   sql.NullString `gorm:"column:oldest_unpaid_invoice_number"`
-	OldestUnpaidAt        sql.NullTime   `gorm:"column:oldest_unpaid_at"`
-	LastPaymentAt         sql.NullTime   `gorm:"column:last_payment_at"`
-	AssignedTo            sql.NullString `gorm:"column:assigned_to"`
-	AssignedAt            sql.NullTime   `gorm:"column:assigned_at"`
-	AssignmentExpiresAt   sql.NullTime   `gorm:"column:assignment_expires_at"`
-	Status                sql.NullString `gorm:"column:assignment_status"`
-	ReleasedAt            sql.NullTime   `gorm:"column:assignment_released_at"`
-	ReleasedBy            sql.NullString `gorm:"column:assignment_released_by"`
-	ReleaseReason         sql.NullString `gorm:"column:assignment_release_reason"`
-	LastActionAt          sql.NullTime   `gorm:"column:assignment_last_action_at"`
-	BreachedAt            sql.NullTime   `gorm:"column:assignment_breached_at"`
-	BreachLevel           sql.NullString `gorm:"column:assignment_breach_level"`
-	TokenHash             sql.NullString `gorm:"column:token_hash"`
-}
-
-type failedPaymentActionRow struct {
-	CustomerID          snowflake.ID   `gorm:"column:customer_id"`
-	CustomerName        string         `gorm:"column:customer_name"`
-	InvoiceID           sql.NullString `gorm:"column:invoice_id"`
-	InvoiceNumber       sql.NullString `gorm:"column:invoice_number"`
-	AmountDue           sql.NullInt64  `gorm:"column:amount_due"`
-	DueAt               sql.NullTime   `gorm:"column:due_at"`
-	LastAttempt         sql.NullTime   `gorm:"column:last_attempt"`
-	AssignedTo          sql.NullString `gorm:"column:assigned_to"`
-	AssignedAt          sql.NullTime   `gorm:"column:assigned_at"`
-	AssignmentExpiresAt sql.NullTime   `gorm:"column:assignment_expires_at"`
-	Status              sql.NullString `gorm:"column:assignment_status"`
-	ReleasedAt          sql.NullTime   `gorm:"column:assignment_released_at"`
-	ReleasedBy          sql.NullString `gorm:"column:assignment_released_by"`
-	ReleaseReason       sql.NullString `gorm:"column:assignment_release_reason"`
-	LastActionAt        sql.NullTime   `gorm:"column:assignment_last_action_at"`
-	BreachedAt          sql.NullTime   `gorm:"column:assignment_breached_at"`
-	BreachLevel         sql.NullString `gorm:"column:assignment_breach_level"`
-	TokenHash           sql.NullString `gorm:"column:token_hash"`
-}
-
-type actionSummaryRow struct {
-	CustomersWithOutstanding int   `gorm:"column:customers_with_outstanding"`
-	OverdueInvoices          int   `gorm:"column:overdue_invoices"`
-	FailedPaymentAttempts    int   `gorm:"column:failed_payment_attempts"`
-	TotalOutstanding         int64 `gorm:"column:total_outstanding"`
-}
-
-type assignmentRow struct {
-	AssignedTo          string
-	AssignedAt          time.Time
-	AssignmentExpiresAt time.Time
-	Status              string
-	ReleasedAt          sql.NullTime
-	ReleasedBy          sql.NullString
-	ReleaseReason       sql.NullString
-	BreachedAt          sql.NullTime
-	BreachLevel         sql.NullString
-	LastActionAt        sql.NullTime
-}
-
-func (s *Service) listOverdueInvoices(
-	ctx context.Context,
-	orgID snowflake.ID,
-	currency string,
-	now time.Time,
-	limit int,
-) ([]overdueInvoiceRow, error) {
-	var rows []overdueInvoiceRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		)
-		SELECT
-			i.id AS invoice_id,
-			COALESCE(i.invoice_number::text, '') AS invoice_number,
-			c.id AS customer_id,
-			c.name AS customer_name,
-			GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS amount_due,
-			i.due_at AS due_at,
-			boa.assigned_to AS assigned_to,
-			boa.assigned_at AS assigned_at,
-			boa.assignment_expires_at AS assignment_expires_at,
-			boa.status AS assignment_status,
-			boa.released_at AS assignment_released_at,
-			boa.released_by AS assignment_released_by,
-			boa.release_reason AS assignment_release_reason,
-			boa.last_action_at AS assignment_last_action_at,
-			ipt.token_hash AS token_hash
-		FROM invoices i
-
-		JOIN customers c ON c.id = i.customer_id
-		LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-		LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = i.id AND ipt.revoked_at IS NULL
-		LEFT JOIN billing_operation_assignments boa
-			ON boa.org_id = ?
-
-			AND boa.entity_type = ?
-			AND boa.entity_id = i.id
-			AND boa.status != 'released'
-		WHERE i.org_id = ?
-		  AND i.status = 'FINALIZED'
-		  AND i.voided_at IS NULL
-		  AND i.paid_at IS NULL
-		  AND i.currency = ?
-		  AND i.due_at IS NOT NULL
-		  AND i.due_at < ?
-		  AND GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) > 0
-		ORDER BY i.due_at ASC
-		LIMIT ?`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		domain.EntityTypeInvoice,
-		orgID,
-		currency,
-		now,
-		limit,
-	).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) listOutstandingCustomers(
-	ctx context.Context,
-	orgID snowflake.ID,
-	currency string,
-	now time.Time,
-	limit int,
-) ([]outstandingCustomerRow, error) {
-	var rows []outstandingCustomerRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		), invoice_outstanding AS (
-			SELECT
-				i.id AS invoice_id,
-				i.customer_id,
-				COALESCE(i.invoice_number::text, '') AS invoice_number,
-				i.due_at,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-			FROM invoices i
-			LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ?
-			  AND i.status = 'FINALIZED'
-			  AND i.voided_at IS NULL
-			  AND i.currency = ?
-			  AND i.currency = ?
-			  AND i.currency = ?
-			  AND i.currency = ?
-			  AND i.currency = ?
-		), totals AS (
-			SELECT customer_id, SUM(outstanding) AS outstanding
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			GROUP BY customer_id
-		), oldest_overdue AS (
-			SELECT DISTINCT ON (customer_id)
-				customer_id,
-				invoice_id,
-				invoice_number,
-				due_at
-			FROM invoice_outstanding
-			WHERE outstanding > 0 AND due_at IS NOT NULL AND due_at < ?
-			ORDER BY customer_id, due_at ASC, invoice_id ASC
-		), last_payment AS (
-			SELECT customer_id, MAX(received_at) AS last_payment_at
-			FROM payment_events
-			WHERE org_id = ? AND event_type = 'payment_succeeded'
-			GROUP BY customer_id
-		)
-		SELECT
-			c.id AS customer_id,
-			c.name AS customer_name,
-			t.outstanding AS outstanding,
-			oo.invoice_id::text AS oldest_overdue_invoice_id,
-			oo.invoice_number AS oldest_overdue_invoice_number,
-			oo.due_at AS oldest_overdue_at,
-			lp.last_payment_at AS last_payment_at,
-			ipt.token_hash AS token_hash,
-			boa.assigned_to AS assigned_to,
-			boa.assigned_at AS assigned_at,
-			boa.assignment_expires_at AS assignment_expires_at,
-			boa.status AS assignment_status,
-			boa.released_at AS assignment_released_at,
-			boa.released_by AS assignment_released_by,
-			boa.release_reason AS assignment_release_reason,
-			boa.last_action_at AS assignment_last_action_at
-		FROM totals t
-
-		JOIN customers c ON c.id = t.customer_id
-		LEFT JOIN oldest_overdue oo ON oo.customer_id = t.customer_id
-		LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = oo.invoice_id AND ipt.revoked_at IS NULL
-		LEFT JOIN last_payment lp ON lp.customer_id = t.customer_id
-		LEFT JOIN billing_operation_assignments boa
-			ON boa.org_id = ?
-			AND boa.entity_type = ?
-			AND boa.entity_id = c.id
-			AND boa.status != 'released'
-		WHERE c.org_id = ?
-		ORDER BY t.outstanding DESC
-		LIMIT ?`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		currency,
-		now,
-		orgID,
-		domain.EntityTypeCustomer,
-		orgID,
-		limit,
-	).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) loadActionSummary(ctx context.Context, orgID snowflake.ID, currency string, now time.Time) (actionSummaryRow, error) {
-	var row actionSummaryRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		), invoice_outstanding AS (
-			SELECT
-				i.id AS invoice_id,
-				i.customer_id,
-				i.due_at,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-			FROM invoices i
-			LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ?
-			  AND i.status = 'FINALIZED'
-			  AND i.voided_at IS NULL
-			  AND i.currency = ?
-		), totals AS (
-			SELECT customer_id, SUM(outstanding) AS outstanding
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			GROUP BY customer_id
-		)
-		SELECT
-			COALESCE((SELECT COUNT(*) FROM totals), 0) AS customers_with_outstanding,
-			COALESCE((SELECT COUNT(*) FROM invoice_outstanding WHERE outstanding > 0 AND due_at IS NOT NULL AND due_at < ?), 0) AS overdue_invoices,
-			COALESCE((SELECT COUNT(*) FROM payment_events WHERE org_id = ? AND event_type = ?), 0) AS failed_payment_attempts,
-			COALESCE((SELECT SUM(outstanding) FROM totals), 0) AS total_outstanding`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		currency,
-		now,
-		orgID,
-		paymentdomain.EventTypePaymentFailed,
-	).Scan(&row).Error; err != nil {
-		return actionSummaryRow{}, err
-	}
-	return row, nil
-}
-
-func (s *Service) listCollectionQueue(
-	ctx context.Context,
-	orgID snowflake.ID,
-	currency string,
-	now time.Time,
-	limit int,
-) ([]collectionQueueRow, error) {
-	var rows []collectionQueueRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		), invoice_outstanding AS (
-			SELECT
-				i.id AS invoice_id,
-				i.customer_id,
-				COALESCE(i.invoice_number::text, '') AS invoice_number,
-				i.due_at,
-				COALESCE(i.issued_at, i.created_at) AS issued_at,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-			FROM invoices i
-			LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ?
-			  AND i.status = 'FINALIZED'
-			  AND i.voided_at IS NULL
-			  AND i.currency = ?
-		), totals AS (
-			SELECT customer_id, SUM(outstanding) AS outstanding
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			GROUP BY customer_id
-		), oldest_unpaid AS (
-			SELECT DISTINCT ON (customer_id)
-				customer_id,
-				invoice_id,
-				invoice_number,
-				due_at,
-				issued_at
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			ORDER BY customer_id, COALESCE(due_at, issued_at) ASC, invoice_id ASC
-		), last_payment AS (
-			SELECT customer_id, MAX(received_at) AS last_payment_at
-			FROM payment_events
-			WHERE org_id = ? AND event_type = 'payment_succeeded'
-			GROUP BY customer_id
-		)
-		SELECT
-			c.id AS customer_id,
-			c.name AS customer_name,
-			t.outstanding AS outstanding,
-			ou.invoice_id::text AS oldest_unpaid_invoice_id,
-			ou.invoice_number AS oldest_unpaid_invoice_number,
-			ou.due_at AS oldest_unpaid_at,
-			lp.last_payment_at AS last_payment_at,
-			boa.assigned_to AS assigned_to,
-			boa.assigned_at AS assigned_at,
-			boa.assignment_expires_at AS assignment_expires_at,
-			boa.status AS assignment_status,
-			boa.released_at AS assignment_released_at,
-			boa.released_by AS assignment_released_by,
-			boa.release_reason AS assignment_release_reason,
-			boa.last_action_at AS assignment_last_action_at,
-			ipt.token_hash AS token_hash
-		FROM totals t
-		JOIN customers c ON c.id = t.customer_id
-		LEFT JOIN oldest_unpaid ou ON ou.customer_id = t.customer_id
-		LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = ou.invoice_id AND ipt.revoked_at IS NULL
-		LEFT JOIN last_payment lp ON lp.customer_id = t.customer_id
-		LEFT JOIN billing_operation_assignments boa
-			ON boa.org_id = ?
-			AND boa.entity_type = ?
-			AND boa.entity_id = c.id
-			AND boa.status != 'released'
-		WHERE c.org_id = ?
-		ORDER BY
-			CASE
-				WHEN ou.due_at IS NULL THEN 1
-				WHEN ou.due_at <= (?::timestamptz - interval '60 days') THEN 3
-				WHEN ou.due_at <= (?::timestamptz - interval '31 days') THEN 2
-				ELSE 1
-			END DESC,
-			t.outstanding DESC,
-			c.id ASC
-		LIMIT ?`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		currency,
-		orgID,
-		orgID,
-		domain.EntityTypeCustomer,
-		orgID,
-		now,
-		now,
-		limit,
-	).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) listFailedPaymentActions(
-	ctx context.Context,
-	orgID snowflake.ID,
-	currency string,
-	now time.Time,
-	limit int,
-) ([]failedPaymentActionRow, error) {
-	var rows []failedPaymentActionRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		), failed AS (
-			SELECT
-				pe.customer_id AS customer_id,
-				c.name AS customer_name,
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				MAX(pe.received_at) AS last_attempt
-			FROM payment_events pe
-			JOIN customers c ON c.id = pe.customer_id
-			WHERE pe.org_id = ?
-			  AND pe.event_type = ?
-			GROUP BY pe.customer_id, c.name, invoice_id_text
-		)
-		SELECT
-			f.customer_id AS customer_id,
-			f.customer_name AS customer_name,
-			f.invoice_id_text AS invoice_id,
-			COALESCE(i.invoice_number::text, '') AS invoice_number,
-			GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS amount_due,
-			i.due_at AS due_at,
-			f.last_attempt AS last_attempt,
-			boa.assigned_to AS assigned_to,
-			boa.assigned_at AS assigned_at,
-			boa.assignment_expires_at AS assignment_expires_at,
-			boa.status AS assignment_status,
-			boa.released_at AS assignment_released_at,
-			boa.released_by AS assignment_released_by,
-			boa.release_reason AS assignment_release_reason,
-			boa.last_action_at AS assignment_last_action_at,
-			ipt.token_hash AS token_hash
-		FROM failed f
-
-		LEFT JOIN invoices i
-			ON i.id::text = f.invoice_id_text
-			AND i.org_id = ?
-			AND i.status = 'FINALIZED'
-			AND i.voided_at IS NULL
-			AND i.currency = ?
-		LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-		LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = i.id AND ipt.revoked_at IS NULL
-		LEFT JOIN billing_operation_assignments boa
-			ON boa.org_id = ?
-			AND boa.entity_type = ?
-
-			AND boa.entity_id = f.customer_id
-			AND boa.status != 'released'
-		WHERE (i.id IS NULL OR GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) > 0)
-		ORDER BY f.last_attempt DESC
-		LIMIT ?`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		paymentdomain.EventTypePaymentFailed,
-		orgID,
-		currency,
-		orgID,
-		domain.EntityTypeCustomer,
-		limit,
-	).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) listPaymentIssues(ctx context.Context, orgID snowflake.ID, now time.Time, limit int) ([]paymentIssueRow, error) {
-	var rows []paymentIssueRow
-	query := `
-		SELECT
-			pe.customer_id AS customer_id,
-			c.name AS customer_name,
-			pe.event_type AS issue_type,
-			MAX(pe.received_at) AS last_attempt,
-			boa.assigned_to AS assigned_to,
-			boa.assigned_at AS assigned_at,
-			boa.assignment_expires_at AS assignment_expires_at,
-			boa.status AS assignment_status,
-			boa.released_at AS assignment_released_at,
-			boa.released_by AS assignment_released_by,
-			boa.release_reason AS assignment_release_reason,
-			boa.last_action_at AS assignment_last_action_at
-		FROM payment_events pe
-		JOIN customers c ON c.id = pe.customer_id
-		LEFT JOIN billing_operation_assignments boa
-			ON boa.org_id = ?
-			AND boa.entity_type = ?
-			AND boa.entity_id = pe.customer_id
-			AND boa.status != 'released'
-		WHERE pe.org_id = ?
-		  AND pe.event_type = ?
-		GROUP BY pe.customer_id, c.name, pe.event_type, boa.assigned_to, boa.assigned_at, boa.assignment_expires_at, boa.status, boa.released_at, boa.released_by, boa.release_reason, boa.last_action_at
-		ORDER BY last_attempt DESC
-		LIMIT ?`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		domain.EntityTypeCustomer,
-		orgID,
-		paymentdomain.EventTypePaymentFailed,
-		limit,
-	).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (s *Service) loadOrgCurrency(ctx context.Context, orgID snowflake.ID) (string, error) {
-	var row struct {
-		Currency string `gorm:"column:currency"`
-	}
-	if err := s.db.WithContext(ctx).Raw(
-		`SELECT currency FROM organization_billing_preferences WHERE org_id = ? LIMIT 1`,
-		orgID,
-	).Scan(&row).Error; err != nil {
-		return "", err
-	}
-	currency := strings.ToUpper(strings.TrimSpace(row.Currency))
-	if currency == "" {
-		currency = "USD"
-	}
-	return currency, nil
 }
 
 func assignmentFields(
@@ -2124,405 +1497,6 @@ func assignmentFields(
 	}
 }
 
-func computeAgingBucket(days int) string {
-	switch {
-	case days >= 60:
-		return "60+"
-	case days >= 31:
-		return "31-60"
-	default:
-		return "0-30"
-	}
-}
-
-func computeRiskLevel(outstanding int64, oldestDays int) string {
-	switch {
-	case oldestDays >= 60 || outstanding >= 1000000:
-		return "high"
-	case oldestDays >= 31 || outstanding >= 250000:
-		return "medium"
-	default:
-		return "low"
-	}
-}
-
-func normalizeIdempotencyKey(value string) string {
-	return strings.TrimSpace(value)
-}
-
-func parseSnowflakeID(value string) (snowflake.ID, error) {
-	raw := strings.TrimSpace(value)
-	if raw == "" {
-		return 0, domain.ErrInvalidEntityID
-	}
-	parsed, err := snowflake.ParseString(raw)
-	if err != nil || parsed == 0 {
-		return 0, domain.ErrInvalidEntityID
-	}
-	return parsed, nil
-}
-
-func buildAuditAction(actionType string) string {
-	switch actionType {
-	case domain.ActionTypeFollowUp:
-		return "billing_operations.follow_up"
-	case domain.ActionTypeRetryPayment:
-		return "billing_operations.retry_payment"
-	case domain.ActionTypeMarkReviewed:
-		return "billing_operations.mark_reviewed"
-	default:
-		return "billing_operations.action"
-	}
-}
-
-func (s *Service) insertBillingAction(ctx context.Context, record domain.BillingActionRecord) (bool, error) {
-	if record.ID == 0 {
-		return false, domain.ErrInvalidEntityID
-	}
-	if s.db == nil {
-		return false, gorm.ErrInvalidDB
-	}
-	var idempotencyValue any
-	if record.IdempotencyKey != "" {
-		idempotencyValue = record.IdempotencyKey
-	}
-	metadata := record.Metadata
-	if metadata == nil {
-		metadata = datatypes.JSONMap{}
-	}
-	result := s.db.WithContext(ctx).Exec(
-		`INSERT INTO billing_operation_actions (
-			id, org_id, entity_type, entity_id, action_type, action_bucket,
-			idempotency_key, metadata, actor_type, actor_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT DO NOTHING`,
-		record.ID,
-		record.OrgID,
-		record.EntityType,
-		record.EntityID,
-		record.ActionType,
-		record.ActionBucket,
-		idempotencyValue,
-		metadata,
-		strings.TrimSpace(record.ActorType),
-		strings.TrimSpace(record.ActorID),
-		record.CreatedAt,
-	)
-	if result.Error != nil {
-		return false, result.Error
-	}
-	return result.RowsAffected > 0, nil
-}
-
-func (s *Service) findActionByIdempotencyKey(ctx context.Context, orgID snowflake.ID, key string) (*domain.BillingActionLookup, error) {
-	var row domain.BillingActionLookup
-	if err := s.db.WithContext(ctx).Raw(
-		`SELECT id FROM billing_operation_actions WHERE org_id = ? AND idempotency_key = ? LIMIT 1`,
-		orgID,
-		key,
-	).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.ID == 0 {
-		return nil, nil
-	}
-	return &row, nil
-}
-
-func (s *Service) findActionByBucket(ctx context.Context, orgID snowflake.ID, entityType string, entityID snowflake.ID, actionType string, bucket time.Time) (*domain.BillingActionLookup, error) {
-	var row domain.BillingActionLookup
-	if err := s.db.WithContext(ctx).Raw(
-		`SELECT id FROM billing_operation_actions
-		 WHERE org_id = ? AND entity_type = ? AND entity_id = ? AND action_type = ? AND action_bucket = ?
-		 LIMIT 1`,
-		orgID,
-		entityType,
-		entityID,
-		actionType,
-		bucket,
-	).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.ID == 0 {
-		return nil, nil
-	}
-	return &row, nil
-}
-
-func (s *Service) loadAssignment(ctx context.Context, orgID snowflake.ID, entityType string, entityID snowflake.ID) (*assignmentRow, error) {
-	var row assignmentRow
-	if err := s.db.WithContext(ctx).Raw(
-		`SELECT assigned_to, assigned_at, assignment_expires_at,
-		        status, released_at, released_by, release_reason, last_action_at
-		 FROM billing_operation_assignments
-		 WHERE org_id = ? AND entity_type = ? AND entity_id = ?
-		 LIMIT 1`,
-		orgID,
-		entityType,
-		entityID,
-	).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.AssignedTo == "" {
-		return nil, nil
-	}
-	return &row, nil
-}
-
-func (s *Service) upsertAssignmentTx(
-	ctx context.Context,
-	tx *gorm.DB,
-	record domain.BillingAssignmentRecord,
-) error {
-
-	return tx.WithContext(ctx).Exec(
-		`INSERT INTO billing_operation_assignments (
-			id, org_id, entity_type, entity_id,
-			assigned_to, assigned_at, assignment_expires_at,
-			status, released_at, released_by, release_reason, last_action_at,
-			snapshot_metadata,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (org_id, entity_type, entity_id) DO UPDATE SET
-			assigned_to = EXCLUDED.assigned_to,
-			assigned_at = EXCLUDED.assigned_at,
-			assignment_expires_at = EXCLUDED.assignment_expires_at,
-			status = EXCLUDED.status,
-			released_at = EXCLUDED.released_at,
-			released_by = EXCLUDED.released_by,
-			release_reason = EXCLUDED.release_reason,
-			last_action_at = EXCLUDED.last_action_at,
-			snapshot_metadata = EXCLUDED.snapshot_metadata,
-			updated_at = EXCLUDED.updated_at`,
-		record.ID,
-		record.OrgID,
-		record.EntityType,
-		record.EntityID,
-		record.AssignedTo,
-		record.AssignedAt,
-		record.AssignmentExpiresAt,
-		record.Status,
-		record.ReleasedAt,
-		record.ReleasedBy,
-		record.ReleaseReason,
-		record.LastActionAt,
-		record.SnapshotMetadata,
-		record.CreatedAt,
-		record.UpdatedAt,
-	).Error
-}
-
-func (s *Service) loadEntitySnapshot(ctx context.Context, orgID snowflake.ID, entityType string, entityID snowflake.ID, now time.Time) (map[string]any, error) {
-	switch entityType {
-	case domain.EntityTypeInvoice:
-		return s.loadInvoiceSnapshot(ctx, orgID, entityID, now)
-	case domain.EntityTypeCustomer:
-		return s.loadCustomerSnapshot(ctx, orgID, entityID, now)
-	default:
-		return nil, domain.ErrInvalidEntityType
-	}
-}
-
-func (s *Service) loadInvoiceSnapshot(ctx context.Context, orgID snowflake.ID, invoiceID snowflake.ID, now time.Time) (map[string]any, error) {
-	var row struct {
-		InvoiceID     snowflake.ID `gorm:"column:invoice_id"`
-		InvoiceNumber string       `gorm:"column:invoice_number"`
-		Status        string       `gorm:"column:status"`
-		CustomerID    snowflake.ID `gorm:"column:customer_id"`
-		CustomerName  string       `gorm:"column:customer_name"`
-		Currency      string       `gorm:"column:currency"`
-		DueAt         sql.NullTime `gorm:"column:due_at"`
-		AmountDue     int64        `gorm:"column:amount_due"`
-	}
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		)
-		SELECT
-			i.id AS invoice_id,
-			COALESCE(i.invoice_number::text, '') AS invoice_number,
-			i.status AS status,
-			i.customer_id AS customer_id,
-			c.name AS customer_name,
-			i.currency AS currency,
-			i.due_at AS due_at,
-			GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS amount_due
-		FROM invoices i
-		JOIN customers c ON c.id = i.customer_id
-		LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-		WHERE i.org_id = ? AND i.id = ?
-		LIMIT 1`
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		invoiceID,
-	).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.InvoiceID == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-
-	snapshot := map[string]any{
-		"invoice_id":     row.InvoiceID.String(),
-		"invoice_number": strings.TrimSpace(row.InvoiceNumber),
-		"status":         row.Status,
-		"customer_id":    row.CustomerID.String(),
-		"customer_name":  row.CustomerName,
-		"amount_due":     row.AmountDue,
-		"currency":       strings.ToUpper(strings.TrimSpace(row.Currency)),
-	}
-	if row.DueAt.Valid {
-		due := row.DueAt.Time.UTC()
-		daysOverdue := int(now.Sub(due).Hours() / 24)
-		if daysOverdue < 0 {
-			daysOverdue = 0
-		}
-		snapshot["due_at"] = due.Format(time.RFC3339)
-		snapshot["days_overdue"] = daysOverdue
-	}
-	return snapshot, nil
-}
-
-func (s *Service) loadCustomerSnapshot(ctx context.Context, orgID snowflake.ID, customerID snowflake.ID, now time.Time) (map[string]any, error) {
-	var row collectionQueueRow
-	query := `
-		WITH settled AS (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ?
-			  AND le.currency = ?
-			  AND le.source_type = ?
-			  AND a.code = ?
-			GROUP BY 1
-		), invoice_outstanding AS (
-			SELECT
-				i.id AS invoice_id,
-				i.customer_id,
-				COALESCE(i.invoice_number::text, '') AS invoice_number,
-				i.due_at,
-				COALESCE(i.issued_at, i.created_at) AS issued_at,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-			FROM invoices i
-			LEFT JOIN settled s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ?
-			  AND i.status = 'FINALIZED'
-			  AND i.voided_at IS NULL
-			  AND i.currency = ?
-		), totals AS (
-			SELECT customer_id, SUM(outstanding) AS outstanding
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			GROUP BY customer_id
-		), oldest_unpaid AS (
-			SELECT DISTINCT ON (customer_id)
-				customer_id,
-				invoice_id,
-				invoice_number,
-				due_at,
-				issued_at
-			FROM invoice_outstanding
-			WHERE outstanding > 0
-			ORDER BY customer_id, COALESCE(due_at, issued_at) ASC, invoice_id ASC
-		), last_payment AS (
-			SELECT customer_id, MAX(received_at) AS last_payment_at
-			FROM payment_events
-			WHERE org_id = ? AND event_type = 'payment_succeeded'
-			GROUP BY customer_id
-		)
-		SELECT
-			c.id AS customer_id,
-			c.name AS customer_name,
-			COALESCE(t.outstanding, 0) AS outstanding,
-			ou.invoice_id::text AS oldest_unpaid_invoice_id,
-			ou.invoice_number AS oldest_unpaid_invoice_number,
-			ou.due_at AS oldest_unpaid_at,
-			lp.last_payment_at AS last_payment_at,
-			NULL AS assigned_to,
-			NULL AS assignment_expires_at
-		FROM customers c
-		LEFT JOIN totals t ON t.customer_id = c.id
-		LEFT JOIN oldest_unpaid ou ON ou.customer_id = c.id
-		LEFT JOIN last_payment lp ON lp.customer_id = c.id
-		WHERE c.org_id = ? AND c.id = ?
-		LIMIT 1`
-
-	currency, err := s.loadOrgCurrency(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID,
-		currency,
-		string(ledgerdomain.SourceTypePayment),
-		string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID,
-		currency,
-		orgID,
-		orgID,
-		customerID,
-	).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.CustomerID == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-
-	oldestDays := 0
-	if row.OldestUnpaidAt.Valid {
-		due := row.OldestUnpaidAt.Time.UTC()
-		oldestDays = int(now.Sub(due).Hours() / 24)
-		if oldestDays < 0 {
-			oldestDays = 0
-		}
-	}
-
-	snapshot := map[string]any{
-		"customer_id":         row.CustomerID.String(),
-		"customer_name":       row.CustomerName,
-		"outstanding_balance": row.Outstanding,
-		"currency":            currency,
-		"oldest_unpaid_days":  oldestDays,
-		"aging_bucket":        computeAgingBucket(oldestDays),
-		"risk_level":          computeRiskLevel(row.Outstanding, oldestDays),
-	}
-	if row.OldestUnpaidAt.Valid {
-		due := row.OldestUnpaidAt.Time.UTC()
-		snapshot["oldest_unpaid_at"] = due.Format(time.RFC3339)
-	}
-	if row.OldestUnpaidInvoiceID.Valid {
-		snapshot["oldest_unpaid_invoice_id"] = strings.TrimSpace(row.OldestUnpaidInvoiceID.String)
-	}
-	if row.OldestUnpaidInvoice.Valid {
-		snapshot["oldest_unpaid_invoice_number"] = strings.TrimSpace(row.OldestUnpaidInvoice.String)
-	}
-	if row.LastPaymentAt.Valid {
-		occurred := row.LastPaymentAt.Time.UTC()
-		snapshot["last_payment_at"] = occurred.Format(time.RFC3339)
-	}
-	return snapshot, nil
-}
 
 func decryptToken(key []byte, ciphertextB64 string) string {
 	ciphertextB64 = strings.TrimSpace(ciphertextB64)
@@ -2559,13 +1533,6 @@ func decryptToken(key []byte, ciphertextB64 string) string {
 	return string(plaintext)
 }
 
-type billingAssignmentRow struct {
-	OrgID      snowflake.ID   `gorm:"column:org_id"`
-	EntityID   snowflake.ID   `gorm:"column:entity_id"`
-	AssignedAt sql.NullTime   `gorm:"column:assigned_at"`
-	Status     sql.NullString `gorm:"column:status"`
-	BreachedAt sql.NullTime   `gorm:"column:breached_at"`
-}
 
 func (s *Service) CalculatePerformance(ctx context.Context, userID string, start, end time.Time) (domain.FinOpsScoreSnapshot, error) {
 	orgID, ok := orgcontext.OrgIDFromContext(ctx)
@@ -2574,10 +1541,8 @@ func (s *Service) CalculatePerformance(ctx context.Context, userID string, start
 	}
 
 	// 1. Fetch Assignments in period
-	var assignments []billingAssignmentRow
-	if err := s.db.WithContext(ctx).Table("billing_operation_assignments").
-		Where("org_id = ? AND assigned_to = ? AND assigned_at >= ? AND assigned_at < ?", orgID, userID, start, end).
-		Find(&assignments).Error; err != nil {
+	assignments, err := s.repo.ListBillingAssignmentsForPerformance(ctx, orgID, userID, start, end)
+	if err != nil {
 		return domain.FinOpsScoreSnapshot{}, err
 	}
 
@@ -2877,7 +1842,7 @@ func (s *Service) GetMyPerformance(ctx context.Context, userID string, req domai
 		limit = 30
 	}
 
-	snapshots, err := s.snapshotRepo.FindByUserWithLimit(ctx, snowflake.ID(orgID), userID, req.PeriodType, start, end, limit)
+	snapshots, err := s.repo.FindSnapshotsByUserWithLimit(ctx, snowflake.ID(orgID), userID, req.PeriodType, start, end, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2927,7 +1892,7 @@ func (s *Service) GetTeamPerformance(ctx context.Context, req domain.GetPerforma
 		start = end.AddDate(0, 0, -30)
 	}
 
-	snapshots, err := s.snapshotRepo.FindByOrg(ctx, snowflake.ID(orgID), req.PeriodType, start, end)
+	snapshots, err := s.repo.FindSnapshotsByOrg(ctx, snowflake.ID(orgID), req.PeriodType, start, end)
 	if err != nil {
 		return nil, err
 	}

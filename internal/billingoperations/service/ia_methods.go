@@ -2,16 +2,13 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
-	ledgerdomain "github.com/smallbiznis/railzway/internal/ledger/domain"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
 	"go.uber.org/zap"
-	"gorm.io/datatypes"
 )
 
 // GetInbox returns unassigned risky items that need attention
@@ -27,166 +24,13 @@ func (s *Service) GetInbox(ctx context.Context, req domain.InboxRequest) (domain
 		limit = 25
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.InboxResponse{}, err
 	}
 
-	now := s.clock.Now().UTC()
-
-	// Query for unassigned risky items
-	// Combines overdue invoices, failed payments, and high-exposure customers
-	// Filters out items with active assignments
-	query := `
-		WITH risky_invoices AS (
-			SELECT
-				'invoice' AS entity_type,
-				i.id::text AS entity_id,
-				COALESCE(i.invoice_number::text, i.id::text) AS entity_name,
-				'overdue' AS risk_category,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS amount_due,
-				i.due_at,
-				EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 AS days_overdue,
-				NULL::timestamp AS last_attempt,
-				ipt.token_hash,
-				-- Risk score: higher = more urgent
-				(EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 * 10 + i.subtotal_amount / 10000)::int AS risk_score
-			FROM invoices i
-			LEFT JOIN (
-				SELECT
-					(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-					SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-				FROM ledger_entries le
-				JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-				JOIN ledger_accounts a ON a.id = l.account_id
-				JOIN payment_events pe ON pe.id = le.source_id
-				WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-				GROUP BY 1
-			) s ON s.invoice_id_text = i.id::text
-			LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = i.id AND ipt.revoked_at IS NULL
-			LEFT JOIN billing_operation_assignments boa 
-				ON boa.org_id = ? AND boa.entity_type = 'invoice' AND boa.entity_id = i.id 
-				AND boa.status IN ('assigned', 'in_progress')
-			WHERE i.org_id = ?
-				AND i.status = 'FINALIZED'
-				AND i.voided_at IS NULL
-				AND i.paid_at IS NULL
-				AND i.currency = ?
-				AND i.due_at IS NOT NULL
-				AND i.due_at < ?
-				AND GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) > 0
-				AND boa.id IS NULL  -- No active assignment
-		),
-		risky_customers AS (
-			SELECT
-				'customer' AS entity_type,
-				c.id::text AS entity_id,
-				c.name AS entity_name,
-				'high_exposure' AS risk_category,
-				t.outstanding AS amount_due,
-				oo.due_at,
-				EXTRACT(EPOCH FROM (? - oo.due_at)) / 86400 AS days_overdue,
-				NULL::timestamp AS last_attempt,
-				ipt.token_hash,
-				(t.outstanding / 10000)::int AS risk_score
-			FROM (
-				SELECT customer_id, SUM(outstanding) AS outstanding
-				FROM (
-					SELECT
-						i.customer_id,
-						GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-					FROM invoices i
-					LEFT JOIN (
-						SELECT
-							(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-							SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-						FROM ledger_entries le
-						JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-						JOIN ledger_accounts a ON a.id = l.account_id
-						JOIN payment_events pe ON pe.id = le.source_id
-						WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-						GROUP BY 1
-					) s ON s.invoice_id_text = i.id::text
-					WHERE i.org_id = ? AND i.status = 'FINALIZED' AND i.voided_at IS NULL AND i.currency = ?
-				) inv
-				WHERE outstanding > 0
-				GROUP BY customer_id
-			) t
-			JOIN customers c ON c.id = t.customer_id
-			LEFT JOIN (
-				SELECT DISTINCT ON (customer_id)
-					customer_id, due_at
-				FROM (
-					SELECT
-						i.customer_id,
-						i.due_at
-					FROM invoices i
-					LEFT JOIN (
-						SELECT
-							(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-							SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-						FROM ledger_entries le
-						JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-						JOIN ledger_accounts a ON a.id = l.account_id
-						JOIN payment_events pe ON pe.id = le.source_id
-						WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-						GROUP BY 1
-					) s ON s.invoice_id_text = i.id::text
-					WHERE i.org_id = ?
-						AND i.status = 'FINALIZED'
-						AND i.voided_at IS NULL
-						AND i.currency = ?
-						AND GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) > 0
-						AND i.due_at IS NOT NULL
-						AND i.due_at < ?
-				) inv
-				ORDER BY customer_id, due_at ASC
-			) oo ON oo.customer_id = t.customer_id
-			LEFT JOIN invoice_public_tokens ipt ON ipt.invoice_id = (
-				SELECT id FROM invoices WHERE customer_id = c.id AND due_at = oo.due_at LIMIT 1
-			) AND ipt.revoked_at IS NULL
-			LEFT JOIN billing_operation_assignments boa 
-				ON boa.org_id = ? AND boa.entity_type = 'customer' AND boa.entity_id = c.id 
-				AND boa.status IN ('assigned', 'in_progress')
-			WHERE c.org_id = ?
-				AND t.outstanding >= 100000  -- High exposure threshold
-				AND boa.id IS NULL  -- No active assignment
-		)
-		SELECT * FROM (
-			SELECT * FROM risky_invoices
-			UNION ALL
-			SELECT * FROM risky_customers
-		) combined
-		ORDER BY risk_score DESC, days_overdue DESC
-		LIMIT ?`
-
-	type inboxRow struct {
-		EntityType   string         `gorm:"column:entity_type"`
-		EntityID     string         `gorm:"column:entity_id"`
-		EntityName   string         `gorm:"column:entity_name"`
-		RiskCategory string         `gorm:"column:risk_category"`
-		AmountDue    int64          `gorm:"column:amount_due"`
-		DueAt        sql.NullTime   `gorm:"column:due_at"`
-		DaysOverdue  float64        `gorm:"column:days_overdue"`
-		LastAttempt  sql.NullTime   `gorm:"column:last_attempt"`
-		TokenHash    sql.NullString `gorm:"column:token_hash"`
-		RiskScore    int            `gorm:"column:risk_score"`
-	}
-
-	var rows []inboxRow
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		now, now,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, orgID, currency, now,
-		now,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency, now,
-		orgID, orgID,
-		limit,
-	).Scan(&rows).Error; err != nil {
+	rows, err := s.repo.ListInboxItems(ctx, orgID, limit, s.clock.Now().UTC())
+	if err != nil {
 		return domain.InboxResponse{}, err
 	}
 
@@ -232,156 +76,14 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 		limit = 50
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.MyWorkResponse{}, err
 	}
 
 	now := s.clock.Now().UTC()
-
-		// Query assignments (source of truth for My Work)
-	// Joins with billing entities to get current state (optional, non-sorting)
-	query := `
-		SELECT
-			boa.id::text AS assignment_id,
-			boa.entity_type,
-			boa.entity_id::text AS entity_id,
-			boa.snapshot_metadata,
-			boa.assigned_at,
-			boa.status,
-			boa.last_action_at,
-			-- Current state from billing entities (optional)
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN COALESCE(i.invoice_number::text, i.id::text)
-				WHEN boa.entity_type = 'customer' THEN c.name
-			END AS entity_name,
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN c_inv.name
-				WHEN boa.entity_type = 'customer' THEN c.name
-			END AS customer_name,
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN c_inv.email
-				WHEN boa.entity_type = 'customer' THEN c.email
-			END AS customer_email,
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN i.invoice_number::text
-				ELSE NULL
-			END AS invoice_number,
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0)
-				WHEN boa.entity_type = 'customer' THEN t.outstanding
-			END AS current_amount_due,
-			CASE
-				WHEN boa.entity_type = 'invoice' AND i.due_at IS NOT NULL 
-					THEN EXTRACT(EPOCH FROM (? - i.due_at)) / 86400
-				WHEN boa.entity_type = 'customer' AND oo.due_at IS NOT NULL 
-					THEN EXTRACT(EPOCH FROM (? - oo.due_at)) / 86400
-			END AS current_days_overdue,
-			CASE
-				WHEN boa.entity_type = 'invoice' THEN ipt_inv.token_hash
-				WHEN boa.entity_type = 'customer' THEN ipt_cust.token_hash
-			END AS token_hash
-		FROM billing_operation_assignments boa
-		LEFT JOIN invoices i ON boa.entity_type = 'invoice' AND boa.entity_id = i.id
-		LEFT JOIN customers c ON boa.entity_type = 'customer' AND boa.entity_id = c.id
-		LEFT JOIN customers c_inv ON boa.entity_type = 'invoice' AND i.customer_id = c_inv.id
-		LEFT JOIN (
-			SELECT
-				(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-				SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-			FROM ledger_entries le
-			JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-			JOIN ledger_accounts a ON a.id = l.account_id
-			JOIN payment_events pe ON pe.id = le.source_id
-			WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-			GROUP BY 1
-		) s ON s.invoice_id_text = i.id::text
-		LEFT JOIN (
-			SELECT customer_id, SUM(outstanding) AS outstanding
-			FROM (
-				SELECT
-					i.customer_id,
-					GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding
-				FROM invoices i
-				LEFT JOIN (
-					SELECT
-						(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-						SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-					FROM ledger_entries le
-					JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-					JOIN ledger_accounts a ON a.id = l.account_id
-					JOIN payment_events pe ON pe.id = le.source_id
-					WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-					GROUP BY 1
-				) s ON s.invoice_id_text = i.id::text
-				WHERE i.org_id = ? AND i.status = 'FINALIZED' AND i.voided_at IS NULL AND i.currency = ?
-			) inv
-			WHERE outstanding > 0
-			GROUP BY customer_id
-		) t ON boa.entity_type = 'customer' AND t.customer_id = boa.entity_id
-		LEFT JOIN (
-			SELECT DISTINCT ON (customer_id)
-				customer_id, due_at
-			FROM (
-				SELECT i.customer_id, i.due_at
-				FROM invoices i
-				LEFT JOIN (
-					SELECT
-						(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-						SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-					FROM ledger_entries le
-					JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-					JOIN ledger_accounts a ON a.id = l.account_id
-					JOIN payment_events pe ON pe.id = le.source_id
-					WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-					GROUP BY 1
-				) s ON s.invoice_id_text = i.id::text
-				WHERE i.org_id = ? AND i.status = 'FINALIZED' AND i.voided_at IS NULL AND i.currency = ?
-					AND GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) > 0
-					AND i.due_at IS NOT NULL AND i.due_at < ?
-			) inv
-			ORDER BY customer_id, due_at ASC
-		) oo ON boa.entity_type = 'customer' AND oo.customer_id = boa.entity_id
-		LEFT JOIN invoice_public_tokens ipt_inv ON boa.entity_type = 'invoice' AND ipt_inv.invoice_id = i.id AND ipt_inv.revoked_at IS NULL
-		LEFT JOIN invoice_public_tokens ipt_cust ON boa.entity_type = 'customer' AND ipt_cust.invoice_id = (
-			SELECT id FROM invoices WHERE customer_id = c.id AND due_at = oo.due_at LIMIT 1
-		) AND ipt_cust.revoked_at IS NULL
-		WHERE boa.org_id = ?
-			AND boa.assigned_to = ?
-			AND boa.status IN ('assigned', 'in_progress')
-		ORDER BY boa.assigned_at ASC
-		LIMIT ?`
-
-	type myWorkRow struct {
-		AssignmentID       string          `gorm:"column:assignment_id"`
-		EntityType         string          `gorm:"column:entity_type"`
-		EntityID           string          `gorm:"column:entity_id"`
-		SnapshotMetadata   datatypes.JSON  `gorm:"column:snapshot_metadata"`
-		AssignedAt         time.Time       `gorm:"column:assigned_at"`
-		Status             string          `gorm:"column:status"`
-		LastActionAt       sql.NullTime    `gorm:"column:last_action_at"`
-		EntityName         sql.NullString  `gorm:"column:entity_name"`
-		CustomerName       sql.NullString  `gorm:"column:customer_name"`
-		CustomerEmail      sql.NullString  `gorm:"column:customer_email"`
-		InvoiceNumber      sql.NullString  `gorm:"column:invoice_number"`
-
-		CurrentAmountDue   sql.NullInt64   `gorm:"column:current_amount_due"`
-		CurrentDaysOverdue sql.NullFloat64 `gorm:"column:current_days_overdue"`
-		TokenHash          sql.NullString  `gorm:"column:token_hash"`
-	}
-
-	var rows []myWorkRow
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		now, now,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency, now,
-		orgID, userID,
-		limit,
-	).Scan(&rows).Error; err != nil {
+	rows, err := s.repo.ListMyWorkItems(ctx, orgID, userID, limit, now)
+	if err != nil {
 		return domain.MyWorkResponse{}, err
 	}
 
@@ -443,13 +145,13 @@ func (s *Service) GetMyWork(ctx context.Context, userID string, req domain.MyWor
 		}
 
 		items = append(items, domain.MyWorkItem{
-			AssignmentID:       row.AssignmentID,
-			EntityType:         row.EntityType,
-			EntityID:           row.EntityID,
-			EntityName:         entityName,
-			CustomerName:       row.CustomerName.String,
-			CustomerEmail:      row.CustomerEmail.String,
-			InvoiceNumber:      row.InvoiceNumber.String,
+			AssignmentID:  row.AssignmentID,
+			EntityType:    row.EntityType,
+			EntityID:      row.EntityID,
+			EntityName:    entityName,
+			CustomerName:  row.CustomerName.String,
+			CustomerEmail: row.CustomerEmail.String,
+			InvoiceNumber: row.InvoiceNumber.String,
 
 			AmountDueAtClaim:   amountDueAtClaim,
 			DaysOverdueAtClaim: daysOverdueAtClaim,
@@ -486,48 +188,13 @@ func (s *Service) GetRecentlyResolved(ctx context.Context, userID string, req do
 	now := s.clock.Now().UTC()
 	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.RecentlyResolvedResponse{}, err
 	}
 
-	query := `
-		SELECT
-			boa.id::text AS assignment_id,
-			boa.entity_type,
-			boa.entity_id::text AS entity_id,
-			boa.snapshot_metadata,
-			boa.status,
-			boa.resolved_at,
-			boa.resolved_by,
-			boa.release_reason,
-			boa.assigned_at
-		FROM billing_operation_assignments boa
-		WHERE boa.org_id = ?
-			AND boa.assigned_to = ?
-			AND boa.status IN ('resolved', 'released', 'escalated')
-			AND boa.resolved_at > ?
-		ORDER BY boa.resolved_at DESC
-		LIMIT ?`
-
-	type resolvedRow struct {
-		AssignmentID     string         `gorm:"column:assignment_id"`
-		EntityType       string         `gorm:"column:entity_type"`
-		EntityID         string         `gorm:"column:entity_id"`
-		SnapshotMetadata datatypes.JSON `gorm:"column:snapshot_metadata"`
-		Status           string         `gorm:"column:status"`
-		ResolvedAt       time.Time      `gorm:"column:resolved_at"`
-		ResolvedBy       sql.NullString `gorm:"column:resolved_by"`
-		ReleaseReason    sql.NullString `gorm:"column:release_reason"`
-		AssignedAt       time.Time      `gorm:"column:assigned_at"`
-	}
-
-	var rows []resolvedRow
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		orgID, userID, thirtyDaysAgo,
-		limit,
-	).Scan(&rows).Error; err != nil {
+	rows, err := s.repo.ListRecentlyResolvedItems(ctx, orgID, userID, limit, thirtyDaysAgo)
+	if err != nil {
 		return domain.RecentlyResolvedResponse{}, err
 	}
 
@@ -595,46 +262,13 @@ func (s *Service) GetTeamView(ctx context.Context, req domain.TeamViewRequest) (
 		return domain.TeamViewResponse{}, domain.ErrInvalidOrganization
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.TeamViewResponse{}, err
 	}
 
-	now := s.clock.Now().UTC()
-
-	// Aggregate active assignments per user
-	query := `
-		SELECT
-			boa.assigned_to AS user_id,
-			COUNT(*) AS active_assignments,
-			AVG(EXTRACT(EPOCH FROM (? - boa.assigned_at)) / 60)::int AS avg_assignment_age_minutes,
-			SUM(
-				CASE
-					WHEN boa.snapshot_metadata->>'amount_due' IS NOT NULL 
-						THEN (boa.snapshot_metadata->>'amount_due')::numeric::bigint
-					ELSE 0
-				END
-			) AS total_exposure_owned,
-			SUM(CASE WHEN boa.status = 'escalated' THEN 1 ELSE 0 END) AS escalation_count
-		FROM billing_operation_assignments boa
-		WHERE boa.org_id = ?
-			AND boa.status IN ('assigned', 'in_progress', 'escalated')
-		GROUP BY boa.assigned_to
-		ORDER BY boa.assigned_to ASC`
-
-	type teamRow struct {
-		UserID                  string `gorm:"column:user_id"`
-		ActiveAssignments       int    `gorm:"column:active_assignments"`
-		AvgAssignmentAgeMinutes int    `gorm:"column:avg_assignment_age_minutes"`
-		TotalExposureOwned      int64  `gorm:"column:total_exposure_owned"`
-		EscalationCount         int    `gorm:"column:escalation_count"`
-	}
-
-	var rows []teamRow
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		now, orgID,
-	).Scan(&rows).Error; err != nil {
+	rows, err := s.repo.GetTeamViewStats(ctx, orgID, s.clock.Now().UTC())
+	if err != nil {
 		return domain.TeamViewResponse{}, err
 	}
 
@@ -710,34 +344,13 @@ func (s *Service) GetInvoicePayments(ctx context.Context, invoiceID string) (dom
 		return domain.InvoicePaymentsResponse{}, domain.ErrInvalidOrganization
 	}
 
-	// Query payment events linked to this invoice via metadata
-	// Note: amount is not a column in payment_events, we must extract from payload or use what we can
-	// But `payment_events` struct has `Provider`, `EventType`, etc.
-	// We scan into a struct that captures payload
-	query := `
-		SELECT
-			pe.provider_payment_id,
-			pe.provider,
-			pe.event_type,
-			pe.received_at,
-			pe.currency,
-			pe.payload
-		FROM payment_events pe
-		WHERE pe.org_id = ?
-		  AND pe.payload -> 'data' -> 'object' -> 'metadata' ->> 'invoice_id' = ?
-		ORDER BY pe.received_at DESC`
-
-	type paymentRow struct {
-		ProviderPaymentID string         `gorm:"column:provider_payment_id"`
-		Provider          string         `gorm:"column:provider"`
-		EventType         string         `gorm:"column:event_type"`
-		ReceivedAt        time.Time      `gorm:"column:received_at"`
-		Currency          string         `gorm:"column:currency"`
-		Payload           datatypes.JSON `gorm:"column:payload"`
+	invID, err := parseSnowflakeID(invoiceID)
+	if err != nil {
+		return domain.InvoicePaymentsResponse{}, err
 	}
 
-	var rows []paymentRow
-	if err := s.db.WithContext(ctx).Raw(query, orgID, invoiceID).Scan(&rows).Error; err != nil {
+	rows, err := s.repo.ListInvoicePayments(ctx, orgID, invID)
+	if err != nil {
 		return domain.InvoicePaymentsResponse{}, err
 	}
 
@@ -770,7 +383,7 @@ func (s *Service) GetInvoicePayments(ctx context.Context, invoiceID string) (dom
 		// Extract card details (Stripe specific)
 		// charges.data[0].payment_method_details.card or payment_method_details.card
 		var method, brand, last4 string
-		
+
 		var paymentMethodDetails map[string]interface{}
 
 		// Check top-level payment_method_details (Charge object)
@@ -802,15 +415,15 @@ func (s *Service) GetInvoicePayments(ctx context.Context, invoiceID string) (dom
 		}
 
 		payments = append(payments, domain.PaymentDetail{
-			PaymentID:   row.ProviderPaymentID,
-			Amount:      amount,
-			Currency:    row.Currency,
-			OccurredAt:  row.ReceivedAt.UTC(),
-			Provider:    row.Provider,
-			Method:      method,
-			CardBrand:   brand,
-			CardLast4:   last4,
-			Status:      status,
+			PaymentID:  row.ProviderPaymentID,
+			Amount:     amount,
+			Currency:   row.Currency,
+			OccurredAt: row.ReceivedAt.UTC(),
+			Provider:   row.Provider,
+			Method:     method,
+			CardBrand:  brand,
+			CardLast4:  last4,
+			Status:     status,
 		})
 	}
 
@@ -824,114 +437,20 @@ func (s *Service) GetExposureAnalysis(ctx context.Context, req domain.ExposureAn
 		return domain.ExposureAnalysisResponse{}, domain.ErrInvalidOrganization
 	}
 
-	currency, err := s.loadOrgCurrency(ctx, orgID)
+	currency, err := s.repo.FetchOrgCurrency(ctx, orgID)
 	if err != nil {
 		return domain.ExposureAnalysisResponse{}, err
 	}
 
 	now := s.clock.Now().UTC()
 
-	// 1. Calculate Total Exposure and Aging Buckets
-	// We aggregate all finalized, non-voided, non-paid invoices
-	query := `
-		SELECT
-			COALESCE(SUM(outstanding), 0) AS total_exposure,
-			COALESCE(SUM(CASE WHEN days_overdue <= 0 THEN outstanding ELSE 0 END), 0) AS current_amount,
-			COALESCE(SUM(CASE WHEN days_overdue > 0 AND days_overdue <= 30 THEN outstanding ELSE 0 END), 0) AS bucket_0_30,
-			COALESCE(SUM(CASE WHEN days_overdue > 30 AND days_overdue <= 60 THEN outstanding ELSE 0 END), 0) AS bucket_31_60,
-			COALESCE(SUM(CASE WHEN days_overdue > 60 AND days_overdue <= 90 THEN outstanding ELSE 0 END), 0) AS bucket_61_90,
-			COALESCE(SUM(CASE WHEN days_overdue > 90 THEN outstanding ELSE 0 END), 0) AS bucket_90_plus,
-			COUNT(CASE WHEN days_overdue > 0 THEN 1 END) AS overdue_count
-		FROM (
-			SELECT
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding,
-				EXTRACT(EPOCH FROM (? - i.due_at)) / 86400 AS days_overdue
-			FROM invoices i
-			LEFT JOIN (
-				SELECT
-					(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-					SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-				FROM ledger_entries le
-				JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-				JOIN ledger_accounts a ON a.id = l.account_id
-				JOIN payment_events pe ON pe.id = le.source_id
-				WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-				GROUP BY 1
-			) s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ?
-				AND i.status = 'FINALIZED'
-				AND i.voided_at IS NULL
-				AND i.paid_at IS NULL
-				AND i.currency = ?
-				AND i.due_at IS NOT NULL
-		) inv
-		WHERE outstanding > 0`
-
-	var stats struct {
-		TotalExposure int64
-		CurrentAmount int64
-		Bucket0To30   int64
-		Bucket31To60  int64
-		Bucket61To90  int64
-		Bucket90Plus  int64
-		OverdueCount  int
-	}
-
-	if err := s.db.WithContext(ctx).Raw(
-		query,
-		now,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency,
-	).Scan(&stats).Error; err != nil {
+	stats, err := s.repo.GetExposureStats(ctx, orgID, now)
+	if err != nil {
 		return domain.ExposureAnalysisResponse{}, err
 	}
 
-	// 2. Identify High Exposure Customers (Top 5)
-	topCustomersQuery := `
-		SELECT
-			c.name AS entity_name,
-			SUM(outstanding) AS amount_due,
-			(SUM(outstanding) / 10000)::int AS risk_score,
-			MAX(days_overdue) AS days_overdue
-		FROM (
-			SELECT
-				i.customer_id,
-				GREATEST(i.subtotal_amount - COALESCE(s.settled_amount, 0), 0) AS outstanding,
-				(EXTRACT(EPOCH FROM (? - i.due_at)) / 86400)::int AS days_overdue
-			FROM invoices i
-			LEFT JOIN (
-				SELECT
-					(pe.payload #>> '{data,object,metadata,invoice_id}') AS invoice_id_text,
-					SUM(CASE l.direction WHEN 'credit' THEN l.amount ELSE -l.amount END) AS settled_amount
-				FROM ledger_entries le
-				JOIN ledger_entry_lines l ON l.ledger_entry_id = le.id
-				JOIN ledger_accounts a ON a.id = l.account_id
-				JOIN payment_events pe ON pe.id = le.source_id
-				WHERE le.org_id = ? AND le.currency = ? AND le.source_type = ? AND a.code = ?
-				GROUP BY 1
-			) s ON s.invoice_id_text = i.id::text
-			WHERE i.org_id = ? AND i.status = 'FINALIZED' AND i.voided_at IS NULL AND i.currency = ?
-		) inv
-		JOIN customers c ON c.id = inv.customer_id
-		WHERE outstanding > 0
-		GROUP BY c.id, c.name
-		ORDER BY amount_due DESC
-		LIMIT 5`
-
-	type topCustRow struct {
-		EntityName  string `gorm:"column:entity_name"`
-		AmountDue   int64  `gorm:"column:amount_due"`
-		RiskScore   int    `gorm:"column:risk_score"`
-		DaysOverdue int    `gorm:"column:days_overdue"`
-	}
-
-	var topRows []topCustRow
-	if err := s.db.WithContext(ctx).Raw(
-		topCustomersQuery,
-		now,
-		orgID, currency, string(ledgerdomain.SourceTypePayment), string(ledgerdomain.AccountCodeAccountsReceivable),
-		orgID, currency,
-	).Scan(&topRows).Error; err != nil {
+	topRows, err := s.repo.ListTopHighExposure(ctx, orgID, now)
+	if err != nil {
 		return domain.ExposureAnalysisResponse{}, err
 	}
 

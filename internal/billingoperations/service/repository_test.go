@@ -9,6 +9,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/glebarez/sqlite"
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
+	"github.com/smallbiznis/railzway/internal/billingoperations/repository"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/datatypes"
@@ -35,7 +36,7 @@ func TestFinOpsSnapshotRepository(t *testing.T) {
 		updated_at TIMESTAMP NOT NULL
 	)`)
 
-	repo := NewFinOpsSnapshotRepository(db)
+	repo := repository.NewFinOpsSnapshotRepository(db)
 	node, _ := snowflake.NewNode(1)
 	orgID := node.Generate()
 	userID := "user_repo_test"

@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/glebarez/sqlite"
 	"github.com/smallbiznis/railzway/internal/billingoperations/domain"
+	"github.com/smallbiznis/railzway/internal/billingoperations/repository"
 	"github.com/smallbiznis/railzway/internal/clock"
 	"github.com/smallbiznis/railzway/internal/config"
 	"github.com/smallbiznis/railzway/internal/orgcontext"
@@ -34,12 +35,12 @@ func TestServiceReadAPI(t *testing.T) {
 		updated_at TIMESTAMP NOT NULL
 	)`)
 
-	repo := NewFinOpsSnapshotRepository(db)
+	repo := repository.NewRepository(db)
 	svc := &Service{
 		db:           db,
 		log:          zaptest.NewLogger(t),
 		clock:        &clock.SystemClock{},
-		snapshotRepo: repo,
+		repo:         repo,
 		billingCfg:   &config.BillingConfigHolder{},
 	}
 
