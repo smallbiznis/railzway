@@ -23,6 +23,15 @@ type updateProductRequest struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
+// @Summary      Create Product
+// @Description  Create a new product
+// @Tags         products
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        request body createProductRequest true "Create Product Request"
+// @Success      200  {object}  productdomain.Product
+// @Router       /products [post]
 func (s *Server) CreateProduct(c *gin.Context) {
 	var req createProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -55,6 +64,18 @@ func (s *Server) CreateProduct(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      List Products
+// @Description  List available products
+// @Tags         products
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        name     query     string  false  "Name"
+// @Param        active   query     bool    false  "Active"
+// @Param        sort_by  query     string  false  "Sort By"
+// @Param        order_by query     string  false  "Order By"
+// @Success      200  {object}  []productdomain.Product
+// @Router       /products [get]
 func (s *Server) ListProducts(c *gin.Context) {
 	var query struct {
 		Name    string `form:"name"`
@@ -87,6 +108,15 @@ func (s *Server) ListProducts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      Get Product
+// @Description  Get product by ID
+// @Tags         products
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Product ID"
+// @Success      200  {object}  productdomain.Product
+// @Router       /products/{id} [get]
 func (s *Server) GetProductByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	resp, err := s.productSvc.Get(c.Request.Context(), id)
@@ -98,6 +128,16 @@ func (s *Server) GetProductByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      Update Product
+// @Description  Update product details
+// @Tags         products
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id       path      string                true  "Product ID"
+// @Param        request  body      updateProductRequest  true  "Update Product Request"
+// @Success      200  {object}  productdomain.Product
+// @Router       /products/{id} [patch]
 func (s *Server) UpdateProduct(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 
@@ -132,6 +172,15 @@ func (s *Server) UpdateProduct(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      Archive Product
+// @Description  Archive a product
+// @Tags         products
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Product ID"
+// @Success      200  {object}  productdomain.Product
+// @Router       /products/{id}/archive [post]
 func (s *Server) ArchiveProduct(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	resp, err := s.productSvc.Archive(c.Request.Context(), id)

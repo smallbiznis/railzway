@@ -31,6 +31,15 @@ type createPriceRequest struct {
 	Metadata             map[string]any              `json:"metadata"`
 }
 
+// @Summary      Create Price
+// @Description  Create a new price
+// @Tags         prices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        request body createPriceRequest true "Create Price Request"
+// @Success      200  {object}  pricedomain.Price
+// @Router       /prices [post]
 func (s *Server) CreatePrice(c *gin.Context) {
 	var req createPriceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,6 +88,14 @@ func (s *Server) CreatePrice(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      List Prices
+// @Description  List available prices
+// @Tags         prices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Success      200  {object}  []pricedomain.Price
+// @Router       /prices [get]
 func (s *Server) ListPrices(c *gin.Context) {
 	resp, err := s.priceSvc.List(c.Request.Context())
 	if err != nil {
@@ -89,6 +106,15 @@ func (s *Server) ListPrices(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      Get Price
+// @Description  Get price by ID
+// @Tags         prices
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Price ID"
+// @Success      200  {object}  pricedomain.Price
+// @Router       /prices/{id} [get]
 func (s *Server) GetPriceByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	resp, err := s.priceSvc.Get(c.Request.Context(), id)

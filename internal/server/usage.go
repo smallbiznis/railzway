@@ -8,6 +8,15 @@ import (
 	usagedomain "github.com/smallbiznis/railzway/internal/usage/domain"
 )
 
+// @Summary      Ingest Usage
+// @Description  Ingest usage event
+// @Tags         usage
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        request body usagedomain.CreateIngestRequest true "Ingest Usage Request"
+// @Success      200  {object}  usagedomain.Usage
+// @Router       /usage [post]
 func (s *Server) IngestUsage(c *gin.Context) {
 
 	var req usagedomain.CreateIngestRequest

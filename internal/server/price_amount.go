@@ -8,6 +8,15 @@ import (
 	priceamountdomain "github.com/smallbiznis/railzway/internal/priceamount/domain"
 )
 
+// @Summary      Create Price Amount
+// @Description  Create a new price amount
+// @Tags         price_amounts
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        request body priceamountdomain.CreateRequest true "Create Price Amount Request"
+// @Success      200  {object}  priceamountdomain.PriceAmount
+// @Router       /price_amounts [post]
 func (s *Server) CreatePriceAmount(c *gin.Context) {
 	var req priceamountdomain.CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,6 +50,15 @@ func (s *Server) CreatePriceAmount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      List Price Amounts
+// @Description  List available price amounts
+// @Tags         price_amounts
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        price_id query string false "Price ID"
+// @Success      200  {object}  []priceamountdomain.PriceAmount
+// @Router       /price_amounts [get]
 func (s *Server) ListPriceAmounts(c *gin.Context) {
 
 	var req priceamountdomain.ListPriceAmountRequest
@@ -58,6 +76,15 @@ func (s *Server) ListPriceAmounts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// @Summary      Get Price Amount
+// @Description  Get price amount by ID
+// @Tags         price_amounts
+// @Accept       json
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        id   path      string  true  "Price Amount ID"
+// @Success      200  {object}  priceamountdomain.PriceAmount
+// @Router       /price_amounts/{id} [get]
 func (s *Server) GetPriceAmountByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 
