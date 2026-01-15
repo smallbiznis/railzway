@@ -365,7 +365,7 @@ CLOUD_METRICS_ENABLED=false
 
 ## Documentation
 
-📚 Documentation source: `./docs/docs/index.md`
+📚 Documentation source: `./docs/index.md`
 
 > **Railzway aims to make billing boring, predictable, and explainable**
 > so teams can focus on building their products.
