@@ -12,6 +12,7 @@ import (
 	"github.com/smallbiznis/railzway/internal/billingdashboard"
 	"github.com/smallbiznis/railzway/internal/billingoperations"
 	"github.com/smallbiznis/railzway/internal/billingoverview"
+	"github.com/smallbiznis/railzway/internal/clock"
 	"github.com/smallbiznis/railzway/internal/cloudmetrics"
 	"github.com/smallbiznis/railzway/internal/config"
 	"github.com/smallbiznis/railzway/internal/customer"
@@ -49,6 +50,7 @@ func main() {
 		observability.Module,
 		fx.Provide(RegisterSnowflake),
 		db.Module,
+		clock.Module,
 
 		// Admin needs almost everything
 		authorization.Module,
