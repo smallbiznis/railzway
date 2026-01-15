@@ -16,7 +16,8 @@ func (s *Server) RegisterPublicRoutes() {
 
 	public.GET("/orgs/:org_id/invoices/:invoice_token", s.GetPublicInvoice)
 	public.GET("/orgs/:org_id/invoices/:invoice_token/status", s.GetPublicInvoiceStatus)
-	public.POST("/orgs/:org_id/invoices/:invoice_token/payment-intent", s.CreatePublicInvoicePaymentIntent)
+	public.POST("/orgs/:org_id/invoices/:invoice_token/checkout-session", s.CreatePublicCheckoutSession)
+	public.POST("/orgs/:org_id/invoices/:invoice_token/process-payment", s.ProcessPublicPayment)
 	public.GET("/orgs/:org_id/payment_methods", s.GetPublicPaymentMethods)
 }
 
@@ -60,7 +61,7 @@ func (s *Server) GetPublicInvoiceStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
-func (s *Server) CreatePublicInvoicePaymentIntent(c *gin.Context) {
+func (s *Server) CreatePublicCheckoutSession(c *gin.Context) {
 	orgID, token, ok := s.publicInvoiceParams(c)
 	if !ok {
 		s.respondPublicInvoiceUnavailable(c)
@@ -71,7 +72,46 @@ func (s *Server) CreatePublicInvoicePaymentIntent(c *gin.Context) {
 		return
 	}
 
-	resp, err := s.publicInvoiceSvc.CreateOrReusePaymentIntent(c.Request.Context(), orgID, token)
+	provider := c.Query("provider")
+	// default to stripe for backward compatibility logic if needed, but updated frontend sends provider
+	if provider == "" {
+		provider = "stripe"
+	}
+
+	resp, err := s.publicInvoiceSvc.CreateCheckoutSession(c.Request.Context(), orgID, token, provider)
+	if err != nil {
+		s.handlePublicInvoiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Server) ProcessPublicPayment(c *gin.Context) {
+	orgID, token, ok := s.publicInvoiceParams(c)
+	if !ok {
+		s.respondPublicInvoiceUnavailable(c)
+		return
+	}
+	// Reuse limiter or create new one
+	if !s.publicPaymentIntentLimiter.Allow(publicInvoiceRateKey(orgID, token, c.ClientIP())) {
+		AbortWithError(c, ErrRateLimited)
+		return
+	}
+
+	var payload map[string]any
+	if err := c.BindJSON(&payload); err != nil {
+		AbortWithError(c, ErrInvalidRequest)
+		return
+	}
+
+	provider, _ := payload["provider"].(string)
+	if provider == "" {
+		AbortWithError(c, ErrInvalidRequest)
+		return
+	}
+
+	resp, err := s.publicInvoiceSvc.ProcessCheckoutSession(c.Request.Context(), orgID, token, provider, payload)
 	if err != nil {
 		s.handlePublicInvoiceError(c, err)
 		return

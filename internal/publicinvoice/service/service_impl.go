@@ -114,11 +114,12 @@ func (s *Service) GetInvoicePublicStatus(
 	return publicInvoiceStatus(row), nil
 }
 
-func (s *Service) CreateOrReusePaymentIntent(
+func (s *Service) CreateCheckoutSession(
 	ctx context.Context,
 	orgID snowflake.ID,
 	token string,
-) (*publicinvoicedomain.PaymentIntentResponse, error) {
+	provider string,
+) (*publicinvoicedomain.CheckoutSessionResponse, error) {
 	row, err := s.loadPublicInvoice(ctx, orgID, token)
 	if err != nil {
 		return nil, err
@@ -141,6 +142,103 @@ func (s *Service) CreateOrReusePaymentIntent(
 		return nil, publicinvoicedomain.ErrInvoiceUnavailable
 	}
 
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "stripe" // Default fallback
+	}
+
+	switch provider {
+	case "stripe":
+		return s.createStripeSession(ctx, row, amountToCharge)
+	case "adyen":
+		return s.createAdyenSession(ctx, row, amountToCharge, token)
+	case "braintree":
+		return s.createBraintreeSession(ctx, row, amountToCharge)
+	default:
+		return nil, paymentdomain.ErrInvalidProvider
+	}
+}
+
+func (s *Service) ProcessCheckoutSession(
+	ctx context.Context,
+	orgID snowflake.ID,
+	token string,
+	provider string,
+	payload map[string]any,
+) (*publicinvoicedomain.ProcessSessionResponse, error) {
+	row, err := s.loadPublicInvoice(ctx, orgID, token)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil || !isInvoiceViewable(row.Status) {
+		return nil, publicinvoicedomain.ErrInvoiceUnavailable
+	}
+
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	switch provider {
+	case "braintree":
+		return s.processBraintreePayment(ctx, row, payload)
+	default:
+		return nil, errors.New("provider_does_not_require_manual_processing")
+	}
+}
+
+func (s *Service) processBraintreePayment(
+	ctx context.Context,
+	row *publicinvoicedomain.InvoiceRecord,
+	payload map[string]any,
+) (*publicinvoicedomain.ProcessSessionResponse, error) {
+	nonce, ok := payload["nonce"].(string)
+	if !ok || nonce == "" {
+		return nil, errors.New("missing_nonce")
+	}
+
+	amount, err := s.resolveInvoiceAmount(ctx, row)
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := s.providerRepo.FindConfig(ctx, s.db, row.OrgID.Int64(), "braintree")
+	if err != nil || config == nil || !config.IsActive {
+		return nil, publicinvoicedomain.ErrInvoiceUnavailable
+	}
+
+	decrypted, err := s.decryptProviderConfig(config.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	merchantID := readConfigString(decrypted, "merchant_id")
+	publicKey := readConfigString(decrypted, "public_key")
+	privateKey := readConfigString(decrypted, "private_key")
+
+	client := newBraintreeClient(merchantID, publicKey, privateKey)
+	
+	// Create transaction
+	txID, err := client.createTransaction(ctx, nonce, amount)
+	if err != nil {
+		return &publicinvoicedomain.ProcessSessionResponse{
+			Success:        false,
+			FailureMessage: err.Error(),
+		}, nil
+	}
+
+	if err := s.updateInvoiceMetadata(ctx, row, "braintree", txID, merchantID); err != nil {
+		// Log error but payment succeeded
+	}
+
+	return &publicinvoicedomain.ProcessSessionResponse{
+		Success:   true,
+		PaymentID: txID,
+		Status:    "succeeded",
+	}, nil
+}
+
+func (s *Service) createStripeSession(
+	ctx context.Context,
+	row *publicinvoicedomain.InvoiceRecord,
+	amount int64,
+) (*publicinvoicedomain.CheckoutSessionResponse, error) {
 	cfg, err := s.loadStripeConfig(ctx, row.OrgID)
 	if err != nil {
 		if errors.Is(err, publicinvoicedomain.ErrInvoiceUnavailable) {
@@ -154,7 +252,7 @@ func (s *Service) CreateOrReusePaymentIntent(
 	var intent stripePaymentIntent
 
 	if intentID == "" {
-		intent, err = client.createPaymentIntent(ctx, row, amountToCharge)
+		intent, err = client.createPaymentIntent(ctx, row, amount)
 		if err != nil {
 			return nil, err
 		}
@@ -167,13 +265,13 @@ func (s *Service) CreateOrReusePaymentIntent(
 		case "succeeded":
 			return nil, publicinvoicedomain.ErrInvoiceUnavailable
 		case "canceled":
-			intent, err = client.createPaymentIntent(ctx, row, amountToCharge)
+			intent, err = client.createPaymentIntent(ctx, row, amount)
 			if err != nil {
 				return nil, err
 			}
 		default:
-			if intent.Amount != amountToCharge {
-				intent, err = client.updatePaymentIntentAmount(ctx, intent.ID, amountToCharge)
+			if intent.Amount != amount {
+				intent, err = client.updatePaymentIntentAmount(ctx, intent.ID, amount)
 				if err != nil {
 					return nil, err
 				}
@@ -181,11 +279,129 @@ func (s *Service) CreateOrReusePaymentIntent(
 		}
 	}
 
-	if err := s.updateInvoiceMetadata(ctx, row, intent.ID, cfg.accountID); err != nil {
+	if err := s.updateInvoiceMetadata(ctx, row, "stripe", intent.ID, cfg.accountID); err != nil {
 		return nil, err
 	}
 
-	return &publicinvoicedomain.PaymentIntentResponse{ClientSecret: intent.ClientSecret}, nil
+	pubKey := readMetadataString(row.Metadata, "stripe_publishable_key") // Optimization: store pk?
+	// Or just reload it?
+	if pubKey == "" {
+		pubKey, _ = s.loadStripePublishableKey(ctx, row.OrgID)
+	}
+
+	return &publicinvoicedomain.CheckoutSessionResponse{
+		Provider:     "stripe",
+		SessionToken: intent.ClientSecret,
+		PublicConfig: map[string]any{
+			"publishable_key": pubKey,
+			"account_id":      cfg.accountID,
+		},
+		Metadata: map[string]any{
+			"payment_intent_id": intent.ID,
+		},
+	}, nil
+}
+
+func (s *Service) createAdyenSession(
+	ctx context.Context,
+	row *publicinvoicedomain.InvoiceRecord,
+	amount int64,
+	token string,
+) (*publicinvoicedomain.CheckoutSessionResponse, error) {
+	config, err := s.providerRepo.FindConfig(ctx, s.db, row.OrgID.Int64(), "adyen")
+	if err != nil || config == nil || !config.IsActive {
+		return nil, publicinvoicedomain.ErrInvoiceUnavailable
+	}
+
+	decrypted, err := s.decryptProviderConfig(config.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	apiKey := readConfigString(decrypted, "api_key")
+	merchantAccount := readConfigString(decrypted, "merchant_account")
+	environment := readConfigString(decrypted, "environment")
+	clientKey := readConfigString(decrypted, "client_key") // Public key for frontend
+
+	if apiKey == "" || merchantAccount == "" {
+		return nil, paymentdomain.ErrInvalidConfig
+	}
+
+	client := newAdyenClient(apiKey, merchantAccount, environment)
+
+	// Return URL should typically be the invoice page itself
+	// We might need to construct it from a known base URL or pass it in.
+	// For now, assuming a frontend route convention: /invoices/{token}
+	returnURL := "https://valora.smallbiznis.com/invoices/" + token // TODO: Make configurable
+
+	resp, err := client.createSession(ctx, row, amount, returnURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.updateInvoiceMetadata(ctx, row, "adyen", resp.ID, merchantAccount); err != nil {
+		return nil, err
+	}
+
+	return &publicinvoicedomain.CheckoutSessionResponse{
+		Provider:     "adyen",
+		SessionToken: resp.SessionData,
+		PublicConfig: map[string]any{
+			"client_key":       clientKey,
+			"environment":      environment,
+			"merchant_account": merchantAccount,
+		},
+		Metadata: map[string]any{
+			"session_id": resp.ID,
+		},
+	}, nil
+}
+
+func (s *Service) createBraintreeSession(
+	ctx context.Context,
+	row *publicinvoicedomain.InvoiceRecord,
+	amount int64,
+) (*publicinvoicedomain.CheckoutSessionResponse, error) {
+	config, err := s.providerRepo.FindConfig(ctx, s.db, row.OrgID.Int64(), "braintree")
+	if err != nil || config == nil || !config.IsActive {
+		return nil, publicinvoicedomain.ErrInvoiceUnavailable
+	}
+
+	decrypted, err := s.decryptProviderConfig(config.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	merchantID := readConfigString(decrypted, "merchant_id")
+	publicKey := readConfigString(decrypted, "public_key")
+	privateKey := readConfigString(decrypted, "private_key")
+
+	if merchantID == "" || publicKey == "" || privateKey == "" {
+		return nil, paymentdomain.ErrInvalidConfig
+	}
+
+	client := newBraintreeClient(merchantID, publicKey, privateKey)
+
+	token, err := client.generateClientToken(ctx, row.CustomerID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	// Braintree doesn't have a specific "session ID" at this stage, the token is enough.
+	if err := s.updateInvoiceMetadata(ctx, row, "braintree", "", merchantID); err != nil {
+		return nil, err
+	}
+
+	return &publicinvoicedomain.CheckoutSessionResponse{
+		Provider:     "braintree",
+		SessionToken: token, // This is the 'client_token' used by drop-in UI
+		PublicConfig: map[string]any{
+			// Braintree frontend usually just needs the client token
+		},
+		Metadata: map[string]any{
+			"amount": amount,
+		},
+	}, nil
 }
 
 func (s *Service) ListPaymentMethods(
@@ -403,7 +619,8 @@ func (s *Service) loadStripePublishableKey(ctx context.Context, orgID snowflake.
 func (s *Service) updateInvoiceMetadata(
 	ctx context.Context,
 	invoice *publicinvoicedomain.InvoiceRecord,
-	paymentIntentID string,
+	provider string,
+	paymentID string,
 	accountID string,
 ) error {
 	if invoice == nil {
@@ -413,10 +630,18 @@ func (s *Service) updateInvoiceMetadata(
 	if metadata == nil {
 		metadata = datatypes.JSONMap{}
 	}
-	metadata["payment_provider"] = "stripe"
-	metadata["stripe_payment_intent_id"] = paymentIntentID
-	if accountID != "" {
-		metadata["stripe_account_id"] = accountID
+	metadata["payment_provider"] = provider
+
+	switch provider {
+	case "stripe":
+		metadata["stripe_payment_intent_id"] = paymentID
+		if accountID != "" {
+			metadata["stripe_account_id"] = accountID
+		}
+	case "adyen":
+		metadata["adyen_psp_reference"] = paymentID
+	case "braintree":
+		metadata["braintree_transaction_id"] = paymentID
 	}
 
 	return s.repo.UpdateInvoiceMetadata(ctx, s.db, invoice.OrgID, invoice.ID, metadata, time.Now().UTC())

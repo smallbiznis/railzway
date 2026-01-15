@@ -10,8 +10,16 @@ import (
 type Service interface {
 	GetInvoiceForPublicView(ctx context.Context, orgID snowflake.ID, token string) (*PublicInvoiceResponse, error)
 	GetInvoicePublicStatus(ctx context.Context, orgID snowflake.ID, token string) (PublicInvoiceStatus, error)
-	CreateOrReusePaymentIntent(ctx context.Context, orgID snowflake.ID, token string) (*PaymentIntentResponse, error)
+	CreateCheckoutSession(ctx context.Context, orgID snowflake.ID, token string, provider string) (*CheckoutSessionResponse, error)
+	ProcessCheckoutSession(ctx context.Context, orgID snowflake.ID, token string, provider string, payload map[string]any) (*ProcessSessionResponse, error)
 	ListPaymentMethods(ctx context.Context, orgID snowflake.ID) ([]PublicPaymentMethod, error)
+}
+
+type ProcessSessionResponse struct {
+	Success        bool   `json:"success"`
+	PaymentID      string `json:"payment_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+	FailureMessage string `json:"failure_message,omitempty"`
 }
 
 type PublicInvoiceStatus string
@@ -63,8 +71,11 @@ type PublicPaymentMethod struct {
 	PublishableKey      string `json:"publishable_key,omitempty"`
 }
 
-type PaymentIntentResponse struct {
-	ClientSecret string `json:"client_secret"`
+type CheckoutSessionResponse struct {
+	Provider     string         `json:"provider"`
+	SessionToken string         `json:"session_token"`
+	PublicConfig map[string]any `json:"public_config,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 var (

@@ -16,11 +16,14 @@ import {
 } from '@/components/ui/drawer'
 import { useIntl, type IntlShape } from 'react-intl'
 
+import { AdyenCheckout } from './AdyenCheckout'
+import { BraintreeCheckout } from './BraintreeCheckout'
+
 type FlowState =
   | 'invoice'
   | 'payment_summary'
   | 'select_method'
-  | 'card_form'
+  | 'payment_form' // Renamed from card_form
   | 'processing'
   | 'success'
   | 'failed'
@@ -63,8 +66,11 @@ type Invoice = {
   total: number
 }
 
-type PaymentIntentResponse = {
-  client_secret: string
+type CheckoutSessionResponse = {
+  provider: string
+  session_token: string
+  public_config?: any
+  metadata?: any
 }
 
 type PublicInvoiceResponse = {
@@ -183,7 +189,7 @@ export function InvoiceFlow({
     title: string
     message: string
   } | null>(null)
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
+  const [checkoutSession, setCheckoutSession] = useState<CheckoutSessionResponse | null>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -297,12 +303,12 @@ export function InvoiceFlow({
     return loadStripe(stripeKey)
   }, [stripeKey])
 
-  async function createPaymentIntent() {
+  async function createCheckoutSession(provider: string) {
     if (!invoiceToken || !invoiceOrgId) {
       throw new Error('Missing invoice token')
     }
     const response = await fetch(
-      `/public/orgs/${invoiceOrgId}/invoices/${invoiceToken}/payment-intent`,
+      `/public/orgs/${invoiceOrgId}/invoices/${invoiceToken}/checkout-session?provider=${provider}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -318,8 +324,8 @@ export function InvoiceFlow({
       }
       throw new Error('Unable to start payment')
     }
-    const data = (await response.json()) as PaymentIntentResponse
-    setClientSecret(data.client_secret)
+    const data = (await response.json()) as CheckoutSessionResponse
+    setCheckoutSession(data)
   }
 
   async function beginPaymentFlow(method: PublicPaymentMethod | null) {
@@ -332,7 +338,8 @@ export function InvoiceFlow({
       )
       return
     }
-    if (method.provider !== 'stripe' || method.type !== 'card') {
+    // Removed strict check for Stripe/Card. Now validating against supported providers.
+    if (!['stripe', 'adyen', 'braintree'].includes(method.provider)) {
       setErrorMessage(
         intl.formatMessage({
           id: 'payment.methodUnavailable',
@@ -341,11 +348,12 @@ export function InvoiceFlow({
       )
       return
     }
+
     setErrorMessage(null)
     setIsBusy(true)
     try {
-      await createPaymentIntent()
-      setFlowState('card_form')
+      await createCheckoutSession(method.provider)
+      setFlowState('payment_form')
     } catch (error) {
       setErrorMessage(
         intl.formatMessage({
@@ -363,31 +371,63 @@ export function InvoiceFlow({
     if (isBusy) return
     setPaymentMethod(method)
     setErrorMessage(null)
-    if (method.provider === 'stripe' && method.type === 'card') {
-      setClientSecret(null)
-      void beginPaymentFlow(method)
-    }
+    // Removed auto-start for Stripe to keep inconsistent flow or maybe keep it?
+    // Let's require explicit continue for all for consistency, or auto-start if it's the only one.
+    // If user clicks a method in the list, we just select it.
+    // Logic below was: if Stripe, auto start. Let's disable auto-start to avoid accidents.
   }
 
   async function handleChooseMethod() {
-    setClientSecret(null)
+    setCheckoutSession(null)
     await beginPaymentFlow(paymentMethod)
   }
 
   async function handleTryAgain() {
-    setClientSecret(null)
+    setCheckoutSession(null)
     await beginPaymentFlow(paymentMethod)
   }
 
   const handleStartPaymentSelection = () => {
     if (paymentMethods.length === 1) {
       const method = paymentMethods[0]
-      if (method.provider === 'stripe' && method.type === 'card') {
-        handleSelectMethod(method)
+      handleSelectMethod(method)
+      if (['stripe', 'adyen', 'braintree'].includes(method.provider)) {
         return
       }
     }
     setFlowState('select_method')
+  }
+
+  // New handler for Braintree processing
+  const handleBraintreeSuccess = async (nonce: string) => {
+    if (!checkoutSession || !invoiceToken || !invoiceOrgId) return
+    try {
+      setFlowState('processing')
+      const response = await fetch(
+        `/public/orgs/${invoiceOrgId}/invoices/${invoiceToken}/process-payment`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'braintree',
+            nonce
+          })
+        }
+      )
+      const data = await response.json()
+      if (data.success) {
+        setFlowState('success')
+      } else {
+        throw new Error(data.message || 'Payment failed')
+      }
+    } catch (e) {
+      setFlowState('failed')
+    }
+  }
+
+  // New handler for Adyen success (redirects or state change)
+  const handleAdyenSuccess = () => {
+    setFlowState('success')
   }
 
   return (
@@ -395,6 +435,7 @@ export function InvoiceFlow({
       <div className="mx-auto flex min-h-screen max-w-md items-start px-4 py-8">
         <div className="w-full">
           <AnimatePresence mode="wait">
+            {/* Error Screen logic same */}
             {invoiceError ? (
               <motion.div
                 key="error"
@@ -412,6 +453,7 @@ export function InvoiceFlow({
               </motion.div>
             ) : null}
 
+            {/* Invoice Screen logic same */}
             {!invoiceError && flowState === 'invoice' ? (
               <motion.div
                 key="invoice"
@@ -429,6 +471,7 @@ export function InvoiceFlow({
               </motion.div>
             ) : null}
 
+            {/* Payment Summary logic same */}
             {!invoiceError && flowState === 'payment_summary' ? (
               <motion.div
                 key="payment_summary"
@@ -445,6 +488,7 @@ export function InvoiceFlow({
               </motion.div>
             ) : null}
 
+            {/* Select Method logic same */}
             {!invoiceError && flowState === 'select_method' ? (
               <motion.div
                 key="select_method"
@@ -466,28 +510,56 @@ export function InvoiceFlow({
               </motion.div>
             ) : null}
 
-            {!invoiceError && flowState === 'card_form' ? (
+            {/* Payment Form (Generic) */}
+            {!invoiceError && flowState === 'payment_form' ? (
               <motion.div
-                key="card_form"
+                key="payment_form"
                 variants={stepVariants}
                 initial="initial"
                 animate="animate"
                 exit="exit"
                 transition={{ duration: 0.16 }}
               >
-                <CardFormScreen
-                  invoice={invoice}
-                  clientSecret={clientSecret}
-                  isBusy={isBusy}
-                  stripePromise={stripePromise}
-                  onBack={() => setFlowState('select_method')}
-                  onProcessing={() => {
-                    setFlowState('processing')
-                  }}
-                />
+                {/* Switch based on provider */}
+                {paymentMethod?.provider === 'stripe' ? (
+                  <CardFormScreen
+                    invoice={invoice}
+                    clientSecret={checkoutSession?.session_token ?? null}
+                    isBusy={isBusy}
+                    stripePromise={stripePromise}
+                    onBack={() => setFlowState('select_method')}
+                    onProcessing={() => {
+                      setFlowState('processing')
+                    }}
+                  />
+                ) : paymentMethod?.provider === 'adyen' && checkoutSession ? (
+                  <CardShell title={invoice.orgName} subtitle="Pay with Adyen">
+                    <AdyenCheckout
+                      sessionId={checkoutSession.metadata?.session_id}
+                      sessionData={checkoutSession.session_token}
+                      environment={checkoutSession.public_config?.environment || 'test'}
+                      clientKey={checkoutSession.public_config?.client_key}
+                      onSuccess={handleAdyenSuccess}
+                      onFailure={() => setFlowState('failed')}
+                    />
+                    <button onClick={() => setFlowState('select_method')} className="mt-4 w-full text-center text-sm text-neutral-500">Back</button>
+                  </CardShell>
+                ) : paymentMethod?.provider === 'braintree' && checkoutSession ? (
+                  <CardShell title={invoice.orgName} subtitle="Pay with Braintree">
+                    <BraintreeCheckout
+                      authorization={checkoutSession.session_token}
+                      onSuccess={handleBraintreeSuccess}
+                      onFailure={() => setFlowState('failed')}
+                    />
+                    <button onClick={() => setFlowState('select_method')} className="mt-4 w-full text-center text-sm text-neutral-500">Back</button>
+                  </CardShell>
+                ) : (
+                  <div>Loading payment provider...</div>
+                )}
               </motion.div>
             ) : null}
 
+            {/* Processing logic same */}
             {!invoiceError && flowState === 'processing' ? (
               <motion.div
                 key="processing"

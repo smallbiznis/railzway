@@ -37,7 +37,7 @@ This project is developed independently, outside of any employment responsibilit
 
 Railzway is a **billing computation engine**, not an all-in-one billing platform.
 
-### Core Capabilities (v1.0 Target)
+### Core Capabilities
 
 - **Subscription Management**Trialing, active, past_due, and canceled states with explicit lifecycle transitions
 - **Usage Metering**Idempotent ingestion, deterministic aggregation, late and out-of-order handling
@@ -49,7 +49,7 @@ Railzway is a **billing computation engine**, not an all-in-one billing platform
 - **Audit Trail**
   Immutable event log for all billing state changes
 - **Payment Integrations**
-  Built-in adapter for Stripe and extensible provider interface
+  Built-in adapters for Stripe, Adyen, and Braintree, with an extensible provider interface
 - **Taxation**
   Configurable tax behavior (inclusive/exclusive) and basic rate application
 - **Entitlements**
@@ -76,66 +76,66 @@ Railzway is built around strict principles:
 Railzway is a **deterministic billing computation engine** designed for modern SaaS and platform systems.
 It extracts billing logic from application code into a dedicated, auditable system with explicit boundaries.
 
-### What Railzway Is Not (v1.0)
+### What Railzway Is Not
 
-To preserve correctness and clarity, the following are **intentionally out of scope** for v1.0:
+To preserve correctness and clarity, the following are **intentionally out of scope**:
 
 #### Payment Execution
 
 - No native credit card processing (delegates to adapters)
-- **Stripe Adapter** included for payment collection
-- *Post-v1.0*: additional payment adapter interfaces
+- **Stripe, Adyen, and Braintree Adapters** included for payment collection
+- Extensible provider interface for additional gateways
 
 #### Merchant of Record & Compliance
 
 - No automated jurisdictional tax calculation (e.g. Avalara/Vertex)
 - No PCI-DSS, PSD2, or regulatory automation
 - Tax amounts stored as line items (basic rate calculation supported)
-- *Post-v1.0*: tax metadata structure
+- *Future*: tax metadata structure
 
 #### Dunning & Collections
 
 - No retry logic for failed payments
 - No automated email or recovery workflows
 - Past-due state exists, recovery is external
-- *Post-v1.0*: webhook events
+- *Future*: webhook events
 
 #### Revenue Recognition & Accounting
 
 - No GAAP / IFRS compliance
 - No deferred revenue tracking
 - Cash-basis invoice generation only
-- *Post-v1.0*: ledger API integrations
+- *Future*: ledger API integrations
 
 #### Multi-Currency & FX
 
 - Single currency per tenant
 - No real-time FX handling
-- *Post-v1.0*: multi-currency via external FX providers
+- *Future*: multi-currency via external FX providers
 
 #### Entitlements & Feature Gating
 
 - No access control or feature flags
 - Application layer is responsible
-- *Post-v1.0*: entitlement sync via webhooks
+- *Future*: entitlement sync via webhooks
 
 #### Customer Self-Service UI
 
 - No built-in customer portal
 - API-first design
-- *Post-v1.0*: optional reference UI
+- *Future*: optional reference UI
 
 #### Advanced Analytics & Reporting
 
 - No MRR/ARR dashboards or cohort analysis
 - Raw data available via API
-- *Post-v1.0*: Railzway Cloud analytics layer
+- *Future*: Railzway Cloud analytics layer
 
 #### Complex Proration Models
 
 - Second-based precision proration
 - Boundary rule: `[start inclusive, end exclusive]`
-- *Post-v1.0*: configurable proration strategies
+- *Future*: configurable proration strategies
 
 ---
 
@@ -308,7 +308,7 @@ Railzway is **not a good fit** if you need:
 
 ## Roadmap (High-Level)
 
-**Toward v1.0**
+**Current Features (v1.5.0)**
 
 - Harden subscription and billing lifecycles
 - Deterministic usage ingestion
@@ -316,7 +316,7 @@ Railzway is **not a good fit** if you need:
 - End-to-end billing truth tests
 - Stable APIs and semantic contracts
 
-**Post-v1.0**
+**Future Roadmap**
 
 - Payment adapter interfaces
 - Webhook event system
