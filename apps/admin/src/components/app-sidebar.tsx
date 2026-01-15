@@ -3,13 +3,11 @@ import { NavLink, useLocation, useParams } from "react-router-dom"
 
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
-import { NavUser } from "@/components/nav-user"
 import { canManageBilling } from "@/lib/roles"
 import { useOrgStore } from "@/stores/orgStore"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarGroup,
   SidebarGroupContent,
@@ -20,15 +18,6 @@ import {
 } from "@/components/ui/sidebar"
 import { BarChart3, Copy, CreditCard, Gauge, History, Home, Key, Package, Receipt, RefreshCcw, Settings, Tag, Users, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-}
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const location = useLocation()
@@ -167,9 +156,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         )}
         <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
-      <SidebarFooter>
-        <NavUser user={data.user} />
-      </SidebarFooter>
     </Sidebar>
   )
 }
