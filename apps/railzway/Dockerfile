@@ -13,7 +13,14 @@ RUN pnpm run build
 # =========================
 # BACKEND BUILDER (Monolith Binary)
 # =========================
-FROM golang:1.25-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
+
+# Platform arguments for cross-compilation
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
 WORKDIR /app
 
 # Build arguments for Telemetry
@@ -24,7 +31,7 @@ ARG CLOUD_METRICS_AUTH_TOKEN=""
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -ldflags \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags \
     "-X github.com/smallbiznis/railzway/internal/config.DefaultAppVersion=${VERSION} \
      -X github.com/smallbiznis/railzway/internal/config.DefaultCloudMetricsEndpoint=${CLOUD_METRICS_ENDPOINT} \
      -X github.com/smallbiznis/railzway/internal/config.DefaultCloudMetricsAuthToken=${CLOUD_METRICS_AUTH_TOKEN}" \
@@ -33,7 +40,7 @@ RUN go build -ldflags \
 # =========================
 # RUNTIME
 # =========================
-FROM alpine:latest
+FROM --platform=$TARGETPLATFORM alpine:latest
 WORKDIR /app
 
 # Copy binary
