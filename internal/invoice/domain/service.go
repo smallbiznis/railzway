@@ -21,6 +21,9 @@ type ListInvoiceRequest struct {
 	FinalizedTo   *time.Time
 	TotalMin      *int64
 	TotalMax      *int64
+
+	PageToken string
+	PageSize  int
 }
 
 type ListInvoiceResponse struct {

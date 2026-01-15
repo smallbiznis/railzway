@@ -23,6 +23,9 @@ func (s *Server) ListInvoices(c *gin.Context) {
 		FinalizedTo   string `form:"finalized_to"`
 		TotalMin      string `form:"total_min"`
 		TotalMax      string `form:"total_max"`
+
+		PageToken string `form:"page_token"`
+		PageSize  int    `form:"page_size"`
 	}
 	if err := c.ShouldBindQuery(&query); err != nil {
 		AbortWithError(c, invalidRequestError())
@@ -101,13 +104,18 @@ func (s *Server) ListInvoices(c *gin.Context) {
 		FinalizedTo:   finalizedTo,
 		TotalMin:      totalMin,
 		TotalMax:      totalMax,
+		PageToken:     query.PageToken,
+		PageSize:      query.PageSize,
 	})
 	if err != nil {
 		AbortWithError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": resp.Invoices})
+	c.JSON(http.StatusOK, gin.H{
+		"data":      resp.Invoices,
+		"page_info": resp.PageInfo,
+	})
 }
 
 func (s *Server) GetInvoiceByID(c *gin.Context) {
