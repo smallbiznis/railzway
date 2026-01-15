@@ -31,6 +31,7 @@ import (
 	taxdomain "github.com/smallbiznis/railzway/internal/tax/domain"
 	taxservice "github.com/smallbiznis/railzway/internal/tax/service"
 	"github.com/smallbiznis/railzway/pkg/db/option"
+	"github.com/smallbiznis/railzway/pkg/db/pagination"
 	"github.com/smallbiznis/railzway/pkg/repository"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -164,8 +165,24 @@ func (s *Service) List(ctx context.Context, req invoicedomain.ListInvoiceRequest
 		filter.InvoiceNumber = *req.InvoiceNumber
 	}
 
+	// Pagination defaults
+	limit := req.PageSize
+	if limit <= 0 {
+		limit = 100
+	} else if limit > 250 {
+		limit = 250
+	}
+
 	options := []option.QueryOption{
-		option.WithSortBy(option.QuerySortBy{Allow: map[string]bool{"created_at": true}}),
+		option.ApplyPagination(pagination.Pagination{
+			PageToken: req.PageToken,
+			PageSize:  limit,
+		}),
+		option.WithSortBy(option.QuerySortBy{
+			SortBy:  "created_at",
+			OrderBy: "desc",
+			Allow:   map[string]bool{"created_at": true},
+		}),
 	}
 	if req.CreatedFrom != nil {
 		options = append(options, option.ApplyOperator(option.Condition{
@@ -237,7 +254,25 @@ func (s *Service) List(ctx context.Context, req invoicedomain.ListInvoiceRequest
 		invoices = append(invoices, *item)
 	}
 
-	return invoicedomain.ListInvoiceResponse{Invoices: invoices}, nil
+	// Build pagination response
+	pageInfo := pagination.BuildCursorPageInfo(items, int32(limit), func(item *invoicedomain.Invoice) string {
+		cursor := pagination.Cursor{
+			ID:        item.ID.String(),
+			CreatedAt: item.CreatedAt.Format(time.RFC3339Nano),
+		}
+		encoded, _ := pagination.EncodeCursor(cursor)
+		return encoded
+	})
+
+	// Slice if we fetched limit+1
+	if pageInfo.HasMore {
+		invoices = invoices[:limit]
+	}
+
+	return invoicedomain.ListInvoiceResponse{
+		Invoices: invoices,
+		PageInfo: *pageInfo,
+	}, nil
 }
 
 func (s *Service) GetByID(ctx context.Context, id string) (invoicedomain.Invoice, error) {
@@ -1293,7 +1328,7 @@ func (s *Service) sendInvoiceNotification(ctx context.Context, invoice *invoiced
 	if err := s.db.WithContext(ctx).Table("organizations").Select("name, support_email").Where("id = ?", invoice.OrgID).Scan(&org).Error; err != nil {
 		s.log.Error("failed to fetch organization for notification", zap.Error(err))
 		// Fallback to defaults if DB fail (unlikely inside transaction, but safe)
-		org.Name = "Railzway Billing"     // Generic fallback
+		org.Name = "Railzway Billing" // Generic fallback
 		org.SupportEmail = "support@railzway.com"
 	}
 
@@ -1305,10 +1340,10 @@ func (s *Service) sendInvoiceNotification(ctx context.Context, invoice *invoiced
 	if err := s.db.WithContext(ctx).Table("customers").Select("email").Where("id = ? AND org_id = ?", invoice.CustomerID, invoice.OrgID).Scan(&cust).Error; err != nil {
 		s.log.Error("failed to fetch customer for notification", zap.Error(err))
 	}
-	
+
 	// Default support email if empty in DB
 	if org.SupportEmail == "" {
-		org.SupportEmail = "support@railzway.com" 
+		org.SupportEmail = "support@railzway.com"
 	}
 
 	// 2. Generate PDF (Proof of concept)
@@ -1354,7 +1389,7 @@ func (s *Service) sendInvoiceNotification(ctx context.Context, invoice *invoiced
 	if cust.Email == "" {
 		// Fallback for dev/demo if customer email is missing
 		s.log.Warn("customer email missing, using fallback", zap.String("invoice_id", invoice.ID.String()))
-		to = []string{"taufiktriantono4@gmail.com"} 
+		to = []string{"taufiktriantono4@gmail.com"}
 	}
 
 	msg := email.EmailMessage{
