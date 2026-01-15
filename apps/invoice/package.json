@@ -52,6 +52,7 @@
     "@tanstack/react-query": "^5.90.1",
     "@tanstack/react-table": "^8.21.3",
     "braintree-web-drop-in": "^1.46.0",
+    "braintree-web-drop-in-react": "^1.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

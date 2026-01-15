@@ -354,6 +354,9 @@ importers:
       braintree-web-drop-in:
         specifier: ^1.46.0
         version: 1.46.0
+      braintree-web-drop-in-react:
+        specifier: ^1.2.1
+        version: 1.2.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -2105,6 +2108,12 @@ packages:
   braces@3.0.3:
     resolution: {integrity: sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==}
     engines: {node: '>=8'}
+
+  braintree-web-drop-in-react@1.2.1:
+    resolution: {integrity: sha512-J0Xzb6EXYvvOp74Vqhmny3tsbeqeKKRPmWaJGnZQxJ5DFq1VYLCfDDPa14YpdhWTZiIgMRqRf4wpOdQ/Gcbf0w==}
+    peerDependencies:
+      react: '>=16.13.1'
+      react-dom: '>=16.13.1'
 
   braintree-web-drop-in@1.46.0:
     resolution: {integrity: sha512-KxCjJpaigoMajYD/iIA+ohXaI6Olt2Bj/Yu45WpJOjolKO9n1UmXl9bsq9UIiGOFIGqi/JWva1wI4cIHHvcI1A==}
@@ -5130,6 +5139,13 @@ snapshots:
   braces@3.0.3:
     dependencies:
       fill-range: 7.1.1
+
+  braintree-web-drop-in-react@1.2.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+    dependencies:
+      braintree-web-drop-in: 1.46.0
+      prop-types: 15.8.1
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
 
   braintree-web-drop-in@1.46.0:
     dependencies:
