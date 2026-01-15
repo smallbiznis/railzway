@@ -33,7 +33,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags \
     -o invoice-service ./apps/invoice
 
 # Final Stage: Run
-FROM --platform=$TARGETPLATFORM alpine:latest
+FROM alpine:latest
 WORKDIR /app
 
 # Copy binary from backend builder
