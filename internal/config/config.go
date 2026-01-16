@@ -126,11 +126,25 @@ type RiskLevel struct {
 func Load() Config {
 	_ = godotenv.Load()
 
-	mode := normalizeMode(getenv("APP_MODE", ModeOSS))
+	// Prioritize RAILZWAY_MODE (new standard) over APP_MODE (legacy)
+	modeEnv := getenv("RAILZWAY_MODE", "")
+	if modeEnv == "" {
+		modeEnv = getenv("APP_MODE", ModeOSS)
+	}
+	mode := normalizeMode(modeEnv)
+
 	environment := getenv("ENVIRONMENT", "development")
 	authCookieSecure := environment == "production"
 	if !authCookieSecure {
 		authCookieSecure = getenvBool("AUTH_COOKIE_SECURE", false)
+	}
+
+	defaultOrgID := getenvInt64("DEFAULT_ORG", 0)
+
+	// Invariant: In Cloud mode, we MUST be single-tenant.
+	// We determine tenancy at deployment time via DEFAULT_ORG.
+	if mode == ModeCloud && defaultOrgID == 0 {
+		log.Fatal("CRITICAL: RAILZWAY_MODE=cloud requires DEFAULT_ORG to be set. This instance is single-tenant.")
 	}
 
 	cfg := Config{
@@ -140,7 +154,7 @@ func Load() Config {
 		Environment:                 environment,
 		Port:                        getenv("PORT", "8080"),
 		AuthCookieSecure:            authCookieSecure,
-		DefaultOrgID:                getenvInt64("DEFAULT_ORG", 0),
+		DefaultOrgID:                defaultOrgID,
 		AuthJWTSecret:               strings.TrimSpace(getenv("AUTH_JWT_SECRET", "")),
 		PaymentProviderConfigSecret: strings.TrimSpace(getenv("PAYMENT_PROVIDER_CONFIG_SECRET", "base64:Kq7N2f1Jx9yY4mFZp+u7qZb8c9d0eFQ1vS3nZk6hL2A=")),
 		OTLPEndpoint:                getenv("OTLP_ENDPOINT", "localhost:4317"),
