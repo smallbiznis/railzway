@@ -1,5 +1,6 @@
+import { Download } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, XAxis, YAxis } from "recharts"
 import type { DateRange } from "react-day-picker"
 
 import { admin } from "@/api/client"
@@ -9,6 +10,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -94,16 +103,7 @@ const granularityOptions = [
   { value: "month", label: "Monthly" },
 ]
 
-const mrrChartConfig = {
-  current: {
-    label: "MRR",
-    color: "hsl(var(--accent-primary))",
-  },
-  previous: {
-    label: "Previous",
-    color: "hsl(var(--border-strong))",
-  },
-} satisfies ChartConfig
+
 
 const revenueChartConfig = {
   current: {
@@ -317,6 +317,18 @@ export default function OrgBillingOverviewPage() {
     }
   }, [activeRange, granularity, compare])
 
+  const handleExport = (type: string) => {
+    const params = new URLSearchParams({
+      start: formatDateOnly(activeRange.start),
+      end: formatDateOnly(activeRange.end),
+      granularity,
+      compare: String(compare),
+      format: "csv",
+    })
+    const url = `${admin.getUri()}/billing/overview/${type}?${params.toString()}`
+    window.location.href = url
+  }
+
   useEffect(() => {
     let isActive = true
     const fetchData = async () => {
@@ -372,21 +384,12 @@ export default function OrgBillingOverviewPage() {
     }
   }, [queryParams])
 
-  const mrrSeries = mrr?.series ?? []
   const revenueSeries = revenue?.series ?? []
   const subscriberSeries = subscribers?.series ?? []
-  const mrrCompare = compare ? mrr?.compare_series ?? [] : []
   const revenueCompare = compare ? revenue?.compare_series ?? [] : []
   const subscriberCompare = compare ? subscribers?.compare_series ?? [] : []
 
-  const mrrChartData = useMemo(() => {
-    if (!mrrSeries.length) return []
-    return mrrSeries.map((point, index) => ({
-      period: point.period,
-      current: point.value,
-      previous: mrrCompare[index]?.value ?? null,
-    }))
-  }, [mrrSeries, mrrCompare])
+
 
   const revenueChartData = useMemo(() => {
     if (!revenueSeries.length) return []
@@ -459,6 +462,15 @@ export default function OrgBillingOverviewPage() {
                   initialFocus
                 />
               </PopoverContent>
+              <PopoverContent align="start" className="w-auto p-0">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={2}
+                  selected={customRange}
+                  onSelect={setCustomRange}
+                  initialFocus
+                />
+              </PopoverContent>
             </Popover>
           )}
 
@@ -474,6 +486,25 @@ export default function OrgBillingOverviewPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Download report</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => handleExport("revenue")}>Revenue</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("mrr")}>MRR</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("subscribers")}>Subscribers</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("mrr-movement")}>MRR Movement</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("outstanding")}>Outstanding Balance</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("collection-rate")}>Collection Rate</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex items-center gap-2 text-sm text-text-muted">
@@ -634,78 +665,8 @@ export default function OrgBillingOverviewPage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="h-full">
-          <CardHeader>
-            <CardTitle>MRR over time</CardTitle>
-            <CardDescription>Recurring revenue snapshot by period.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-[260px] w-full" />
-            ) : mrr?.has_data ? (
-              <ChartContainer config={mrrChartConfig} className="h-[260px] w-full">
-                <LineChart data={mrrChartData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="period"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    tickFormatter={(value) => formatAxisLabel(value, granularity)}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value) => formatCurrencyCompact(value, mrr?.currency ?? "USD")}
-                    width={72}
-                  />
-                  <ChartTooltip
-                    cursor={false}
-                    content={
-                      <ChartTooltipContent
-                        indicator="line"
-                        labelFormatter={(value) => formatAxisLabel(value as string, granularity)}
-                        formatter={(value, name) => {
-                          const label = name === "previous" ? "Previous" : "Current"
-                          return (
-                            <div className="flex w-full items-center justify-between gap-3">
-                              <span className="text-text-muted">{label}</span>
-                              <span className="font-medium">
-                                {formatCurrency(value as number, mrr?.currency ?? "USD")}
-                              </span>
-                            </div>
-                          )
-                        }}
-                      />
-                    }
-                  />
-                  <Line
-                    dataKey="current"
-                    type="monotone"
-                    stroke="var(--color-current)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  {compare && (
-                    <Line
-                      dataKey="previous"
-                      type="monotone"
-                      stroke="var(--color-previous)"
-                      strokeWidth={2}
-                      strokeDasharray="4 4"
-                      dot={false}
-                    />
-                  )}
-                </LineChart>
-              </ChartContainer>
-            ) : (
-              <div className="flex h-[260px] items-center justify-center text-sm text-text-muted">
-                No data
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 lg:grid-cols-1">
+
 
         <Card className="h-full">
           <CardHeader>

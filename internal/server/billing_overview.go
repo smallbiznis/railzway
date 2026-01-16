@@ -1,7 +1,10 @@
 package server
 
 import (
+	"encoding/csv"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +30,11 @@ func (s *Server) GetBillingOverviewMRR(c *gin.Context) {
 		return
 	}
 
+	if c.Query("format") == "csv" {
+		writeCSV(c, "mrr.csv", resp)
+		return
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -45,6 +53,11 @@ func (s *Server) GetBillingOverviewRevenue(c *gin.Context) {
 	resp, err := s.billingOverviewSvc.GetRevenue(c.Request.Context(), req)
 	if err != nil {
 		AbortWithError(c, err)
+		return
+	}
+
+	if c.Query("format") == "csv" {
+		writeCSV(c, "revenue.csv", resp)
 		return
 	}
 
@@ -69,6 +82,11 @@ func (s *Server) GetBillingOverviewMRRMovement(c *gin.Context) {
 		return
 	}
 
+	if c.Query("format") == "csv" {
+		writeCSV(c, "mrr_movement.csv", resp)
+		return
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -87,6 +105,11 @@ func (s *Server) GetBillingOverviewOutstandingBalance(c *gin.Context) {
 	resp, err := s.billingOverviewSvc.GetOutstandingBalance(c.Request.Context(), req)
 	if err != nil {
 		AbortWithError(c, err)
+		return
+	}
+
+	if c.Query("format") == "csv" {
+		writeCSV(c, "outstanding.csv", resp)
 		return
 	}
 
@@ -111,6 +134,11 @@ func (s *Server) GetBillingOverviewCollectionRate(c *gin.Context) {
 		return
 	}
 
+	if c.Query("format") == "csv" {
+		writeCSV(c, "collection_rate.csv", resp)
+		return
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -129,6 +157,11 @@ func (s *Server) GetBillingOverviewSubscribers(c *gin.Context) {
 	resp, err := s.billingOverviewSvc.GetSubscribers(c.Request.Context(), req)
 	if err != nil {
 		AbortWithError(c, err)
+		return
+	}
+
+	if c.Query("format") == "csv" {
+		writeCSV(c, "subscribers.csv", resp)
 		return
 	}
 
@@ -192,4 +225,70 @@ func parseBillingOverviewRequest(c *gin.Context) (billingoverviewdomain.Overview
 		Granularity: granularity,
 		Compare:     compare,
 	}, nil
+}
+
+func writeCSV(c *gin.Context, filename string, data interface{}) {
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	writer := csv.NewWriter(c.Writer)
+	defer writer.Flush()
+
+	switch v := data.(type) {
+	case *billingoverviewdomain.RevenueResponse:
+		_ = writer.Write([]string{"Period", "Revenue", "Previous Revenue"})
+		for i, point := range v.Series {
+			row := []string{point.Period, fmt.Sprintf("%d", point.Value)}
+			if len(v.CompareSeries) > i {
+				row = append(row, fmt.Sprintf("%d", v.CompareSeries[i].Value))
+			} else {
+				row = append(row, "")
+			}
+			_ = writer.Write(row)
+		}
+	case *billingoverviewdomain.MRRResponse:
+		_ = writer.Write([]string{"Period", "MRR", "Previous MRR"})
+		for i, point := range v.Series {
+			row := []string{point.Period, fmt.Sprintf("%d", point.Value)}
+			if len(v.CompareSeries) > i {
+				row = append(row, fmt.Sprintf("%d", v.CompareSeries[i].Value))
+			} else {
+				row = append(row, "")
+			}
+			_ = writer.Write(row)
+		}
+	case *billingoverviewdomain.SubscribersResponse:
+		_ = writer.Write([]string{"Period", "Subscribers", "Previous Subscribers"})
+		for i, point := range v.Series {
+			row := []string{point.Period, fmt.Sprintf("%d", point.Value)}
+			if len(v.CompareSeries) > i {
+				row = append(row, fmt.Sprintf("%d", v.CompareSeries[i].Value))
+			} else {
+				row = append(row, "")
+			}
+			_ = writer.Write(row)
+		}
+	case *billingoverviewdomain.MRRMovementResponse:
+		_ = writer.Write([]string{"Metric", "Value"})
+		_ = writer.Write([]string{"New MRR", fmt.Sprintf("%d", v.NewMRR)})
+		_ = writer.Write([]string{"Expansion MRR", fmt.Sprintf("%d", v.ExpansionMRR)})
+		_ = writer.Write([]string{"Contraction MRR", fmt.Sprintf("%d", v.ContractionMRR)})
+		_ = writer.Write([]string{"Churned MRR", fmt.Sprintf("%d", v.ChurnedMRR)})
+		_ = writer.Write([]string{"Net MRR Change", fmt.Sprintf("%d", v.NetMRRChange)})
+	case *billingoverviewdomain.OutstandingBalanceResponse:
+		_ = writer.Write([]string{"Metric", "Value"})
+		_ = writer.Write([]string{"Outstanding", fmt.Sprintf("%d", v.Outstanding)})
+		_ = writer.Write([]string{"Overdue", fmt.Sprintf("%d", v.Overdue)})
+	case *billingoverviewdomain.CollectionRateResponse:
+		_ = writer.Write([]string{"Metric", "Value"})
+		if v.CollectionRate != nil {
+			_ = writer.Write([]string{"Collection Rate", strconv.FormatFloat(*v.CollectionRate, 'f', 2, 64)})
+		} else {
+			_ = writer.Write([]string{"Collection Rate", "N/A"})
+		}
+		_ = writer.Write([]string{"Collected Amount", fmt.Sprintf("%d", v.CollectedAmount)})
+		_ = writer.Write([]string{"Invoiced Amount", fmt.Sprintf("%d", v.InvoicedAmount)})
+	default:
+		// Fallback for unknown types or just empty CSV
+	}
 }
