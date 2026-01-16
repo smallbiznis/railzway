@@ -699,6 +699,17 @@ export default function OrgSubscriptionCreatePage() {
                       return formatter.format(amt.unit_amount_cents / 100)
                     }
 
+                    // 1. Prevent duplicate price selection
+                    // Filter out prices that are already selected in other rows
+                    // But keep the current item's price in the list so it's not hidden
+                    const currentSelectedPriceIds = items
+                      .map((i) => i.priceId)
+                      .filter((id) => id && id !== item.priceId)
+
+                    const availablePrices = filteredPrices.filter(
+                      (p) => !currentSelectedPriceIds.includes(p.id)
+                    )
+
                     return (
                       <TableRow key={item.id}>
                         <TableCell className="min-w-[240px] align-top">
@@ -726,7 +737,7 @@ export default function OrgSubscriptionCreatePage() {
                                     No prices for this billing cycle
                                   </SelectItem>
                                 )}
-                                {filteredPrices.map((priceItem) => (
+                                {availablePrices.map((priceItem) => (
                                   <SelectItem key={priceItem.id} value={priceItem.id}>
                                     {formatPriceLabel(priceItem)}
                                   </SelectItem>
@@ -746,99 +757,102 @@ export default function OrgSubscriptionCreatePage() {
                           </div>
                         </TableCell>
                         <TableCell className="min-w-[220px] align-top">
-                          <div className="space-y-1">
-                            {(() => {
-                              const price = item.priceId ? priceLookup.get(item.priceId) : undefined
-                              const isFlat = price?.pricing_model === "FLAT"
-                              // price.pricing_model for usage is usually PER_UNIT or USAGE_BASED depending on type defs
+                          {/* 2. Hide Meter field for Flat pricing */}
+                          {price && price.pricing_model === "FLAT" ? null : (
+                            <div className="space-y-1">
+                              {(() => {
+                                const price = item.priceId ? priceLookup.get(item.priceId) : undefined
+                                const isFlat = price?.pricing_model === "FLAT"
+                                // price.pricing_model for usage is usually PER_UNIT or USAGE_BASED depending on type defs
 
-                              const hasSingleMeter = item.priceId &&
-                                getMeterOptions(item.priceId).length === 1 &&
-                                !isLoadingMeters
+                                const hasSingleMeter = item.priceId &&
+                                  getMeterOptions(item.priceId).length === 1 &&
+                                  !isLoadingMeters
 
-                              if (isFlat) {
+                                // Redundant check but keeps logic clear if refactored later
+                                if (isFlat) {
+                                  return null
+                                }
+
+                                if (price && hasSingleMeter && item.meterId) {
+                                  // Hidden if auto-selected and single option, 
+                                  // just show the meter name or nothing? 
+                                  // User said "field meter tidak perlu ada".
+                                  // Let's show the meter name as text for confirmation, effectively "removing" the field input.
+                                  const meter = meterLookup.get(item.meterId)
+                                  return (
+                                    <div className="flex h-10 items-center text-sm text-text-primary">
+                                      {meter ? meter.name : item.meterId}
+                                    </div>
+                                  )
+                                }
+
                                 return (
-                                  <div className="flex h-10 items-center text-sm text-text-muted">
-                                    —
-                                  </div>
-                                )
-                              }
-
-                              if (price && hasSingleMeter && item.meterId) {
-                                // Hidden if auto-selected and single option, 
-                                // just show the meter name or nothing? 
-                                // User said "field meter tidak perlu ada".
-                                // Let's show the meter name as text for confirmation, effectively "removing" the field input.
-                                const meter = meterLookup.get(item.meterId)
-                                return (
-                                  <div className="flex h-10 items-center text-sm text-text-primary">
-                                    {meter ? meter.name : item.meterId}
-                                  </div>
-                                )
-                              }
-
-                              return (
-                                <Select
-                                  value={item.meterId}
-                                  onValueChange={(value) => handleMeterChange(item.id, value)}
-                                  disabled={!item.priceId || Boolean(isLoadingMeters)}
-                                >
-                                  <SelectTrigger className="w-full">
-                                    <SelectValue
-                                      placeholder={
-                                        !item.priceId
-                                          ? "Select a price first"
-                                          : isLoadingMeters
-                                            ? "Loading meters..."
-                                            : "Select a meter"
-                                      }
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {!item.priceId && (
-                                      <SelectItem value="empty" disabled>
-                                        Select a price first
-                                      </SelectItem>
-                                    )}
-                                    {isLoadingMeters && (
-                                      <SelectItem value="loading" disabled>
-                                        Loading meters...
-                                      </SelectItem>
-                                    )}
-                                    {!isLoadingMeters &&
-                                      item.priceId &&
-                                      meterOptions.length === 0 && (
+                                  <Select
+                                    value={item.meterId}
+                                    onValueChange={(value) => handleMeterChange(item.id, value)}
+                                    disabled={!item.priceId || Boolean(isLoadingMeters)}
+                                  >
+                                    <SelectTrigger className="w-full">
+                                      <SelectValue
+                                        placeholder={
+                                          !item.priceId
+                                            ? "Select a price first"
+                                            : isLoadingMeters
+                                              ? "Loading meters..."
+                                              : "Select a meter"
+                                        }
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {!item.priceId && (
                                         <SelectItem value="empty" disabled>
-                                          No meters configured
+                                          Select a price first
                                         </SelectItem>
                                       )}
-                                    {!isLoadingMeters &&
-                                      meterOptions.map((meterId) => (
-                                        <SelectItem key={meterId} value={meterId}>
-                                          {formatMeterLabel(meterLookup.get(meterId), meterId)}
+                                      {isLoadingMeters && (
+                                        <SelectItem value="loading" disabled>
+                                          Loading meters...
                                         </SelectItem>
-                                      ))}
-                                  </SelectContent>
-                                </Select>
-                              )
-                            })()}
-                            {priceAmountError && (
-                              <p className="text-status-error text-xs">
-                                {priceAmountError}
-                              </p>
-                            )}
-                            {meterError && (
-                              <p className="text-status-error text-xs">{meterError}</p>
-                            )}
-                          </div>
+                                      )}
+                                      {!isLoadingMeters &&
+                                        item.priceId &&
+                                        meterOptions.length === 0 && (
+                                          <SelectItem value="empty" disabled>
+                                            No meters configured
+                                          </SelectItem>
+                                        )}
+                                      {!isLoadingMeters &&
+                                        meterOptions.map((meterId) => (
+                                          <SelectItem key={meterId} value={meterId}>
+                                            {formatMeterLabel(meterLookup.get(meterId), meterId)}
+                                          </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                  </Select>
+                                )
+                              })()}
+                              {priceAmountError && (
+                                <p className="text-status-error text-xs">
+                                  {priceAmountError}
+                                </p>
+                              )}
+                              {meterError && (
+                                <p className="text-status-error text-xs">{meterError}</p>
+                              )}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="align-top">
+                          {/* 3. Disable Quantity input when pricing_model != FLAT */}
                           <Input
                             type="number"
                             min={1}
                             max={127}
-                            value={item.quantity}
-                            onChange={(event) => handleQuantityChange(item.id, event.target.value)}
+                            value={price && price.pricing_model !== "FLAT" ? "1" : item.quantity}
+                            onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                            disabled={!item.priceId || (price && price.pricing_model !== "FLAT")}
+                            className={price && price.pricing_model !== "FLAT" ? "bg-background-subtle text-text-muted cursor-not-allowed" : ""}
                           />
                         </TableCell>
                         <TableCell className="align-top text-right">
