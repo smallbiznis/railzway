@@ -1,3 +1,4 @@
+import { Download } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, XAxis, YAxis } from "recharts"
 import type { DateRange } from "react-day-picker"
@@ -9,6 +10,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -308,6 +317,18 @@ export default function OrgBillingOverviewPage() {
     }
   }, [activeRange, granularity, compare])
 
+  const handleExport = (type: string) => {
+    const params = new URLSearchParams({
+      start: formatDateOnly(activeRange.start),
+      end: formatDateOnly(activeRange.end),
+      granularity,
+      compare: String(compare),
+      format: "csv",
+    })
+    const url = `${admin.getUri()}/billing/overview/${type}?${params.toString()}`
+    window.location.href = url
+  }
+
   useEffect(() => {
     let isActive = true
     const fetchData = async () => {
@@ -441,6 +462,15 @@ export default function OrgBillingOverviewPage() {
                   initialFocus
                 />
               </PopoverContent>
+              <PopoverContent align="start" className="w-auto p-0">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={2}
+                  selected={customRange}
+                  onSelect={setCustomRange}
+                  initialFocus
+                />
+              </PopoverContent>
             </Popover>
           )}
 
@@ -456,6 +486,25 @@ export default function OrgBillingOverviewPage() {
               ))}
             </SelectContent>
           </Select>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Download report</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => handleExport("revenue")}>Revenue</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("mrr")}>MRR</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("subscribers")}>Subscribers</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("mrr-movement")}>MRR Movement</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("outstanding")}>Outstanding Balance</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport("collection-rate")}>Collection Rate</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex items-center gap-2 text-sm text-text-muted">
@@ -616,7 +665,7 @@ export default function OrgBillingOverviewPage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-1">
 
 
         <Card className="h-full">
