@@ -53,11 +53,16 @@ func (s *Server) authorizeOrgActionWithContext(c *gin.Context, object string, ac
 
 	switch actor.Type {
 	case ActorAPIKey:
+		// Optional: Check scopes first if present
 		requiredScope := authscope.FromAuthz(object, action)
-		if !authscope.Has(actor.Scopes, requiredScope) {
+		if len(actor.Scopes) > 0 && !authscope.Has(actor.Scopes, requiredScope) {
 			return ErrForbidden
 		}
-		return nil
+		// Then use Authorize service which handles role-based access (e.g. role:system for API keys)
+		if s.authzSvc == nil {
+			return ErrForbidden
+		}
+		return s.authorizeForOrg(c, actor.subject(), orgID, object, action)
 	case ActorUser:
 		if s.authzSvc == nil {
 			return ErrForbidden
