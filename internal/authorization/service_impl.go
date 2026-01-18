@@ -209,7 +209,6 @@ func (s *ServiceImpl) Authorize(ctx context.Context, actor string, orgID string,
 	}
 	return nil
 }
-
 func (s *ServiceImpl) resolveActor(ctx context.Context, actor string, orgID string) (string, string, string, *string, error) {
 	if actor == "system" {
 		roleName := "role:system"
@@ -463,7 +462,11 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		if len(policy) < 3 {
 			continue
 		}
-		if _, err := enforcer.AddPolicy(policy); err != nil {
+		args := make([]interface{}, len(policy))
+		for i, v := range policy {
+			args[i] = v
+		}
+		if _, err := enforcer.AddPolicy(args...); err != nil {
 			return err
 		}
 	}

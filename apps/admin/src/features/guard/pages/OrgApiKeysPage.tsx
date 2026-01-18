@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { IconCopy, IconEye, IconPlus, IconRefresh, IconTrash } from "@tabler/icons-react"
+import {
+  IconCopy,
+  IconEye,
+  IconPlus,
+  IconRefresh,
+  IconTrash,
+  IconChevronRight
+} from "@tabler/icons-react"
 import { useParams } from "react-router-dom"
+import { cn } from "@/lib/utils"
 
 import { admin } from "@/api/client"
 import { ForbiddenState } from "@/components/forbidden-state"
@@ -38,6 +46,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
 import { getErrorMessage, isForbiddenError } from "@/lib/api-errors"
 import { canManageBilling, isOrgOwner } from "@/lib/roles"
 import { useOrgStore } from "@/stores/orgStore"
@@ -93,10 +116,240 @@ const statusVariant = (key: ApiKey) => {
 
 const formatScopes = (key: ApiKey) => {
   if (Array.isArray(key.scopes) && key.scopes.length > 0) {
+    if (key.scopes.includes("*") || key.scopes.some(s => s.endsWith(":*"))) {
+      // Basic heuristic for summary
+      const wildcards = key.scopes.filter(s => s.endsWith(":*"))
+      if (wildcards.length > 0) return `${wildcards.length} full access roles, ${key.scopes.length - wildcards.length} specific`
+      return "Full Access"
+    }
     return key.scopes.join(", ")
   }
   return "-"
 }
+
+// ----------------------------------------------------------------------
+// ScopeSelector Component
+// ----------------------------------------------------------------------
+
+interface ScopeSelectorProps {
+  availableScopes: string[]
+  value: string[]
+  onChange: (scopes: string[]) => void
+}
+
+function ScopeSelector({ availableScopes, value, onChange }: ScopeSelectorProps) {
+  const [open, setOpen] = useState(false)
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
+
+  // Group scopes by prefix
+  const groups = useMemo(() => {
+    const g: Record<string, string[]> = {}
+    availableScopes.forEach((s) => {
+      const prefix = s.split(":")[0]
+      if (!g[prefix]) g[prefix] = []
+      g[prefix].push(s)
+    })
+    return g
+  }, [availableScopes])
+
+  const categories = useMemo(() => Object.keys(groups).sort(), [groups])
+
+  // Select the first category by default if none selected
+  useEffect(() => {
+    if (open && !activeCategory && categories.length > 0) {
+      setActiveCategory(categories[0])
+    }
+  }, [open, activeCategory, categories])
+
+  // Helpers to check selection state
+  const isWildcardSelected = (category: string) => value.includes(`${category}:*`)
+
+  const isCategoryFullySelected = (category: string) => {
+    if (isWildcardSelected(category)) return true
+    const categoryScopes = groups[category] || []
+    return categoryScopes.every((s) => value.includes(s))
+  }
+
+  const isCategoryPartiallySelected = (category: string) => {
+    if (isCategoryFullySelected(category)) return false
+    const categoryScopes = groups[category] || []
+    return categoryScopes.some((s) => value.includes(s))
+  }
+
+  const toggleWildcard = (category: string, checked: boolean) => {
+    if (checked) {
+      // Select wildcard, remove specific scopes of this group (clean up)
+      const otherScopes = value.filter(s => !s.startsWith(`${category}:`))
+      onChange([...otherScopes, `${category}:*`])
+    } else {
+      // Unselect wildcard
+      onChange(value.filter(s => s !== `${category}:*`))
+    }
+  }
+
+  const toggleScope = (scope: string, checked: boolean) => {
+    if (checked) {
+      onChange([...value, scope])
+    } else {
+      onChange(value.filter(s => s !== scope))
+    }
+  }
+
+  // Derived display text
+  const selectedCount = value.length
+  const triggerLabel = selectedCount > 0
+    ? `${selectedCount} permission${selectedCount === 1 ? '' : 's'} selected`
+    : "Select permissions"
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between"
+        >
+          {triggerLabel}
+          <IconPlus className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[600px] p-0" align="start" side="bottom" collisionPadding={10}>
+        <div className="flex h-[350px]">
+          {/* Left Pane: Categories */}
+          <div className="w-[200px] border-r flex flex-col">
+            <Command className="h-full">
+              <CommandInput placeholder="Search roles..." />
+              <CommandList className="max-h-full overflow-y-auto">
+                <CommandEmpty>No roles found.</CommandEmpty>
+                <CommandGroup heading="Fixed roles">
+                  {categories.map((category) => {
+                    const fully = isCategoryFullySelected(category)
+                    const partial = isCategoryPartiallySelected(category)
+
+                    return (
+                      <CommandItem
+                        key={category}
+                        onSelect={() => setActiveCategory(category)}
+                        className={cn(
+                          "cursor-pointer flex items-center justify-between aria-selected:bg-accent aria-selected:text-accent-foreground",
+                          activeCategory === category && "bg-accent text-accent-foreground"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <Checkbox
+                            checked={fully || (partial ? "indeterminate" : false)}
+                            className="shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (fully) {
+                                // Deselect all in category
+                                // Handle wildcard removal
+                                const newVal = value.filter(s => !s.startsWith(category))
+                                onChange(newVal)
+                              } else {
+                                // Select Wildcard (Full Access)
+                                toggleWildcard(category, true)
+                              }
+                            }}
+                          />
+                          <span className="truncate capitalize">{category.replace(/_/g, ' ')}</span>
+                        </div>
+                        {activeCategory === category && <IconChevronRight className="h-4 w-4 shrink-0 opacity-50" />}
+                      </CommandItem>
+                    )
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </div>
+
+          {/* Right Pane: Permissions */}
+          <div className="flex-1 flex flex-col bg-background">
+            {activeCategory ? (
+              <>
+                <div className="p-3 border-b bg-muted/20">
+                  <h4 className="font-semibold capitalize text-sm">{activeCategory.replace(/_/g, ' ')} Permissions</h4>
+                </div>
+                <ScrollArea className="flex-1 p-3">
+                  <div className="space-y-3">
+                    {/* Wildcard Option */}
+                    <div className="flex items-start gap-2 p-2 hover:bg-muted/50 rounded-md">
+                      <Checkbox
+                        id={`${activeCategory}-wildcard`}
+                        checked={isWildcardSelected(activeCategory)}
+                        onCheckedChange={(checked) => toggleWildcard(activeCategory, checked as boolean)}
+                      />
+                      <div className="grid gap-1 leading-none">
+                        <label
+                          htmlFor={`${activeCategory}-wildcard`}
+                          className="text-sm font-medium leading-none cursor-pointer"
+                        >
+                          Full {activeCategory.replace(/_/g, ' ')} Access
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          Grants all current and future permissions for this resource.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Individual Scopes */}
+                    <div className="space-y-2 pl-6 border-l ml-2">
+                      {groups[activeCategory]?.map(scope => {
+                        const disabled = isWildcardSelected(activeCategory)
+                        const checked = disabled || value.includes(scope)
+
+                        return (
+                          <div key={scope} className="flex items-center gap-2">
+                            <Checkbox
+                              id={scope}
+                              checked={checked}
+                              disabled={disabled}
+                              onCheckedChange={(checked) => toggleScope(scope, checked as boolean)}
+                            />
+                            <label htmlFor={scope} className="text-sm font-mono text-muted-foreground cursor-pointer">
+                              {scope}
+                            </label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </ScrollArea>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                Select a role to view permissions
+              </div>
+            )}
+          </div>
+        </div>
+
+        <Separator />
+        <div className="p-3 flex items-center justify-between bg-muted/10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange([])}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            Clear all
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setOpen(false)}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ----------------------------------------------------------------------
+// Main Page Component
+// ----------------------------------------------------------------------
 
 export default function OrgApiKeysPage() {
   const { orgId } = useParams()
@@ -157,12 +410,12 @@ export default function OrgApiKeysPage() {
   useEffect(() => {
     const loadScopes = async () => {
       if (!orgId) return
-    try {
-      const res = await admin.get<string[]>("/api-keys/scopes")
-      setAvailableScopes(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      setAvailableScopes([])
-    }
+      try {
+        const res = await admin.get<string[]>("/api-keys/scopes")
+        setAvailableScopes(Array.isArray(res.data) ? res.data : [])
+      } catch {
+        setAvailableScopes([])
+      }
     }
     void loadScopes()
   }, [orgId])
@@ -319,30 +572,11 @@ export default function OrgApiKeysPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Scopes</Label>
-                  {availableScopes.length === 0 ? (
-                    <p className="text-text-muted text-xs">No scopes available.</p>
-                  ) : (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {availableScopes.map((scope) => (
-                        <label key={scope} className="flex items-center gap-2 text-xs">
-                          <Checkbox
-                            checked={createScopes.includes(scope)}
-                            onCheckedChange={(checked) => {
-                              setCreateScopes((current) => {
-                                if (checked === true) {
-                                  return current.includes(scope)
-                                    ? current
-                                    : [...current, scope]
-                                }
-                                return current.filter((item) => item !== scope)
-                              })
-                            }}
-                          />
-                          <span className="font-mono text-[11px]">{scope}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+                  <ScopeSelector
+                    availableScopes={availableScopes}
+                    value={createScopes}
+                    onChange={setCreateScopes}
+                  />
                 </div>
                 <DialogFooter>
                   <DialogClose asChild>
@@ -401,7 +635,9 @@ export default function OrgApiKeysPage() {
                   <TableCell className="font-mono text-xs text-text-muted">
                     {maskKeyID(key.key_id)}
                   </TableCell>
-                  <TableCell className="text-text-muted text-xs">{formatScopes(key)}</TableCell>
+                  <TableCell className="text-text-muted text-xs max-w-[200px] truncate" title={key.scopes?.join(", ")}>
+                    {formatScopes(key)}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(key)}>{statusLabel(key)}</Badge>
                   </TableCell>
