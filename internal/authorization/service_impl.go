@@ -346,9 +346,11 @@ func shouldAuditGrant(action string) bool {
 
 func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 	policies := [][]string{
+		// Member permissions (read-only)
 		{"role:member", ObjectSubscription, "view"},
 		{"role:member", ObjectInvoice, "view"},
 
+		// Admin permissions
 		{"role:admin", ObjectSubscription, ActionSubscriptionActivate},
 		{"role:admin", ObjectSubscription, ActionSubscriptionPause},
 		{"role:admin", ObjectSubscription, ActionSubscriptionResume},
@@ -363,6 +365,7 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:admin", ObjectAuditLog, ActionAuditLogView},
 		{"role:admin", ObjectPaymentProvider, ActionPaymentProviderManage},
 
+		// Owner permissions
 		{"role:owner", ObjectSubscription, ActionSubscriptionActivate},
 		{"role:owner", ObjectSubscription, ActionSubscriptionPause},
 		{"role:owner", ObjectSubscription, ActionSubscriptionResume},
@@ -380,12 +383,14 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:owner", ObjectAuditLog, ActionAuditLogView},
 		{"role:owner", ObjectPaymentProvider, ActionPaymentProviderManage},
 
+		// FinOps permissions
 		{"role:finops", ObjectBillingOperations, ActionBillingOperationsView},
 		{"role:finops", ObjectBillingOperations, ActionBillingOperationsAct},
 		{"role:finops", ObjectBillingDashboard, ActionBillingDashboardView},
 		{"role:finops", ObjectBillingOverview, ActionBillingOverviewView},
 		{"role:finops", ObjectInvoice, "view"},
 
+		// System permissions (for automated processes and API keys)
 		{"role:system", ObjectSubscription, ActionSubscriptionEnd},
 		{"role:system", ObjectBillingCycle, ActionBillingCycleOpen},
 		{"role:system", ObjectBillingCycle, ActionBillingCycleStartClosing},
@@ -393,6 +398,54 @@ func seedPolicies(enforcer *casbin.SyncedEnforcer) error {
 		{"role:system", ObjectBillingCycle, ActionBillingCycleClose},
 		{"role:system", ObjectInvoice, ActionInvoiceGenerate},
 		{"role:system", ObjectInvoice, ActionInvoiceFinalize},
+
+		// System CRUD permissions for API operations
+		{"role:system", ObjectCustomer, ActionCustomerView},
+		{"role:system", ObjectCustomer, ActionCustomerCreate},
+		{"role:system", ObjectCustomer, ActionCustomerUpdate},
+		{"role:system", ObjectCustomer, ActionCustomerDelete},
+
+		{"role:system", ObjectProduct, ActionProductView},
+		{"role:system", ObjectProduct, ActionProductCreate},
+		{"role:system", ObjectProduct, ActionProductUpdate},
+		{"role:system", ObjectProduct, ActionProductDelete},
+
+		{"role:system", ObjectPrice, ActionPriceView},
+		{"role:system", ObjectPrice, ActionPriceCreate},
+		{"role:system", ObjectPrice, ActionPriceUpdate},
+		{"role:system", ObjectPrice, ActionPriceDelete},
+
+		{"role:system", ObjectPriceAmount, ActionPriceAmountView},
+		{"role:system", ObjectPriceAmount, ActionPriceAmountCreate},
+		{"role:system", ObjectPriceAmount, ActionPriceAmountUpdate},
+		{"role:system", ObjectPriceAmount, ActionPriceAmountDelete},
+
+		{"role:system", ObjectPriceTier, ActionPriceTierView},
+		{"role:system", ObjectPriceTier, ActionPriceTierCreate},
+		{"role:system", ObjectPriceTier, ActionPriceTierUpdate},
+		{"role:system", ObjectPriceTier, ActionPriceTierDelete},
+
+		{"role:system", ObjectMeter, ActionMeterView},
+		{"role:system", ObjectMeter, ActionMeterCreate},
+		{"role:system", ObjectMeter, ActionMeterUpdate},
+		{"role:system", ObjectMeter, ActionMeterDelete},
+
+		{"role:system", ObjectSubscription, ActionSubscriptionView},
+		{"role:system", ObjectSubscription, ActionSubscriptionCreate},
+		{"role:system", ObjectSubscription, ActionSubscriptionUpdate},
+		{"role:system", ObjectSubscription, ActionSubscriptionDelete},
+
+		{"role:system", ObjectBillingCycle, ActionBillingCycleView},
+		{"role:system", ObjectBillingCycle, ActionBillingCycleCreate},
+		{"role:system", ObjectBillingCycle, ActionBillingCycleUpdate},
+		{"role:system", ObjectBillingCycle, ActionBillingCycleDelete},
+
+		{"role:system", ObjectInvoice, ActionInvoiceView},
+		{"role:system", ObjectInvoice, ActionInvoiceCreate},
+		{"role:system", ObjectInvoice, ActionInvoiceUpdate},
+		{"role:system", ObjectInvoice, ActionInvoiceDelete},
+
+		{"role:system", ObjectUsage, ActionUsageIngest},
 	}
 
 	for _, policy := range policies {
