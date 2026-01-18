@@ -364,26 +364,36 @@ func (s *Server) RegisterAPIRoutes() {
 
 	// -------- Meters --------
 	api.GET("/meters", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterView), s.ListMeters)
+	api.POST("/meters", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterCreate), s.CreateMeter)
 	api.GET("/meters/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterView), s.GetMeterByID)
+	api.PATCH("/meters/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterUpdate), s.UpdateMeter)
+	api.DELETE("/meters/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectMeter, authorization.ActionMeterDelete), s.DeleteMeter)
 
 	// -------- Product --------
 	api.GET("/products", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductView), s.ListProducts)
+	api.POST("/products", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductCreate), s.CreateProduct)
 	api.GET("/products/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductView), s.GetProductByID)
+	api.PATCH("/products/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductUpdate), s.UpdateProduct)
+	api.POST("/products/:id/archive", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectProduct, authorization.ActionProductDelete), s.ArchiveProduct)
 
 	// -------- Pricing --------
 	api.GET("/pricings", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.ListPricings)
+	api.POST("/pricings", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceCreate), s.CreatePricing)
 	api.GET("/pricings/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.GetPricingByID)
 
 	// -------- Prices --------
 	api.GET("/prices", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.ListPrices)
+	api.POST("/prices", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceCreate), s.CreatePrice)
 	api.GET("/prices/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPrice, authorization.ActionPriceView), s.GetPriceByID)
 
 	// -------- Price Amounts --------
 	api.GET("/price_amounts", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceAmount, authorization.ActionPriceAmountView), s.ListPriceAmounts)
+	api.POST("/price_amounts", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceAmount, authorization.ActionPriceAmountCreate), s.CreatePriceAmount)
 	api.GET("/price_amounts/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceAmount, authorization.ActionPriceAmountView), s.GetPriceAmountByID)
 
 	// -------- Tiers ---------
 	api.GET("/price_tiers", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceTier, authorization.ActionPriceTierView), s.ListPriceTiers)
+	api.POST("/price_tiers", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceTier, authorization.ActionPriceTierCreate), s.CreatePriceTier)
 	api.GET("/price_tiers/:id", s.APIKeyRequired(), s.authorizeOrgAction(authorization.ObjectPriceTier, authorization.ActionPriceTierView), s.GetPriceTierByID)
 
 	// -------- Subscriptions --------
