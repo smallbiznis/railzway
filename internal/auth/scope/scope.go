@@ -13,6 +13,7 @@ var ErrInvalidScope = errors.New("invalid_scope")
 
 const (
 	ScopeSubscriptionView     Scope = "subscription:view"
+	ScopeSubscriptionCreate   Scope = "subscription:create"
 	ScopeSubscriptionActivate Scope = "subscription:activate"
 	ScopeSubscriptionPause    Scope = "subscription:pause"
 	ScopeSubscriptionResume   Scope = "subscription:resume"
@@ -70,6 +71,7 @@ type authzKey struct {
 
 var authzScopeMap = map[authzKey]Scope{
 	{normalize(authorization.ObjectSubscription), normalize(authorization.ActionSubscriptionView)}:     ScopeSubscriptionView,
+	{normalize(authorization.ObjectSubscription), normalize(authorization.ActionSubscriptionCreate)}:   ScopeSubscriptionCreate,
 	{normalize(authorization.ObjectSubscription), normalize(authorization.ActionSubscriptionActivate)}: ScopeSubscriptionActivate,
 	{normalize(authorization.ObjectSubscription), normalize(authorization.ActionSubscriptionPause)}:    ScopeSubscriptionPause,
 	{normalize(authorization.ObjectSubscription), normalize(authorization.ActionSubscriptionResume)}:   ScopeSubscriptionResume,
@@ -119,6 +121,7 @@ var authzScopeMap = map[authzKey]Scope{
 
 var allScopes = []Scope{
 	ScopeSubscriptionView,
+	ScopeSubscriptionCreate,
 	ScopeSubscriptionActivate,
 	ScopeSubscriptionPause,
 	ScopeSubscriptionResume,
